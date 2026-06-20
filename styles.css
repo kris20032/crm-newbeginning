@@ -1,5 +1,8 @@
 /* ===== Reset / podstawy ===== */
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* WAŻNE: atrybut hidden musi naprawdę chować element (inaczej .modal-overlay/.login-view
+   z display:flex nakładają się na stronę i blokują klikanie). */
+[hidden] { display: none !important; }
 :root {
   --bg: #f7f7f5;
   --panel: #ffffff;
