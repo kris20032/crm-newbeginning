@@ -217,7 +217,7 @@ let dragId = null;
 function wireDragAndDrop() {
   const board = $("#board");
   board.querySelectorAll('.card[draggable="true"]').forEach((card) => {
-    card.addEventListener("dragstart", (e) => { dragId = card.dataset.id; card.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; });
+    card.addEventListener("dragstart", (e) => { dragId = card.dataset.id; card.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", card.dataset.id); });
     card.addEventListener("dragend", () => { dragId = null; card.classList.remove("dragging"); });
   });
   board.querySelectorAll(".cards").forEach((zone) => {
