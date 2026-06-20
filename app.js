@@ -28,7 +28,7 @@ const initials = (name) => (name || "?").trim().charAt(0).toUpperCase();
 /* ---------- Stan ---------- */
 const state = {
   clients: [], commentsByClient: {}, team: [],
-  currentTab: "all", currentUser: "Krzysztof", search: "", live: false, openCardId: null,
+  currentTab: "all", currentUser: "Krzysztof", search: "", live: false, openCardId: null, lastNewCardId: null,
 };
 
 /* ============================================================
@@ -96,8 +96,13 @@ const api = {
     await sb.from("clients").update({ demo_requested: true }).eq("id", clientId);
   },
 
-  subscribe(onChange) {
+  async subscribe(onChange) {
     if (!LIVE) return;
+    // utrzymuj ŚWIEŻY token na sokecie realtime (sesja wygasa ~1h i jest cicho odświeżana,
+    // bez tego live-podgląd po godzinie po cichu umiera)
+    const { data: { session } } = await sb.auth.getSession();
+    if (session?.access_token) sb.realtime.setAuth(session.access_token);
+    sb.auth.onAuthStateChange((_e, s) => { if (s?.access_token) sb.realtime.setAuth(s.access_token); });
     sb.channel("crm-changes")
       .on("postgres_changes", { event: "*", schema: "public", table: "clients" }, onChange)
       .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, onChange)
@@ -115,6 +120,10 @@ const fmtDateTime = (d) => { if (!d) return ""; const dt = new Date(d); if (isNa
 const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])));
 const canEdit = (client) => client.owner === state.currentUser;
 const isDueSoon = (d) => { if (!d) return false; const dt = new Date(d); if (isNaN(dt)) return false; const t = new Date(); t.setHours(23, 59, 59, 999); return dt <= t; };
+const dueState = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return ""; const t = new Date(); t.setHours(0,0,0,0); const day = new Date(dt); day.setHours(0,0,0,0); if (day < t) return "overdue"; if (day.getTime() === t.getTime()) return "today"; return ""; };
+const safeUrl = (u) => { try { const x = new URL(u); return (x.protocol === "http:" || x.protocol === "https:") ? u : ""; } catch { return ""; } };
+const debounce = (fn, ms) => { let h; return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); }; };
+const DEMO_FLAG_HTML = `<span class="demo-flag">📩 Poproszono o demo</span>`;
 
 /* ============================================================
    RENDER — zakładki
@@ -123,8 +132,10 @@ function renderTabs() {
   const tabs = $("#tabs");
   const counts = {};
   state.clients.forEach((c) => { counts[c.owner] = (counts[c.owner] || 0) + 1; });
+  const dueCount = state.clients.filter((c) => isDueSoon(c.follow_up)).length;
   const items = [{ key: "all", label: "Wszyscy", count: state.clients.length }]
-    .concat(state.team.map((o) => ({ key: o, label: o, count: counts[o] || 0 })));
+    .concat(state.team.map((o) => ({ key: o, label: o, count: counts[o] || 0 })))
+    .concat([{ key: "__due", label: "📅 Na dziś / zaległe", count: dueCount }]);
   tabs.innerHTML = items.map((t) =>
     `<button class="tab ${state.currentTab === t.key ? "active" : ""}" data-tab="${esc(t.key)}">${esc(t.label)}<span class="count">${t.count}</span></button>`).join("");
   tabs.querySelectorAll(".tab").forEach((el) =>
@@ -135,10 +146,17 @@ function renderTabs() {
    RENDER — tablica
    ============================================================ */
 function visibleClients() {
-  let list = state.currentTab === "all" ? state.clients : state.clients.filter((c) => c.owner === state.currentTab);
   const q = state.search.trim().toLowerCase();
+  let list;
+  if (q) list = state.clients;                                   // szukaj GLOBALNIE (nie tylko w zakładce)
+  else if (state.currentTab === "__due") list = state.clients.filter((c) => isDueSoon(c.follow_up));
+  else if (state.currentTab === "all") list = state.clients;
+  else list = state.clients.filter((c) => c.owner === state.currentTab);
   if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
-  return list;
+  // sort: najbliższy follow-up na górze, puste daty na dół, potem alfabetycznie
+  return [...list].sort((a, b) =>
+    ((a.follow_up ? Date.parse(a.follow_up) : Infinity) - (b.follow_up ? Date.parse(b.follow_up) : Infinity)) ||
+    String(a.name || "").localeCompare(String(b.name || ""), "pl"));
 }
 
 function renderBoard() {
@@ -165,13 +183,13 @@ function renderBoard() {
 function renderCard(c) {
   const cnt = (state.commentsByClient[c.id] || []).length;
   const editable = canEdit(c);
-  const due = isDueSoon(c.follow_up);
+  const ds = dueState(c.follow_up);
   return `<article class="card" data-id="${esc(c.id)}" draggable="${editable}">
     <div class="card-title">${esc(c.name)}</div>
     ${c.company ? `<div class="card-company">${esc(c.company)}</div>` : ""}
     <div class="card-meta">${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}</div>
     <div class="card-foot">
-      ${c.follow_up ? `<span class="chip ${due ? "chip-due" : ""}">📅 ${esc(fmtDate(c.follow_up))}</span>` : ""}
+      ${c.follow_up ? `<span class="chip ${ds ? "chip-" + ds : ""}">📅 ${esc(fmtDate(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>` : ""}
       ${cnt ? `<span class="chip">💬 ${cnt}</span>` : ""}
       ${c.demo_requested ? `<span class="chip chip-demo">📩 demo</span>` : ""}
       <span class="card-owner"><span class="avatar" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span></span>
@@ -223,13 +241,14 @@ async function openModal(id) {
     : `<div class="prop-value readonly"><span class="status-pill" style="background:${statusOf(c.status).bg};color:${statusOf(c.status).fg}"><span class="dot" style="background:${statusOf(c.status).dot}"></span>${esc(statusOf(c.status).label)}</span></div>`;
   const ownerOpts = Array.from(new Set([...state.team, c.owner].filter(Boolean)));
   const ownerSelect = editable
-    ? `<select data-key="owner">${ownerOpts.map((o) => `<option value="${o}" ${c.owner === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
+    ? `<select data-key="owner">${ownerOpts.map((o) => `<option value="${esc(o)}" ${c.owner === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
     : `<div class="prop-value readonly">${esc(c.owner)}</div>`;
-  const maps = c.google_maps ? `<a href="${esc(c.google_maps)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : "—";
+  const safe = safeUrl(c.google_maps);
+  const maps = safe ? `<a href="${esc(safe)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : "—";
 
   $("#modal-body").innerHTML = `
     ${editable ? `<input class="title-input" data-key="name" value="${esc(c.name)}" />` : `<h2>${esc(c.name)}</h2>`}
-    <div class="modal-sub"><span id="comment-count">${comments.length}</span> ${comments.length === 1 ? "komentarz" : "komentarzy"} · ${editable ? "zmiany zapisują się automatycznie" : "karta innej osoby — możesz komentować"}</div>
+    <div class="modal-sub"><span id="comment-count">${comments.length} ${comments.length === 1 ? "komentarz" : "komentarzy"}</span> · ${editable ? "zmiany zapisują się automatycznie" : "karta innej osoby — możesz komentować"}</div>
     ${!editable ? `<div class="readonly-note">To karta: ${esc(c.owner)}. Pól nie edytujesz, ale możesz dodać komentarz (z @oznaczeniem).</div>` : ""}
 
     <div class="props">
@@ -244,7 +263,7 @@ async function openModal(id) {
     </div>
 
     <div class="demo-row">
-      ${c.demo_requested ? `<span class="demo-flag">📩 Demo poproszone — w kolejce u Claude</span>` : `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`}
+      ${c.demo_requested ? DEMO_FLAG_HTML : `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`}
     </div>
 
     <hr class="section-divider" />
@@ -265,8 +284,13 @@ async function openModal(id) {
   $("#modal-overlay").hidden = false;
 
   if (editable) {
+    const saveDeb = debounce((el) => saveField(c.id, el.dataset.key, el.value), 600);
     document.querySelectorAll("#modal-body [data-key]").forEach((el) => {
       el.addEventListener("change", () => saveField(c.id, el.dataset.key, el.value));
+      // auto-zapis NA BIEŻĄCO przy pisaniu (inaczej tekst ginie, gdy zamkniesz modal myszą)
+      if (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.type !== "date")) {
+        el.addEventListener("input", () => saveDeb(el));
+      }
     });
   }
   const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askDeleteCard(c.id, delBtn));
@@ -281,8 +305,9 @@ async function saveField(id, key, value) {
   c[key] = v;
   try {
     await api.updateClient(id, { [key]: v });
-    if (["status", "owner", "name", "follow_up", "company", "phone"].includes(key)) { renderTabs(); renderBoard(); }
     flashSaved();
+    if (key === "owner") { renderTabs(); renderBoard(); if (state.openCardId === id) await openModal(id); return; }
+    if (["status", "name", "follow_up", "company", "phone"].includes(key)) { renderTabs(); renderBoard(); }
   } catch (err) { console.error(err); toast("Nie udało się zapisać"); }
 }
 
@@ -313,7 +338,7 @@ function wireCommentBox(clientId) {
       const fresh = await api.getComments(clientId);
       state.commentsByClient[clientId] = fresh;
       $("#comments-wrap").innerHTML = renderComments(fresh);
-      const cc = $("#comment-count"); if (cc) cc.textContent = fresh.length;
+      const cc = $("#comment-count"); if (cc) cc.textContent = fresh.length + " " + (fresh.length === 1 ? "komentarz" : "komentarzy");
       renderBoard();
     } catch (err) { console.error(err); toast("Nie udało się dodać komentarza"); }
   };
@@ -355,7 +380,7 @@ async function doRequestDemo(id) {
   try {
     await api.requestDemo(id);
     const row = $(".demo-row");
-    if (row) row.innerHTML = `<span class="demo-flag">📩 Demo poproszone — Claude zrobi je po akceptacji Krzysztofa</span>`;
+    if (row) row.innerHTML = DEMO_FLAG_HTML;
     renderBoard(); toast("Zgłoszono prośbę o demo");
   } catch (err) { console.error(err); toast("Nie udało się zgłosić"); }
 }
@@ -376,11 +401,28 @@ async function askDeleteCard(id, btn) {
   });
 }
 
-function closeModal() { state.openCardId = null; $("#modal-overlay").hidden = true; $("#modal-body").innerHTML = ""; }
+function closeModal() {
+  const id = state.openCardId;
+  // wymuś zapis pola, w którym jest kursor (auto-zapis 'change' nie odpala przy zamknięciu myszą)
+  const a = document.activeElement;
+  if (id && a && a.dataset && a.dataset.key && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) {
+    saveField(id, a.dataset.key, a.value);
+  }
+  state.openCardId = null;
+  $("#modal-overlay").hidden = true;
+  $("#modal-body").innerHTML = "";
+  // sprzątnij porzuconą, pustą nową kartę (żeby nie zaśmiecać lejka „Nowymi klientami")
+  if (id && id === state.lastNewCardId) {
+    const c = state.clients.find((x) => String(x.id) === String(id));
+    const empty = c && (c.name === "Nowy klient" || !c.name) && !c.company && !c.phone && !c.email && !c.notes && !(state.commentsByClient[id] || []).length;
+    state.lastNewCardId = null;
+    if (empty) { api.deleteClient(id).catch(() => {}); state.clients = state.clients.filter((x) => String(x.id) !== String(id)); renderTabs(); renderBoard(); }
+  }
+}
 
 async function newCard(status) {
   const obj = { name: "Nowy klient", company: "", phone: "", email: "", google_maps: "", quality: "", status: status || "lead", follow_up: null, owner: state.currentUser, notes: "" };
-  try { const saved = await api.addClient(obj); state.clients.push(saved); renderTabs(); renderBoard(); openModal(saved.id); }
+  try { const saved = await api.addClient(obj); state.lastNewCardId = saved.id; state.clients.push(saved); renderTabs(); renderBoard(); openModal(saved.id); }
   catch (err) { console.error(err); toast("Nie udało się dodać karty"); }
 }
 
@@ -399,9 +441,17 @@ async function refreshData() {
   try {
     state.clients = await api.getClients();
     state.commentsByClient = await api.getAllComments();
+    if (state.live) { try { const team = await api.getTeam(); state.team = team.map((t) => t.name); } catch {} }
     renderTabs(); renderBoard();
-    if (state.openCardId && state.clients.some((c) => String(c.id) === String(state.openCardId))) {
-      const wrap = $("#comments-wrap"); if (wrap) wrap.innerHTML = renderComments(state.commentsByClient[state.openCardId] || []);
+    if (state.openCardId) {
+      const fresh = state.clients.find((c) => String(c.id) === String(state.openCardId));
+      if (!fresh) { closeModal(); }
+      else {
+        // jeśli ktoś właśnie pisze w modalu — NIE przebudowuj pól (nie kasuj tekstu), odśwież tylko komentarze
+        const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest("#modal-body");
+        if (typing) { const wrap = $("#comments-wrap"); if (wrap) wrap.innerHTML = renderComments(state.commentsByClient[state.openCardId] || []); }
+        else { openModal(state.openCardId); }  // pełne odświeżenie świeżymi danymi (pola + komentarze + tryb edycji)
+      }
     }
   } catch (err) { console.error("refresh", err); }
 }
