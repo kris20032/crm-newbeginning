@@ -411,17 +411,26 @@ async function init() {
 
 // Wczytuje zespół z bazy i ustala, kim jest zalogowana osoba.
 // Jeśli to jej pierwsze logowanie — pyta o imię i dopisuje do team_members.
+// znane osoby -> ładne imię (nowych dorzucamy tutaj; reszta dostaje imię z e-maila)
+const KNOWN_NAMES = {
+  "krzychu.brzezi@gmail.com": "Krzysztof",
+  "kozakiewicz.marceli@gmail.com": "Marceli",
+};
 async function loadTeamAndMe(user) {
   let team = await api.getTeam();
   let me = team.find((t) => t.email === user.email);
+  const desired = KNOWN_NAMES[user.email] || niceName(user.email);
   if (!me) {
-    me = await api.upsertMe(user.email, niceName(user.email));
+    me = await api.upsertMe(user.email, desired);
+    team = await api.getTeam();
+  } else if (me.name !== desired && KNOWN_NAMES[user.email]) {
+    me = await api.upsertMe(user.email, desired);  // popraw, jeśli zapisała się brzydka nazwa
     team = await api.getTeam();
   }
   state.team = team.map((t) => t.name);
   state.currentUser = me.name;
 }
-// ładna nazwa z e-maila, bez blokującego popupu (imię można potem zmienić na karcie)
+// ładna nazwa z e-maila, bez blokującego popupu
 function niceName(email) {
   const base = ((email || "").split("@")[0].split(/[._\-0-9]/)[0]) || "Uzytkownik";
   return base.charAt(0).toUpperCase() + base.slice(1);
