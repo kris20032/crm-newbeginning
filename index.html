@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=5" />
+  <link rel="stylesheet" href="styles.css?v=6" />
 </head>
 <body>
   <!-- ===== Pasek trybu DEMO ===== -->
@@ -34,7 +34,11 @@
         <span class="logo">CRM</span>
         <span class="logo-sub">New Beginning</span>
       </div>
+      <div class="topbar-center">
+        <input id="search" class="search" type="search" placeholder="Szukaj klienta, firmy, telefonu..." />
+      </div>
       <div class="topbar-right">
+        <button id="new-card-btn" class="primary-btn sm">+ Nowa karta</button>
         <span id="who" class="who"></span>
         <button id="logout-btn" class="ghost-btn" hidden>Wyloguj</button>
       </div>
@@ -55,7 +59,7 @@
 
   <!-- Supabase JS (używane tylko gdy skonfigurowane) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=5"></script>
-  <script src="app.js?v=5"></script>
+  <script src="config.js?v=6"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>

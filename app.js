@@ -1,24 +1,21 @@
 /* ============================================================
-   CRM — New Beginning   (vanilla JS, bez budowania)
-   Tryb DEMO gdy config.js pusty; tryb na żywo gdy Supabase ustawiony.
+   CRM — New Beginning   (vanilla JS, bez budowania)   v2
+   Realtime + auto-zapis + @oznaczenia + "Poproś o demo" + wyszukiwarka.
    ============================================================ */
 
 /* ---------- Etapy lejka (1:1 z Notion) ---------- */
 const STATUSES = [
-  { key: "lead",         label: "Lead",                  dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f" },
-  { key: "zainteresowany", label: "Zainteresowany",      dot: "#9a6dd7", bg: "#ede1f7", fg: "#6940a5" },
-  { key: "umowiony",     label: "Umówiony na spotkanie", dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f" },
-  { key: "po_spotkaniu", label: "po spotkaniu/sprzedaż", dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f" },
-  { key: "oferta",       label: "Oferta/umowa",          dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a" },
-  { key: "konwersja",    label: "Konwersja",             dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e" },
-  { key: "archiwum",     label: "Archiwum",              dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f" },
+  { key: "lead",          label: "Lead",                  dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f" },
+  { key: "zainteresowany",label: "Zainteresowany",        dot: "#9a6dd7", bg: "#ede1f7", fg: "#6940a5" },
+  { key: "umowiony",      label: "Umówiony na spotkanie",  dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f" },
+  { key: "po_spotkaniu",  label: "po spotkaniu/sprzedaż",  dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f" },
+  { key: "oferta",        label: "Oferta/umowa",           dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a" },
+  { key: "konwersja",     label: "Konwersja",              dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e" },
+  { key: "archiwum",      label: "Archiwum",               dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f" },
 ];
 const statusOf = (k) => STATUSES.find((s) => s.key === k) || STATUSES[0];
 
-/* ---------- Zespół (dynamiczny) ----------
-   Lista właścicieli NIE jest na sztywno — w trybie na żywo wczytuje się z bazy
-   (tabela team_members) i rośnie sama, gdy nowa osoba się zaloguje.
-   DEMO_OWNERS to tylko obsada przykładowa do podglądu. */
+/* ---------- Zespół (dynamiczny) ---------- */
 const DEMO_OWNERS = ["Krzysztof", "Marceli", "Szymon", "Bartek", "Piotr"];
 const ownerColor = (name) => {
   const palette = ["#2383e2", "#9a6dd7", "#6aa84f", "#e0837d", "#d9942a", "#0f9b8e", "#c2487a"];
@@ -30,95 +27,82 @@ const initials = (name) => (name || "?").trim().charAt(0).toUpperCase();
 
 /* ---------- Stan ---------- */
 const state = {
-  clients: [],
-  commentsByClient: {},   // { clientId: [ {author, body, created_at} ] }
-  team: [],               // lista imion członków zespołu (dynamiczna)
-  currentTab: "all",      // "all" | nazwa właściciela
-  currentUser: "Krzysztof", // kto jest zalogowany (w demo: Krzysztof)
-  live: false,
+  clients: [], commentsByClient: {}, team: [],
+  currentTab: "all", currentUser: "Krzysztof", search: "", live: false, openCardId: null,
 };
 
 /* ============================================================
-   WARSTWA DANYCH  (demo  ↔  Supabase)
+   WARSTWA DANYCH (demo ↔ Supabase)
    ============================================================ */
-let sb = null; // klient Supabase
-
+let sb = null;
 const cfg = window.CRM_CONFIG || {};
 const LIVE = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY);
 
 const api = {
   isLive: () => LIVE,
-
-  async init() {
-    if (LIVE) sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-  },
-
-  /* --- Auth --- */
-  async getUser() {
-    if (!LIVE) return { email: "demo@local" };
-    const { data } = await sb.auth.getUser();
-    return data.user;
-  },
-  async signIn(email, password) {
-    const { error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-  },
+  async init() { if (LIVE) sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY); },
+  async getUser() { if (!LIVE) return { email: "demo@local" }; const { data } = await sb.auth.getUser(); return data.user; },
+  async signIn(email, password) { const { error } = await sb.auth.signInWithPassword({ email, password }); if (error) throw error; },
   async signOut() { if (LIVE) await sb.auth.signOut(); },
 
-  /* --- Klienci --- */
   async getClients() {
     if (!LIVE) return structuredClone(DEMO_CLIENTS);
     const { data, error } = await sb.from("clients").select("*").order("created_at", { ascending: true });
-    if (error) throw error;
-    return data;
+    if (error) throw error; return data;
   },
   async updateClient(id, patch) {
-    if (!LIVE) return; // demo: tylko lokalnie (już zmienione w stanie)
+    if (!LIVE) return;
     const { error } = await sb.from("clients").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
     if (error) throw error;
   },
   async addClient(obj) {
     if (!LIVE) { obj.id = "demo-" + Date.now(); return obj; }
     const { data, error } = await sb.from("clients").insert(obj).select().single();
-    if (error) throw error;
-    return data;
+    if (error) throw error; return data;
   },
-  async deleteClient(id) {
-    if (!LIVE) return; // demo: usuwane tylko lokalnie (już ze stanu)
-    const { error } = await sb.from("clients").delete().eq("id", id);
-    if (error) throw error;
-  },
+  async deleteClient(id) { if (!LIVE) return; const { error } = await sb.from("clients").delete().eq("id", id); if (error) throw error; },
 
-  /* --- Komentarze --- */
+  async getAllComments() {
+    if (!LIVE) return structuredClone(DEMO_COMMENTS);
+    const { data, error } = await sb.from("comments").select("*").order("created_at", { ascending: true });
+    if (error) throw error;
+    const by = {}; (data || []).forEach((c) => { (by[c.client_id] = by[c.client_id] || []).push(c); }); return by;
+  },
   async getComments(clientId) {
     if (!LIVE) return structuredClone(DEMO_COMMENTS[clientId] || []);
     const { data, error } = await sb.from("comments").select("*").eq("client_id", clientId).order("created_at", { ascending: true });
-    if (error) throw error;
-    return data;
+    if (error) throw error; return data;
   },
   async addComment(clientId, body) {
-    const row = { client_id: clientId, author: state.currentUser, body, created_at: new Date().toISOString() };
-    if (!LIVE) {
-      (state.commentsByClient[clientId] = state.commentsByClient[clientId] || []).push(row);
-      return row;
-    }
-    const { data, error } = await sb.from("comments").insert(row).select().single();
-    if (error) throw error;
-    return data;
+    if (!LIVE) { const row = { client_id: clientId, author: state.currentUser, body, created_at: new Date().toISOString() }; (state.commentsByClient[clientId] = state.commentsByClient[clientId] || []).push(row); return row; }
+    const { data, error } = await sb.from("comments").insert({ client_id: clientId, author: state.currentUser, body }).select().single();
+    if (error) throw error; return data;
   },
 
-  /* --- Zespół --- */
   async getTeam() {
     if (!LIVE) return DEMO_OWNERS.map((name) => ({ email: name.toLowerCase() + "@demo", name }));
     const { data, error } = await sb.from("team_members").select("*").order("created_at", { ascending: true });
-    if (error) throw error;
-    return data || [];
+    if (error) throw error; return data || [];
   },
   async upsertMe(email, name) {
     if (!LIVE) return { email, name };
     const { data, error } = await sb.from("team_members").upsert({ email, name }, { onConflict: "email" }).select().single();
-    if (error) throw error;
-    return data;
+    if (error) throw error; return data;
+  },
+
+  async requestDemo(clientId, note) {
+    if (!LIVE) return;
+    await sb.from("demo_requests").insert({ client_id: clientId, requested_by: state.currentUser, note: note || null });
+    await sb.from("clients").update({ demo_requested: true }).eq("id", clientId);
+  },
+
+  subscribe(onChange) {
+    if (!LIVE) return;
+    sb.channel("crm-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "clients" }, onChange)
+      .on("postgres_changes", { event: "*", schema: "public", table: "comments" }, onChange)
+      .on("postgres_changes", { event: "*", schema: "public", table: "demo_requests" }, onChange)
+      .subscribe();
   },
 };
 
@@ -126,20 +110,11 @@ const api = {
    POMOCNICZE
    ============================================================ */
 const $ = (sel) => document.querySelector(sel);
-const fmtDate = (d) => {
-  if (!d) return "";
-  const dt = new Date(d);
-  if (isNaN(dt)) return d;
-  return dt.toLocaleDateString("pl-PL", { day: "numeric", month: "short", year: "numeric" });
-};
-const fmtDateTime = (d) => {
-  if (!d) return "";
-  const dt = new Date(d);
-  if (isNaN(dt)) return d;
-  return dt.toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-};
+const fmtDate = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return d; return dt.toLocaleDateString("pl-PL", { day: "numeric", month: "short", year: "numeric" }); };
+const fmtDateTime = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return d; return dt.toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
 const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])));
 const canEdit = (client) => client.owner === state.currentUser;
+const isDueSoon = (d) => { if (!d) return false; const dt = new Date(d); if (isNaN(dt)) return false; const t = new Date(); t.setHours(23, 59, 59, 999); return dt <= t; };
 
 /* ============================================================
    RENDER — zakładki
@@ -151,9 +126,7 @@ function renderTabs() {
   const items = [{ key: "all", label: "Wszyscy", count: state.clients.length }]
     .concat(state.team.map((o) => ({ key: o, label: o, count: counts[o] || 0 })));
   tabs.innerHTML = items.map((t) =>
-    `<button class="tab ${state.currentTab === t.key ? "active" : ""}" data-tab="${esc(t.key)}">
-       ${esc(t.label)}<span class="count">${t.count}</span>
-     </button>`).join("");
+    `<button class="tab ${state.currentTab === t.key ? "active" : ""}" data-tab="${esc(t.key)}">${esc(t.label)}<span class="count">${t.count}</span></button>`).join("");
   tabs.querySelectorAll(".tab").forEach((el) =>
     el.addEventListener("click", () => { state.currentTab = el.dataset.tab; renderTabs(); renderBoard(); }));
 }
@@ -162,7 +135,10 @@ function renderTabs() {
    RENDER — tablica
    ============================================================ */
 function visibleClients() {
-  return state.currentTab === "all" ? state.clients : state.clients.filter((c) => c.owner === state.currentTab);
+  let list = state.currentTab === "all" ? state.clients : state.clients.filter((c) => c.owner === state.currentTab);
+  const q = state.search.trim().toLowerCase();
+  if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
+  return list;
 }
 
 function renderBoard() {
@@ -177,42 +153,33 @@ function renderBoard() {
         <span class="col-count">${cards.length}</span>
         <button class="add-card" data-status="${s.key}" title="Dodaj kartę">+</button>
       </div>
-      <div class="cards" data-status="${s.key}">
-        ${cards.map(renderCard).join("")}
-      </div>
+      <div class="cards" data-status="${s.key}">${cards.map(renderCard).join("")}</div>
     </section>`;
   }).join("");
 
-  // klik w kartę
-  board.querySelectorAll(".card").forEach((el) =>
-    el.addEventListener("click", () => openModal(el.dataset.id)));
-  // dodaj kartę
-  board.querySelectorAll(".add-card").forEach((el) =>
-    el.addEventListener("click", (e) => { e.stopPropagation(); newCard(el.dataset.status); }));
-
+  board.querySelectorAll(".card").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
+  board.querySelectorAll(".add-card").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); newCard(el.dataset.status); }));
   wireDragAndDrop();
 }
 
 function renderCard(c) {
   const cnt = (state.commentsByClient[c.id] || []).length;
   const editable = canEdit(c);
+  const due = isDueSoon(c.follow_up);
   return `<article class="card" data-id="${esc(c.id)}" draggable="${editable}">
     <div class="card-title">${esc(c.name)}</div>
     ${c.company ? `<div class="card-company">${esc(c.company)}</div>` : ""}
-    <div class="card-meta">
-      ${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}
-    </div>
+    <div class="card-meta">${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}</div>
     <div class="card-foot">
-      ${c.follow_up ? `<span class="chip">📅 ${esc(fmtDate(c.follow_up))}</span>` : ""}
+      ${c.follow_up ? `<span class="chip ${due ? "chip-due" : ""}">📅 ${esc(fmtDate(c.follow_up))}</span>` : ""}
       ${cnt ? `<span class="chip">💬 ${cnt}</span>` : ""}
-      <span class="card-owner">
-        <span class="avatar" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span>
-      </span>
+      ${c.demo_requested ? `<span class="chip chip-demo">📩 demo</span>` : ""}
+      <span class="card-owner"><span class="avatar" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span></span>
     </div>
   </article>`;
 }
 
-/* ---------- Drag & drop (zmiana etapu, tylko swoje karty) ---------- */
+/* ---------- Drag & drop (cała kolumna; tylko swoje karty) ---------- */
 let dragId = null;
 function wireDragAndDrop() {
   const board = $("#board");
@@ -220,55 +187,50 @@ function wireDragAndDrop() {
     card.addEventListener("dragstart", (e) => { dragId = card.dataset.id; card.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", card.dataset.id); });
     card.addEventListener("dragend", () => { dragId = null; card.classList.remove("dragging"); });
   });
-  board.querySelectorAll(".cards").forEach((zone) => {
+  board.querySelectorAll(".column").forEach((zone) => {
     zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag-over"); });
-    zone.addEventListener("dragleave", () => zone.classList.remove("drag-over"));
+    zone.addEventListener("dragleave", (e) => { if (!zone.contains(e.relatedTarget)) zone.classList.remove("drag-over"); });
     zone.addEventListener("drop", async (e) => {
       e.preventDefault(); zone.classList.remove("drag-over");
       if (!dragId) return;
       const newStatus = zone.dataset.status;
       const c = state.clients.find((x) => String(x.id) === String(dragId));
       if (!c || c.status === newStatus) return;
-      c.status = newStatus;
-      renderBoard();
-      try { await api.updateClient(c.id, { status: newStatus }); } catch (err) { alert("Nie udało się zapisać etapu: " + err.message); }
+      c.status = newStatus; renderBoard();
+      try { await api.updateClient(c.id, { status: newStatus }); } catch (err) { console.error(err); toast("Nie udało się zapisać etapu"); }
     });
   });
 }
 
 /* ============================================================
-   MODAL — karta klienta
+   MODAL — karta (auto-zapis, bez przycisku "Zapisz")
    ============================================================ */
 async function openModal(id) {
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c) return;
+  state.openCardId = id;
   const editable = canEdit(c);
-  const comments = await api.getComments(c.id);
-  state.commentsByClient[c.id] = comments;
+  const comments = await api.getComments(id);
+  state.commentsByClient[id] = comments;
 
   const field = (label, icon, key, type = "text") => {
     const val = c[key] || "";
-    const input = editable
-      ? `<input type="${type}" data-key="${key}" value="${esc(val)}" />`
-      : `<div class="prop-value readonly">${esc(val) || "—"}</div>`;
+    const input = editable ? `<input type="${type}" data-key="${key}" value="${esc(val)}" />` : `<div class="prop-value readonly">${esc(val) || "—"}</div>`;
     return `<div class="prop-label">${icon} ${label}</div><div class="prop-value">${input}</div>`;
   };
-
   const statusSelect = editable
     ? `<select data-key="status">${STATUSES.map((s) => `<option value="${s.key}" ${c.status === s.key ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select>`
     : `<div class="prop-value readonly"><span class="status-pill" style="background:${statusOf(c.status).bg};color:${statusOf(c.status).fg}"><span class="dot" style="background:${statusOf(c.status).dot}"></span>${esc(statusOf(c.status).label)}</span></div>`;
-
-  const ownerOptions = Array.from(new Set([...state.team, c.owner].filter(Boolean)));
+  const ownerOpts = Array.from(new Set([...state.team, c.owner].filter(Boolean)));
   const ownerSelect = editable
-    ? `<select data-key="owner">${ownerOptions.map((o) => `<option value="${o}" ${c.owner === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
+    ? `<select data-key="owner">${ownerOpts.map((o) => `<option value="${o}" ${c.owner === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
     : `<div class="prop-value readonly">${esc(c.owner)}</div>`;
-
   const maps = c.google_maps ? `<a href="${esc(c.google_maps)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : "—";
 
   $("#modal-body").innerHTML = `
     ${editable ? `<input class="title-input" data-key="name" value="${esc(c.name)}" />` : `<h2>${esc(c.name)}</h2>`}
-    <div class="modal-sub">${comments.length} ${comments.length === 1 ? "komentarz" : "komentarzy"}</div>
-    ${!editable ? `<div class="readonly-note">To karta innej osoby (${esc(c.owner)}). Możesz tylko dodać komentarz — pól nie edytujesz.</div>` : ""}
+    <div class="modal-sub"><span id="comment-count">${comments.length}</span> ${comments.length === 1 ? "komentarz" : "komentarzy"} · ${editable ? "zmiany zapisują się automatycznie" : "karta innej osoby — możesz komentować"}</div>
+    ${!editable ? `<div class="readonly-note">To karta: ${esc(c.owner)}. Pól nie edytujesz, ale możesz dodać komentarz (z @oznaczeniem).</div>` : ""}
 
     <div class="props">
       ${field("Quality", "🔥", "quality")}
@@ -281,220 +243,229 @@ async function openModal(id) {
       <div class="prop-label">👤 Person</div><div class="prop-value">${ownerSelect}</div>
     </div>
 
+    <div class="demo-row">
+      ${c.demo_requested ? `<span class="demo-flag">📩 Demo poproszone — w kolejce u Claude</span>` : `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`}
+    </div>
+
     <hr class="section-divider" />
     <div class="notes-label">Notatki</div>
-    ${editable
-      ? `<textarea class="notes" data-key="notes" placeholder="notatki, historia rozmów...">${esc(c.notes || "")}</textarea>`
-      : `<div class="prop-value readonly" style="white-space:pre-wrap">${esc(c.notes) || "—"}</div>`}
+    ${editable ? `<textarea class="notes" data-key="notes" placeholder="notatki, historia rozmów...">${esc(c.notes || "")}</textarea>` : `<div class="prop-value readonly" style="white-space:pre-wrap">${esc(c.notes) || "—"}</div>`}
 
     <hr class="section-divider" />
     <div class="notes-label">Komentarze</div>
     <div class="comments-wrap" id="comments-wrap">${renderComments(comments)}</div>
     <div class="add-comment">
-      <input id="new-comment" placeholder="Dodaj komentarz..." />
+      <input id="new-comment" placeholder="Dodaj komentarz...  (@ aby oznaczyć osobę)" autocomplete="off" />
       <button id="send-comment">Wyślij</button>
+      <div id="mention-pop" class="mention-pop" hidden></div>
     </div>
 
-    ${editable ? `<div class="save-row">
-      <button class="ghost-btn" id="delete-card" style="margin-right:auto">Usuń kartę</button>
-      <button class="primary-btn" id="save-card">Zapisz zmiany</button>
-    </div>` : ""}
+    ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Usuń kartę</button></div>` : ""}
   `;
-
   $("#modal-overlay").hidden = false;
 
-  // zapis pól
-  const saveBtn = $("#save-card");
-  if (saveBtn) saveBtn.addEventListener("click", () => saveCard(c.id));
+  if (editable) {
+    document.querySelectorAll("#modal-body [data-key]").forEach((el) => {
+      el.addEventListener("change", () => saveField(c.id, el.dataset.key, el.value));
+    });
+  }
+  const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askDeleteCard(c.id, delBtn));
+  const askBtn = $("#ask-demo"); if (askBtn) askBtn.addEventListener("click", () => doRequestDemo(c.id));
+  wireCommentBox(c.id);
+}
 
-  // usuwanie karty (z potwierdzeniem w oknie, bez popupu)
-  const delBtn = $("#delete-card");
-  if (delBtn) delBtn.addEventListener("click", () => askDeleteCard(c.id, delBtn));
-
-  // komentarz
-  const send = $("#send-comment"), inp = $("#new-comment");
-  const doSend = async () => {
-    const body = inp.value.trim();
-    if (!body) return;
-    inp.value = "";
-    try {
-      await api.addComment(c.id, body);
-      const fresh = await api.getComments(c.id);
-      state.commentsByClient[c.id] = fresh;
-      $("#comments-wrap").innerHTML = renderComments(fresh);
-      $(".modal-sub").textContent = `${fresh.length} ${fresh.length === 1 ? "komentarz" : "komentarzy"}`;
-      renderBoard();
-    } catch (err) { alert("Nie udało się dodać komentarza: " + err.message); }
-  };
-  send.addEventListener("click", doSend);
-  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") doSend(); });
+async function saveField(id, key, value) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  const v = value === "" ? null : value;
+  c[key] = v;
+  try {
+    await api.updateClient(id, { [key]: v });
+    if (["status", "owner", "name", "follow_up", "company", "phone"].includes(key)) { renderTabs(); renderBoard(); }
+    flashSaved();
+  } catch (err) { console.error(err); toast("Nie udało się zapisać"); }
 }
 
 function renderComments(list) {
-  if (!list.length) return `<div style="color:var(--ink-soft);font-size:13px;padding:6px 0">Brak komentarzy.</div>`;
+  if (!list.length) return `<div class="no-comments">Brak komentarzy.</div>`;
   return list.map((c) => `
     <div class="comment">
       <span class="avatar" style="background:${ownerColor(c.author)}">${initials(c.author)}</span>
       <div class="comment-main">
         <div class="comment-head"><span class="c-author">${esc(c.author)}</span><span class="c-time">${esc(fmtDateTime(c.created_at))}</span></div>
-        <div class="comment-body">${esc(c.body)}</div>
+        <div class="comment-body">${highlightMentions(c.body)}</div>
       </div>
     </div>`).join("");
 }
-
-async function saveCard(id) {
-  const c = state.clients.find((x) => String(x.id) === String(id));
-  const patch = {};
-  document.querySelectorAll("#modal-body [data-key]").forEach((el) => { patch[el.dataset.key] = el.value || null; });
-  Object.assign(c, patch);
-  try {
-    await api.updateClient(id, patch);
-    closeModal();
-    renderTabs();
-    renderBoard();
-  } catch (err) { alert("Nie udało się zapisać: " + err.message); }
+function highlightMentions(text) {
+  return esc(text).replace(/@([A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż][\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)/g, '<span class="mention">@$1</span>');
 }
 
-function closeModal() { $("#modal-overlay").hidden = true; $("#modal-body").innerHTML = ""; }
+/* ---------- Komentarz + @mention ---------- */
+function wireCommentBox(clientId) {
+  const inp = $("#new-comment"), pop = $("#mention-pop");
+  const send = async () => {
+    const body = inp.value.trim();
+    if (!body) return;
+    inp.value = ""; pop.hidden = true;
+    try {
+      await api.addComment(clientId, body);
+      const fresh = await api.getComments(clientId);
+      state.commentsByClient[clientId] = fresh;
+      $("#comments-wrap").innerHTML = renderComments(fresh);
+      const cc = $("#comment-count"); if (cc) cc.textContent = fresh.length;
+      renderBoard();
+    } catch (err) { console.error(err); toast("Nie udało się dodać komentarza"); }
+  };
+  $("#send-comment").addEventListener("click", send);
+  inp.addEventListener("keydown", (e) => {
+    if (!pop.hidden) {
+      const items = [...pop.querySelectorAll(".mention-item")];
+      if (items.length && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")) {
+        let idx = items.findIndex((i) => i.classList.contains("active"));
+        if (e.key === "Enter") { e.preventDefault(); (items[idx] || items[0]).click(); return; }
+        e.preventDefault();
+        idx = e.key === "ArrowDown" ? Math.min(items.length - 1, idx + 1) : Math.max(0, idx - 1);
+        items.forEach((i) => i.classList.remove("active")); items[idx].classList.add("active"); return;
+      }
+      if (e.key === "Escape") { pop.hidden = true; return; }
+    }
+    if (e.key === "Enter") send();
+  });
+  inp.addEventListener("input", () => {
+    const m = inp.value.slice(0, inp.selectionStart).match(/@([\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)$/);
+    if (!m) { pop.hidden = true; return; }
+    const q = m[1].toLowerCase();
+    const matches = state.team.filter((n) => n.toLowerCase().includes(q)).slice(0, 6);
+    if (!matches.length) { pop.hidden = true; return; }
+    pop.innerHTML = matches.map((n, i) => `<div class="mention-item ${i === 0 ? "active" : ""}" data-name="${esc(n)}"><span class="avatar" style="background:${ownerColor(n)}">${initials(n)}</span>${esc(n)}</div>`).join("");
+    pop.hidden = false;
+    pop.querySelectorAll(".mention-item").forEach((it) => it.addEventListener("click", () => {
+      const pos = inp.selectionStart;
+      inp.value = inp.value.slice(0, pos).replace(/@([\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)$/, "@" + it.dataset.name + " ") + inp.value.slice(pos);
+      pop.hidden = true; inp.focus();
+    }));
+  });
+}
 
-// usunięcie karty z potwierdzeniem inline (zero blokujących popupów)
-function askDeleteCard(id, btn) {
+async function doRequestDemo(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  c.demo_requested = true;
+  try {
+    await api.requestDemo(id);
+    const row = $(".demo-row");
+    if (row) row.innerHTML = `<span class="demo-flag">📩 Demo poproszone — Claude zrobi je po akceptacji Krzysztofa</span>`;
+    renderBoard(); toast("Zgłoszono prośbę o demo");
+  } catch (err) { console.error(err); toast("Nie udało się zgłosić"); }
+}
+
+async function askDeleteCard(id, btn) {
   const row = btn.parentElement;
-  row.innerHTML =
-    `<span class="confirm-del">Usunąć tę kartę na zawsze?</span>
+  row.innerHTML = `<span class="confirm-del">Usunąć tę kartę na zawsze?</span>
      <button class="ghost-btn" id="del-no" style="margin-left:auto">Anuluj</button>
      <button class="primary-btn danger-btn" id="del-yes">Tak, usuń</button>`;
-  document.getElementById("del-no").addEventListener("click", () => openModal(id));
-  document.getElementById("del-yes").addEventListener("click", async () => {
+  $("#del-no").addEventListener("click", () => openModal(id));
+  $("#del-yes").addEventListener("click", async () => {
     try {
       await api.deleteClient(id);
       state.clients = state.clients.filter((x) => String(x.id) !== String(id));
       delete state.commentsByClient[id];
-      closeModal();
-      renderTabs();
-      renderBoard();
-    } catch (err) {
-      document.querySelector(".confirm-del").textContent = "Nie udało się usunąć: " + err.message;
-    }
+      closeModal(); renderTabs(); renderBoard();
+    } catch (err) { console.error(err); $(".confirm-del").textContent = "Nie udało się usunąć"; }
   });
 }
 
-/* ---------- Nowa karta ---------- */
+function closeModal() { state.openCardId = null; $("#modal-overlay").hidden = true; $("#modal-body").innerHTML = ""; }
+
 async function newCard(status) {
   const obj = { name: "Nowy klient", company: "", phone: "", email: "", google_maps: "", quality: "", status: status || "lead", follow_up: null, owner: state.currentUser, notes: "" };
-  try {
-    const saved = await api.addClient(obj);
-    state.clients.push(saved);
-    renderTabs(); renderBoard();
-    openModal(saved.id);
-  } catch (err) { alert("Nie udało się dodać karty: " + err.message); }
+  try { const saved = await api.addClient(obj); state.clients.push(saved); renderTabs(); renderBoard(); openModal(saved.id); }
+  catch (err) { console.error(err); toast("Nie udało się dodać karty"); }
 }
 
-/* ============================================================
-   LOGOWANIE / START
-   ============================================================ */
+let toastTimer = null;
+function toast(msg) {
+  let t = $("#toast"); if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; document.body.appendChild(t); }
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+}
+function flashSaved() { const w = $("#who"); if (w) { w.classList.add("saved"); setTimeout(() => w.classList.remove("saved"), 600); } }
+
+/* ---------- Realtime → odśwież (debounced) ---------- */
+let refreshTimer = null;
+function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshData, 250); }
+async function refreshData() {
+  try {
+    state.clients = await api.getClients();
+    state.commentsByClient = await api.getAllComments();
+    renderTabs(); renderBoard();
+    if (state.openCardId && state.clients.some((c) => String(c.id) === String(state.openCardId))) {
+      const wrap = $("#comments-wrap"); if (wrap) wrap.innerHTML = renderComments(state.commentsByClient[state.openCardId] || []);
+    }
+  } catch (err) { console.error("refresh", err); }
+}
+
+/* ---------- Start ---------- */
 async function showApp() {
-  $("#login-view").hidden = true;
-  $("#app-view").hidden = false;
-  $("#who").textContent = state.live ? `Zalogowany: ${state.currentUser}` : `Tryb demo: ${state.currentUser}`;
+  $("#login-view").hidden = true; $("#app-view").hidden = false;
+  $("#who").textContent = (state.live ? "" : "demo: ") + state.currentUser;
   $("#logout-btn").hidden = !state.live;
   state.clients = await api.getClients();
-  // wczytaj liczniki komentarzy dla kart (w demo z DEMO_COMMENTS)
-  if (!state.live) state.commentsByClient = structuredClone(DEMO_COMMENTS);
-  renderTabs();
-  renderBoard();
+  state.commentsByClient = await api.getAllComments();
+  renderTabs(); renderBoard();
+  api.subscribe(scheduleRefresh);
 }
 
-async function init() {
-  await api.init();
-  state.live = api.isLive();
-
-  // modal close
-  $("#modal-close").addEventListener("click", closeModal);
-  $("#modal-overlay").addEventListener("click", (e) => { if (e.target.id === "modal-overlay") closeModal(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
-
-  if (!state.live) {
-    $("#demo-banner").hidden = false;
-    state.team = [...DEMO_OWNERS];
-    state.currentUser = "Krzysztof";
-    await showApp();
-    return;
-  }
-
-  // tryb na żywo: logowanie
-  $("#logout-btn").addEventListener("click", async () => { await api.signOut(); location.reload(); });
-  const user = await api.getUser();
-  if (user) {
-    await loadTeamAndMe(user);
-    await showApp();
-  } else {
-    $("#login-view").hidden = false;
-    $("#login-form").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      $("#login-error").textContent = "";
-      try {
-        await api.signIn($("#login-email").value.trim(), $("#login-password").value);
-        const u = await api.getUser();
-        await loadTeamAndMe(u);
-        await showApp();
-      } catch (err) { $("#login-error").textContent = "Błędny e-mail lub hasło."; }
-    });
-  }
-}
-
-// Wczytuje zespół z bazy i ustala, kim jest zalogowana osoba.
-// Jeśli to jej pierwsze logowanie — pyta o imię i dopisuje do team_members.
-// znane osoby -> ładne imię (nowych dorzucamy tutaj; reszta dostaje imię z e-maila)
-const KNOWN_NAMES = {
-  "krzychu.brzezi@gmail.com": "Krzysztof",
-  "kozakiewicz.marceli@gmail.com": "Marceli",
-};
+const KNOWN_NAMES = { "krzychu.brzezi@gmail.com": "Krzysztof", "kozakiewicz.marceli@gmail.com": "Marceli" };
+function niceName(email) { const base = ((email || "").split("@")[0].split(/[._\-0-9]/)[0]) || "Uzytkownik"; return base.charAt(0).toUpperCase() + base.slice(1); }
 async function loadTeamAndMe(user) {
   let team = await api.getTeam();
   let me = team.find((t) => t.email === user.email);
   const desired = KNOWN_NAMES[user.email] || niceName(user.email);
-  if (!me) {
-    me = await api.upsertMe(user.email, desired);
-    team = await api.getTeam();
-  } else if (me.name !== desired && KNOWN_NAMES[user.email]) {
-    me = await api.upsertMe(user.email, desired);  // popraw, jeśli zapisała się brzydka nazwa
-    team = await api.getTeam();
+  if (!me) { me = await api.upsertMe(user.email, desired); team = await api.getTeam(); }
+  else if (me.name !== desired && KNOWN_NAMES[user.email]) { me = await api.upsertMe(user.email, desired); team = await api.getTeam(); }
+  state.team = team.map((t) => t.name); state.currentUser = me.name;
+}
+
+function wireChrome() {
+  $("#modal-close").addEventListener("click", closeModal);
+  $("#modal-overlay").addEventListener("click", (e) => { if (e.target.id === "modal-overlay") closeModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#modal-overlay").hidden) closeModal(); });
+  const s = $("#search"); if (s) s.addEventListener("input", () => { state.search = s.value; renderBoard(); });
+  const nb = $("#new-card-btn"); if (nb) nb.addEventListener("click", () => newCard("lead"));
+}
+
+async function init() {
+  await api.init(); state.live = api.isLive(); wireChrome();
+  if (!state.live) { $("#demo-banner").hidden = false; state.team = [...DEMO_OWNERS]; state.currentUser = "Krzysztof"; await showApp(); return; }
+  $("#logout-btn").addEventListener("click", async () => { await api.signOut(); location.reload(); });
+  const user = await api.getUser();
+  if (user) { await loadTeamAndMe(user); await showApp(); }
+  else {
+    $("#login-view").hidden = false;
+    $("#login-form").addEventListener("submit", async (e) => {
+      e.preventDefault(); $("#login-error").textContent = "";
+      try { await api.signIn($("#login-email").value.trim(), $("#login-password").value); const u = await api.getUser(); await loadTeamAndMe(u); await showApp(); }
+      catch (err) { $("#login-error").textContent = "Błędny e-mail lub hasło."; }
+    });
   }
-  state.team = team.map((t) => t.name);
-  state.currentUser = me.name;
-}
-// ładna nazwa z e-maila, bez blokującego popupu
-function niceName(email) {
-  const base = ((email || "").split("@")[0].split(/[._\-0-9]/)[0]) || "Uzytkownik";
-  return base.charAt(0).toUpperCase() + base.slice(1);
 }
 
-/* ============================================================
-   DANE DEMO  (z Waszego Notion — żeby było co oglądać)
-   ============================================================ */
-// UWAGA: to są DANE FIKCYJNE (przykładowe) — żeby publiczny podgląd niczego nie wystawiał.
-// Prawdziwe karty wejdą wyłącznie do zalogowanej bazy Supabase.
+/* ---------- DANE DEMO (fikcyjne) ---------- */
 const DEMO_CLIENTS = [
-  { id: "d1", name: "Jan Kowalski", company: "Stolarstwo Dębowy Las — meble na wymiar", phone: "+48 600 100 201", email: "kontakt@debowylas.pl", google_maps: "https://google.com/maps", quality: "wysoka", status: "zainteresowany", follow_up: "2026-06-23", owner: "Krzysztof", notes: "Ma znajomego, który robi strony, ale drogo. Powiedziałem, że zrobimy demo i pokażemy jakość.\n\nUmówić się na rozmowę po obejrzeniu demo." },
+  { id: "d1", name: "Jan Kowalski", company: "Stolarstwo Dębowy Las", phone: "+48 600 100 201", email: "kontakt@debowylas.pl", google_maps: "https://google.com/maps", quality: "wysoka", status: "zainteresowany", follow_up: "2026-06-23", owner: "Krzysztof", notes: "Ma znajomego co robi strony, ale drogo. Pokazujemy demo." },
   { id: "d2", name: "Marek Zieliński", company: "Auto-Serwis Zieliński", phone: "+48 600 100 202", email: "", google_maps: "", quality: "", status: "lead", follow_up: "2026-06-22", owner: "Krzysztof", notes: "" },
-  { id: "d3", name: "Firma Elektryczna VOLT", company: "VOLT — usługi elektryczne", phone: "+48 600 100 203", email: "", google_maps: "", quality: "", status: "lead", follow_up: null, owner: "Krzysztof", notes: "" },
-  { id: "d4", name: "Hydraulika Nowak", company: "Hydraulika Nowak", phone: "+48 600 100 204", email: "", google_maps: "", quality: "", status: "lead", follow_up: "2026-06-24", owner: "Marceli", notes: "" },
-  { id: "d5", name: "Meble Kuchenne ARDO", company: "ARDO — meble kuchenne i biurowe", phone: "+48 600 100 205", email: "", google_maps: "", quality: "", status: "zainteresowany", follow_up: "2026-06-21", owner: "Marceli", notes: "" },
-  { id: "d6", name: "Pani Aleksandra — Salon Bella", company: "Salon Fryzjerski Bella", phone: "+48 600 100 206", email: "", google_maps: "", quality: "", status: "umowiony", follow_up: "2026-06-25", owner: "Szymon", notes: "Spotkanie czwartek 17:00." },
-  { id: "d7", name: "Gabinet Uśmiech", company: "Gabinet Stomatologiczny Uśmiech", phone: "+48 600 100 207", email: "", google_maps: "", quality: "", status: "po_spotkaniu", follow_up: "2026-06-26", owner: "Bartek", notes: "Po spotkaniu — czeka na wycenę." },
-  { id: "d8", name: "Kwiaciarnia Storczyk", company: "Kwiaciarnia Storczyk", phone: "+48 600 100 208", email: "", google_maps: "", quality: "", status: "oferta", follow_up: "2026-06-27", owner: "Piotr", notes: "Wysłana oferta 9 stów." },
-  { id: "d9", name: "Fit Klub Active", company: "Fit Klub Active — siłownia", phone: "+48 600 100 209", email: "", google_maps: "", quality: "", status: "konwersja", follow_up: null, owner: "Krzysztof", notes: "PODPISANE. Strona w realizacji." },
-  { id: "d10", name: "Pizzeria Bella Italia", company: "Pizzeria Bella Italia", phone: "+48 600 100 210", email: "", google_maps: "", quality: "", status: "archiwum", follow_up: null, owner: "Szymon", notes: "Nie zainteresowani na ten moment." },
-  { id: "d11", name: "Warsztat Opon Koło", company: "Wulkanizacja Koło", phone: "+48 600 100 211", email: "", google_maps: "", quality: "", status: "archiwum", follow_up: null, owner: "Bartek", notes: "" },
+  { id: "d3", name: "Hydraulika Nowak", company: "Hydraulika Nowak", phone: "+48 600 100 204", email: "", google_maps: "", quality: "", status: "lead", follow_up: null, owner: "Marceli", notes: "" },
+  { id: "d4", name: "Salon Bella", company: "Salon Fryzjerski Bella", phone: "+48 600 100 206", email: "", google_maps: "", quality: "", status: "umowiony", follow_up: "2026-06-25", owner: "Szymon", notes: "Spotkanie czwartek 17:00." },
+  { id: "d5", name: "Kwiaciarnia Storczyk", company: "Kwiaciarnia Storczyk", phone: "+48 600 100 208", email: "", google_maps: "", quality: "", status: "oferta", follow_up: "2026-06-27", owner: "Piotr", notes: "Wysłana oferta." },
+  { id: "d6", name: "Fit Klub Active", company: "Fit Klub Active", phone: "+48 600 100 209", email: "", google_maps: "", quality: "", status: "konwersja", follow_up: null, owner: "Krzysztof", notes: "PODPISANE." },
 ];
-
 const DEMO_COMMENTS = {
   d1: [
-    { author: "Marceli", body: "Dzwoniłem 19.06 — odebrał, ale nie zdążył obejrzeć demo. Ma oddzwonić pon/wt.", created_at: "2026-06-19T10:00:00" },
-    { author: "Krzysztof", body: "Spoko, biorę follow-up na siebie.", created_at: "2026-06-19T14:30:00" },
+    { author: "Marceli", body: "Dzwoniłem 19.06 — @Krzysztof weź follow-up, ma oddzwonić pon/wt.", created_at: "2026-06-19T10:00:00" },
+    { author: "Krzysztof", body: "Spoko, biorę.", created_at: "2026-06-19T14:30:00" },
   ],
 };
 
-/* start */
 init();
