@@ -83,6 +83,11 @@ const api = {
     if (error) throw error;
     return data;
   },
+  async deleteClient(id) {
+    if (!LIVE) return; // demo: usuwane tylko lokalnie (już ze stanu)
+    const { error } = await sb.from("clients").delete().eq("id", id);
+    if (error) throw error;
+  },
 
   /* --- Komentarze --- */
   async getComments(clientId) {
@@ -290,7 +295,10 @@ async function openModal(id) {
       <button id="send-comment">Wyślij</button>
     </div>
 
-    ${editable ? `<div class="save-row"><button class="primary-btn" id="save-card">Zapisz zmiany</button></div>` : ""}
+    ${editable ? `<div class="save-row">
+      <button class="ghost-btn" id="delete-card" style="margin-right:auto">Usuń kartę</button>
+      <button class="primary-btn" id="save-card">Zapisz zmiany</button>
+    </div>` : ""}
   `;
 
   $("#modal-overlay").hidden = false;
@@ -298,6 +306,10 @@ async function openModal(id) {
   // zapis pól
   const saveBtn = $("#save-card");
   if (saveBtn) saveBtn.addEventListener("click", () => saveCard(c.id));
+
+  // usuwanie karty (z potwierdzeniem w oknie, bez popupu)
+  const delBtn = $("#delete-card");
+  if (delBtn) delBtn.addEventListener("click", () => askDeleteCard(c.id, delBtn));
 
   // komentarz
   const send = $("#send-comment"), inp = $("#new-comment");
@@ -344,6 +356,28 @@ async function saveCard(id) {
 }
 
 function closeModal() { $("#modal-overlay").hidden = true; $("#modal-body").innerHTML = ""; }
+
+// usunięcie karty z potwierdzeniem inline (zero blokujących popupów)
+function askDeleteCard(id, btn) {
+  const row = btn.parentElement;
+  row.innerHTML =
+    `<span class="confirm-del">Usunąć tę kartę na zawsze?</span>
+     <button class="ghost-btn" id="del-no" style="margin-left:auto">Anuluj</button>
+     <button class="primary-btn danger-btn" id="del-yes">Tak, usuń</button>`;
+  document.getElementById("del-no").addEventListener("click", () => openModal(id));
+  document.getElementById("del-yes").addEventListener("click", async () => {
+    try {
+      await api.deleteClient(id);
+      state.clients = state.clients.filter((x) => String(x.id) !== String(id));
+      delete state.commentsByClient[id];
+      closeModal();
+      renderTabs();
+      renderBoard();
+    } catch (err) {
+      document.querySelector(".confirm-del").textContent = "Nie udało się usunąć: " + err.message;
+    }
+  });
+}
 
 /* ---------- Nowa karta ---------- */
 async function newCard(status) {

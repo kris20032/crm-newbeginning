@@ -175,6 +175,11 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .save-row { margin-top: 18px; display: flex; justify-content: flex-end; gap: 8px; }
 .primary-btn { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 9px 18px; font-size: 13.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
 .primary-btn:hover { filter: brightness(.96); }
+#delete-card { color: #d4493f; border-color: #f0c4c0; }
+#delete-card:hover { background: #fbe4e2; }
+.danger-btn { background: #d4493f; }
+.danger-btn:hover { filter: brightness(.95); }
+.confirm-del { font-size: 13px; color: #d4493f; display: inline-flex; align-items: center; }
 
 /* ===== Mobile ===== */
 @media (max-width: 640px) {
