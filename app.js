@@ -347,9 +347,7 @@ function closeModal() { $("#modal-overlay").hidden = true; $("#modal-body").inne
 
 /* ---------- Nowa karta ---------- */
 async function newCard(status) {
-  const name = prompt("Nazwa nowego klienta / leada:");
-  if (!name) return;
-  const obj = { name, company: "", phone: "", email: "", google_maps: "", quality: "", status: status || "lead", follow_up: null, owner: state.currentUser, notes: "" };
+  const obj = { name: "Nowy klient", company: "", phone: "", email: "", google_maps: "", quality: "", status: status || "lead", follow_up: null, owner: state.currentUser, notes: "" };
   try {
     const saved = await api.addClient(obj);
     state.clients.push(saved);
@@ -417,13 +415,16 @@ async function loadTeamAndMe(user) {
   let team = await api.getTeam();
   let me = team.find((t) => t.email === user.email);
   if (!me) {
-    const guess = (user.email || "").split("@")[0];
-    const name = (prompt("Witaj! Jak masz się wyświetlać w CRM (imię)?", guess) || guess).trim() || guess;
-    me = await api.upsertMe(user.email, name);
+    me = await api.upsertMe(user.email, niceName(user.email));
     team = await api.getTeam();
   }
   state.team = team.map((t) => t.name);
   state.currentUser = me.name;
+}
+// ładna nazwa z e-maila, bez blokującego popupu (imię można potem zmienić na karcie)
+function niceName(email) {
+  const base = ((email || "").split("@")[0].split(/[._\-0-9]/)[0]) || "Uzytkownik";
+  return base.charAt(0).toUpperCase() + base.slice(1);
 }
 
 /* ============================================================
