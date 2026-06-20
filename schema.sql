@@ -1,0 +1,63 @@
+-- ============================================================
+--  CRM New Beginning — schemat bazy (Supabase / Postgres)
+--  Wklej całość w Supabase -> SQL Editor -> Run (jednorazowo).
+--  Prosto: 2 tabele (clients, comments). Własność kart = UMOWNA
+--  (każdy zalogowany może edytować — granicę pilnuje aplikacja + zasada w zespole).
+-- ============================================================
+
+create table if not exists clients (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  company     text,
+  phone       text,
+  email       text,
+  google_maps text,
+  quality     text,
+  status      text not null default 'lead',   -- lead | zainteresowany | umowiony | po_spotkaniu | oferta | konwersja | archiwum
+  follow_up   date,
+  owner       text not null,                  -- imię właściciela: Krzysztof | Marceli | Szymon | Bartek | Piotr
+  notes       text,
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now()
+);
+
+create table if not exists comments (
+  id         uuid primary key default gen_random_uuid(),
+  client_id  uuid references clients(id) on delete cascade,
+  author     text not null,
+  body       text not null,
+  created_at timestamptz default now()
+);
+
+-- Zespół: lista członków. Rośnie sama — gdy ktoś nowy (dodany w panelu Supabase
+-- Authentication -> Add user) pierwszy raz się zaloguje, aplikacja dopisuje go tutaj.
+create table if not exists team_members (
+  id         uuid primary key default gen_random_uuid(),
+  email      text unique not null,
+  name       text not null,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_comments_client on comments(client_id);
+create index if not exists idx_clients_owner on clients(owner);
+
+-- ============================================================
+--  RLS — bezpieczeństwo: dostęp TYLKO dla zalogowanych członków zespołu.
+--  (Publiczny anon key nie wystawia danych światu — bez logowania nic nie widać.)
+-- ============================================================
+alter table clients      enable row level security;
+alter table comments     enable row level security;
+alter table team_members enable row level security;
+
+create policy "zespol_odczyt_clients"  on clients      for select to authenticated using (true);
+create policy "zespol_zapis_clients"   on clients      for all    to authenticated using (true) with check (true);
+create policy "zespol_odczyt_comments" on comments     for select to authenticated using (true);
+create policy "zespol_zapis_comments"  on comments     for all    to authenticated using (true) with check (true);
+create policy "zespol_odczyt_team"     on team_members for select to authenticated using (true);
+create policy "zespol_zapis_team"      on team_members for all    to authenticated using (true) with check (true);
+
+-- ============================================================
+--  (opcjonalnie) realtime — zmiana jednej osoby widoczna u innych na żywo
+-- ============================================================
+-- alter publication supabase_realtime add table clients;
+-- alter publication supabase_realtime add table comments;

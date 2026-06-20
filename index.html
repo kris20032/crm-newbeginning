@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CRM — New Beginning</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ===== Pasek trybu DEMO ===== -->
+  <div id="demo-banner" class="demo-banner" hidden>
+    TRYB DEMO — to dane przykładowe, zmiany NIE są zapisywane. Podłącz Supabase (config.js), żeby ruszyć na żywo.
+  </div>
+
+  <!-- ===== Ekran logowania (tylko tryb na żywo) ===== -->
+  <div id="login-view" class="login-view" hidden>
+    <form id="login-form" class="login-card">
+      <h1>CRM — New Beginning</h1>
+      <p class="login-sub">Zaloguj się swoim adresem e-mail</p>
+      <input type="email" id="login-email" placeholder="e-mail" autocomplete="email" required />
+      <input type="password" id="login-password" placeholder="hasło" autocomplete="current-password" required />
+      <button type="submit" id="login-btn">Zaloguj</button>
+      <div id="login-error" class="login-error"></div>
+    </form>
+  </div>
+
+  <!-- ===== Aplikacja ===== -->
+  <div id="app-view" hidden>
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="logo">CRM</span>
+        <span class="logo-sub">New Beginning</span>
+      </div>
+      <div class="topbar-right">
+        <span id="who" class="who"></span>
+        <button id="logout-btn" class="ghost-btn" hidden>Wyloguj</button>
+      </div>
+    </header>
+
+    <nav id="tabs" class="tabs"></nav>
+
+    <main id="board" class="board"></main>
+  </div>
+
+  <!-- ===== Modal karty klienta ===== -->
+  <div id="modal-overlay" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <button id="modal-close" class="modal-close" aria-label="Zamknij">&times;</button>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Supabase JS (używane tylko gdy skonfigurowane) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
