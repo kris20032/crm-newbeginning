@@ -77,3 +77,11 @@ create policy "team_write_demo" on demo_requests for all    to authenticated usi
 alter publication supabase_realtime add table clients;
 alter publication supabase_realtime add table comments;
 alter publication supabase_realtime add table demo_requests;
+
+-- ============================================================
+--  v3 (2026-06-21): KOSZ / soft-delete (usuwanie odwracalne)
+--  deleted_at NULL = karta aktywna; data = karta w Koszu (do przywrócenia).
+--  "Usuń kartę" w UI ustawia deleted_at; "Przywróć" zeruje; "Usuń trwale" robi DELETE.
+-- ============================================================
+alter table clients add column if not exists deleted_at timestamptz default null;
+create index if not exists idx_clients_deleted_at on clients(deleted_at);

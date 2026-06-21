@@ -242,3 +242,14 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .column:hover .add-card { opacity: 1; }
 @media (hover: none) { .add-card { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
+
+/* ===== Kosz (soft-delete / przywracanie) ===== */
+.card.trashed { opacity: .62; }
+.card.trashed:hover { opacity: .85; }
+.trash-banner { background: #fbe4e2; color: #a8362f; padding: 9px 12px; border-radius: 8px; font-size: 13px; margin: 4px 0 16px; }
+.trash-actions { display: flex; gap: 8px; align-items: center; }
+.confirm-del { color: #a8362f; font-size: 13.5px; }
+.trash-head { padding: 4px 2px 16px; color: var(--ink-soft); font-size: 13.5px; }
+.trash-list { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.trash-list .card { width: 280px; cursor: pointer; }
+.empty-trash { padding: 70px 20px; text-align: center; color: var(--ink-soft); font-size: 15px; }

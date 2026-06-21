@@ -29,7 +29,7 @@ const initials = (name) => (name || "?").trim().charAt(0).toUpperCase();
 /* ---------- Stan ---------- */
 const state = {
   clients: [], commentsByClient: {}, team: [],
-  currentTab: "all", currentUser: "Krzysztof", search: "", live: false, openCardId: null, newCardIds: new Set(), skipFlipId: null, animateNextRender: false,
+  currentTab: "all", currentUser: "Krzysztof", search: "", live: false, openCardId: null, openCardWasTrashed: false, newCardIds: new Set(), skipFlipId: null, animateNextRender: false,
   suppressUntil: 0, lastSnap: "",
 };
 
@@ -66,6 +66,18 @@ const api = {
     if (error) throw error; holdRefresh(); return data;
   },
   async deleteClient(id) { if (!LIVE) return; holdRefresh(); const { error } = await sb.from("clients").delete().eq("id", id); if (error) throw error; holdRefresh(); },
+  // Kosz: „usunięcie" = oznaczenie znacznikiem (odwracalne); przywrócenie = wyczyszczenie znacznika
+  async softDeleteClient(id) { return api.updateClient(id, { deleted_at: new Date().toISOString() }); },
+  async restoreClient(id) { return api.updateClient(id, { deleted_at: null }); },
+  // TRWAŁE usunięcie z Kosza — warunkowe: skasuje TYLKO jeśli karta nadal jest w Koszu (deleted_at != null).
+  // Dzięki temu wyścig „ktoś inny przywrócił w międzyczasie" nie skasuje żywej karty. Zwraca true gdy faktycznie usunięto.
+  async purgeClient(id) {
+    if (!LIVE) { return true; }
+    holdRefresh();
+    const { data, error } = await sb.from("clients").delete().not("deleted_at", "is", null).eq("id", id).select();
+    if (error) throw error; holdRefresh();
+    return !!(data && data.length);
+  },
 
   async getAllComments() {
     if (!LIVE) return structuredClone(DEMO_COMMENTS);
@@ -168,12 +180,15 @@ function flashCard(id) {
    ============================================================ */
 function renderTabs() {
   const tabs = $("#tabs");
+  const active = activeClients();
   const counts = {};
-  state.clients.forEach((c) => { counts[c.owner] = (counts[c.owner] || 0) + 1; });
-  const dueCount = state.clients.filter((c) => isDueSoon(c.follow_up)).length;
-  const items = [{ key: "all", label: "Wszyscy", count: state.clients.length }]
+  active.forEach((c) => { counts[c.owner] = (counts[c.owner] || 0) + 1; });
+  const dueCount = active.filter((c) => isDueSoon(c.follow_up)).length;
+  const trashCount = state.clients.length - active.length;
+  const items = [{ key: "all", label: "Wszyscy", count: active.length }]
     .concat(state.team.map((o) => ({ key: o, label: o, count: counts[o] || 0 })))
-    .concat([{ key: "__due", label: "📅 Na dziś / zaległe", count: dueCount }]);
+    .concat([{ key: "__due", label: "📅 Na dziś / zaległe", count: dueCount }])
+    .concat([{ key: "__trash", label: "🗑 Kosz", count: trashCount }]);
   tabs.innerHTML = items.map((t) =>
     `<button class="tab ${state.currentTab === t.key ? "active" : ""}" data-tab="${esc(t.key)}">${esc(t.label)}<span class="count">${t.count}</span></button>`).join("");
   tabs.querySelectorAll(".tab").forEach((el) =>
@@ -183,13 +198,18 @@ function renderTabs() {
 /* ============================================================
    RENDER — tablica
    ============================================================ */
+const activeClients = () => state.clients.filter((c) => !c.deleted_at);   // karty NIE w Koszu
 function visibleClients() {
   const q = state.search.trim().toLowerCase();
   let list;
-  if (q) list = state.clients;                                   // szukaj GLOBALNIE (nie tylko w zakładce)
-  else if (state.currentTab === "__due") list = state.clients.filter((c) => isDueSoon(c.follow_up));
-  else if (state.currentTab === "all") list = state.clients;
-  else list = state.clients.filter((c) => c.owner === state.currentTab);
+  if (state.currentTab === "__trash") list = state.clients.filter((c) => c.deleted_at);   // Kosz: tylko usunięte
+  else {
+    const active = activeClients();
+    if (q) list = active;                                         // szukaj GLOBALNIE (nie tylko w zakładce), ale bez Kosza
+    else if (state.currentTab === "__due") list = active.filter((c) => isDueSoon(c.follow_up));
+    else if (state.currentTab === "all") list = active;
+    else list = active.filter((c) => c.owner === state.currentTab);
+  }
   if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
   // sort: najbliższy follow-up na górze, puste/błędne daty na dół, potem alfabetycznie (stabilnie)
   const ts = (v) => { if (!v) return Infinity; const t = Date.parse(v); return Number.isNaN(t) ? Infinity : t; };
@@ -200,12 +220,26 @@ function visibleClients() {
 
 function renderBoard() {
   const board = $("#board");
-  const list = visibleClients();
   // FLIP (mierzenie pozycji + animacja) TYLKO gdy karty realnie się przestawiają (drag / zmiana etapu / nowa / usunięta).
   // Przy realtime i wyszukiwarce pomijamy — zero wymuszonych reflow = zero laga.
   const animate = !reduceMotion() && (state.skipFlipId || state.animateNextRender);
   const prevRects = new Map();
   if (animate) board.querySelectorAll(".card").forEach((el) => prevRects.set(el.dataset.id, el.getBoundingClientRect()));
+
+  if (state.currentTab === "__trash") {
+    // KOSZ — osobny, prosty widok: lista usuniętych (najświeższe na górze), bez kolumn lejka i bez „Nowej karty"
+    const del = [...visibleClients()].sort((a, b) => String(b.deleted_at || "").localeCompare(String(a.deleted_at || "")));
+    board.innerHTML = del.length
+      ? `<div class="trash-head">🗑 Kosz — usunięte karty. Kliknij kartę, aby ją przywrócić.</div>
+         <div class="trash-list">${del.map(renderCard).join("")}</div>`
+      : `<div class="empty-trash">🗑 Kosz jest pusty</div>`;
+    board.querySelectorAll(".card").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
+    if (animate) flipAnimate(board, prevRects);
+    state.skipFlipId = null; state.animateNextRender = false;
+    return;
+  }
+
+  const list = visibleClients();
   board.innerHTML = STATUSES.map((s) => {
     const cards = list.filter((c) => (c.status || "lead") === s.key);
     return `<section class="column" data-status="${s.key}">
@@ -241,11 +275,12 @@ function renderCardInner(c) {
     </div>`;
 }
 function renderCard(c) {
-  const editable = canEdit(c);
-  // w widoku zbiorczym (Wszyscy / Na dziś) obwódka w kolorze właściciela — łatwo odróżnić czyj lead
-  const ownerBorder = (state.currentTab === "all" || state.currentTab === "__due")
+  const inTrash = state.currentTab === "__trash";
+  const editable = canEdit(c) && !inTrash;       // w Koszu nic nie przeciągamy
+  // w widoku zbiorczym (Wszyscy / Na dziś / Kosz) obwódka w kolorze właściciela — łatwo odróżnić czyj lead
+  const ownerBorder = (state.currentTab === "all" || state.currentTab === "__due" || inTrash)
     ? ` style="border:2px solid ${ownerColor(c.owner)}"` : "";
-  return `<article class="card" data-id="${esc(c.id)}" draggable="${editable}"${ownerBorder}>${renderCardInner(c)}</article>`;
+  return `<article class="card${inTrash ? " trashed" : ""}" data-id="${esc(c.id)}" draggable="${editable}"${ownerBorder}>${renderCardInner(c)}</article>`;
 }
 // aktualizuj JEDNĄ kartę bez przerysowywania całej tablicy (zachowuje listenery klik/drag → zero laga, zero migania)
 function updateCardInPlace(c) {
@@ -265,7 +300,7 @@ function wireDragAndDrop() {
     card.addEventListener("dragend", () => { dragId = null; card.classList.remove("dragging"); });
   });
   board.querySelectorAll(".column").forEach((zone) => {
-    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("drag-over"); });
+    zone.addEventListener("dragover", (e) => { if (!dragId) return; e.preventDefault(); zone.classList.add("drag-over"); });
     zone.addEventListener("dragleave", (e) => { if (!zone.contains(e.relatedTarget)) zone.classList.remove("drag-over"); });
     zone.addEventListener("drop", async (e) => {
       e.preventDefault(); zone.classList.remove("drag-over");
@@ -288,11 +323,42 @@ async function openModal(id) {
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c) return;
   state.openCardId = id;
-  const editable = canEdit(c);
+  state.openCardWasTrashed = !!c.deleted_at;   // zapamiętaj, w jakim trybie otwarto (do wykrycia zmiany przez inną osobę)
   // komentarze z pamięci (są utrzymywane na bieżąco: start, dodanie, realtime) — bez osobnego zapytania,
   // dzięki temu modal nigdy się nie „wywala" przy chwilowym błędzie sieci i otwiera się natychmiast
   const comments = state.commentsByClient[id] || [];
   state.commentsByClient[id] = comments;
+
+  // KARTA W KOSZU → widok przywracania (read-only + Przywróć / Usuń trwale)
+  if (c.deleted_at) {
+    const roRow = (label, val) => `<div class="prop-label">${label}</div><div class="prop-value readonly">${esc(val) || "—"}</div>`;
+    $("#modal-body").innerHTML = `
+      <h2>${esc(c.name)}</h2>
+      <div class="trash-banner">🗑 Ta karta jest w Koszu — usunięta ${esc(fmtDateTime(c.deleted_at))}. Możesz ją przywrócić.</div>
+      <div class="props">
+        ${roRow("🔥 Quality", c.quality)}
+        ${roRow("🏢 Nazwa Firmy", c.company)}
+        ${roRow("📞 Phone", c.phone)}
+        ${roRow("@ Email", c.email)}
+        ${roRow("◎ Status", statusOf(c.status).label)}
+        ${roRow("📅 Follow Up", c.follow_up ? fmtDate(c.follow_up) : "")}
+        ${roRow("👤 Person", c.owner)}
+      </div>
+      ${c.notes ? `<hr class="section-divider" /><div class="notes-label">Notatki</div><div class="prop-value readonly" style="white-space:pre-wrap">${esc(c.notes)}</div>` : ""}
+      <hr class="section-divider" />
+      <div class="notes-label">Komentarze</div>
+      <div class="comments-wrap" id="comments-wrap">${renderComments(comments)}</div>
+      <div class="save-row trash-actions">
+        <button class="primary-btn" id="restore-card">↩ Przywróć kartę</button>
+        <button class="ghost-btn danger-btn" id="purge-card">Usuń trwale</button>
+      </div>`;
+    $("#modal-overlay").hidden = false;
+    $("#restore-card").addEventListener("click", () => doRestoreCard(c.id));
+    $("#purge-card").addEventListener("click", (e) => askPurgeCard(c.id, e.target));
+    return;
+  }
+
+  const editable = canEdit(c);
 
   const field = (label, icon, key, type = "text") => {
     const val = c[key] || "";
@@ -467,19 +533,55 @@ async function doRequestDemo(id) {
 
 async function askDeleteCard(id, btn) {
   const row = btn.parentElement;
-  row.innerHTML = `<span class="confirm-del">Usunąć tę kartę na zawsze?</span>
+  row.innerHTML = `<span class="confirm-del">Przenieść kartę do Kosza? (będzie można przywrócić)</span>
      <button class="ghost-btn" id="del-no" style="margin-left:auto">Anuluj</button>
-     <button class="primary-btn danger-btn" id="del-yes">Tak, usuń</button>`;
+     <button class="primary-btn danger-btn" id="del-yes">Tak, do Kosza</button>`;
   $("#del-no").addEventListener("click", () => openModal(id));
   $("#del-yes").addEventListener("click", async () => {
     try {
-      await api.deleteClient(id);
-      state.clients = state.clients.filter((x) => String(x.id) !== String(id));
-      delete state.commentsByClient[id];
+      await api.softDeleteClient(id);                 // do Kosza (odwracalne), NIE trwałe usunięcie
+      const c = state.clients.find((x) => String(x.id) === String(id));
+      if (c) c.deleted_at = new Date().toISOString();
       closeModal(); renderTabs();
       const el = document.querySelector(`#board .card[data-id="${CSS.escape(String(id))}"]`);
       if (el && !reduceMotion()) { el.style.transition = "opacity .18s ease, transform .18s ease"; el.style.opacity = "0"; el.style.transform = "scale(.94)"; }
       setTimeout(() => { state.animateNextRender = true; renderBoard(); }, reduceMotion() ? 0 : 170);
+      toast("Przeniesiono do Kosza");
+    } catch (err) { console.error(err); $(".confirm-del").textContent = "Nie udało się przenieść"; }
+  });
+}
+
+async function doRestoreCard(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  try {
+    await api.restoreClient(id);
+    c.deleted_at = null;
+    closeModal(); renderTabs(); state.animateNextRender = true; renderBoard();
+    toast("Przywrócono kartę");
+  } catch (err) { console.error(err); toast("Nie udało się przywrócić"); }
+}
+
+function askPurgeCard(id, btn) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  const nazwa = c && c.name ? `„${esc(c.name)}" ` : "";
+  const row = btn.parentElement;
+  row.innerHTML = `<span class="confirm-del">Usunąć ${nazwa}NA ZAWSZE (wraz z komentarzami)? Tego nie cofniesz.</span>
+     <button class="ghost-btn" id="purge-no" style="margin-left:auto">Anuluj</button>
+     <button class="primary-btn danger-btn" id="purge-yes">Tak, na zawsze</button>`;
+  $("#purge-no").addEventListener("click", () => openModal(id));
+  $("#purge-yes").addEventListener("click", async () => {
+    // BRAMKA: jeśli ktoś w międzyczasie przywrócił kartę z Kosza — NIE kasuj żywego leada
+    const cur = state.clients.find((x) => String(x.id) === String(id));
+    if (!cur) { toast("Tej karty już nie ma"); closeModal(); renderTabs(); renderBoard(); return; }
+    if (!cur.deleted_at) { toast("Ta karta nie jest już w Koszu — odświeżam"); openModal(id); return; }
+    try {
+      const purged = await api.purgeClient(id);        // warunkowy DELETE (tylko gdy nadal w Koszu)
+      if (!purged) { toast("Ta karta nie jest już w Koszu — odświeżam"); openModal(id); return; }
+      state.clients = state.clients.filter((x) => String(x.id) !== String(id));
+      delete state.commentsByClient[id];
+      closeModal(); renderTabs(); state.animateNextRender = true; renderBoard();
+      toast("Usunięto na zawsze");
     } catch (err) { console.error(err); $(".confirm-del").textContent = "Nie udało się usunąć"; }
   });
 }
@@ -500,7 +602,10 @@ function closeModal() {
 function cleanupEmptyNewCard(id) {
   state.newCardIds.delete(String(id));
   const c = state.clients.find((x) => String(x.id) === String(id));
-  const empty = c && (c.name === "Nowy klient" || !c.name) && !c.company && !c.phone && !c.email && !c.notes && !(state.commentsByClient[id] || []).length;
+  if (!c || c.deleted_at) return;   // już w Koszu (np. ktoś ją „usunął") → nie kasuj trwale, zostaw w Koszu
+  // „pusta" = ŻADNE pole nie wypełnione (w tym quality/maps/follow_up) — żeby nie skasować karty z samym linkiem/datą
+  const empty = (c.name === "Nowy klient" || !c.name) && !c.company && !c.phone && !c.email && !c.notes
+    && !c.quality && !c.google_maps && !c.follow_up && !(state.commentsByClient[id] || []).length;
   if (!empty) return;
   // usuń z ekranu DOPIERO po potwierdzeniu z bazy — inaczej przy błędzie pusta karta „odrasta" przy odświeżeniu
   api.deleteClient(id).then(() => {
@@ -557,11 +662,14 @@ async function refreshData() {
     if (state.openCardId) {
       const fresh = state.clients.find((c) => String(c.id) === String(state.openCardId));
       if (!fresh) {
-        // kartę usunęła inna osoba — ostrzeż, jeśli akurat coś wpisywano
-        const a = document.activeElement;
-        const typed = a && a.dataset && a.dataset.key && (a.tagName === "INPUT" || a.tagName === "TEXTAREA") && a.value && a.value.trim();
-        if (typed) toast("Tę kartę usunęła inna osoba");
+        // kartę TRWALE usunęła inna osoba — zamknij modal z komunikatem
+        toast("Tę kartę usunął ktoś inny");
         closeModal();
+      } else if (!!fresh.deleted_at !== state.openCardWasTrashed) {
+        // inna osoba przeniosła kartę do Kosza / przywróciła ją, gdy mam ją otwartą →
+        // przełącz modal na właściwy widok (zamiast trwać w starym, co groziło edycją/„Usuń trwale" na złym stanie)
+        toast(fresh.deleted_at ? "Tę kartę przeniesiono do Kosza" : "Tę kartę przywrócono z Kosza");
+        openModal(state.openCardId);
       } else {
         // NIGDY nie przebudowuj całego modala (gubi wpisywany komentarz, scroll, podpowiedź @) —
         // odśwież tylko listę komentarzy i licznik
