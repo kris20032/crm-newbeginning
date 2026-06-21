@@ -104,7 +104,8 @@ body {
 .column-head .add-card { margin-left: auto; border: none; background: transparent; color: var(--ink-soft);
   font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px; border-radius: 5px; }
 .column-head .add-card:hover { background: var(--line); color: var(--ink); }
-.cards { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding: 2px; min-height: 48px; flex: 0 1 auto; }
+.cards { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding: 2px; min-height: 0; flex: 0 1 auto; }
+.cards:empty { min-height: 0; padding: 0; }
 .column.drag-over { background: rgba(35,131,226,.07); border-radius: 10px; outline: 2px dashed rgba(35,131,226,.4); outline-offset: -2px; }
 
 .card {

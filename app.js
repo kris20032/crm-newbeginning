@@ -5,13 +5,13 @@
 
 /* ---------- Etapy lejka (1:1 z Notion) ---------- */
 const STATUSES = [
-  { key: "lead",          label: "Lead",                  dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f", tint: "#f3f3f1" },
-  { key: "zainteresowany",label: "Zainteresowany",        dot: "#9a6dd7", bg: "#ede1f7", fg: "#6940a5", tint: "#f7f1fb" },
-  { key: "umowiony",      label: "Umówiony na spotkanie",  dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f", tint: "#eef6fb" },
-  { key: "po_spotkaniu",  label: "po spotkaniu/sprzedaż",  dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f", tint: "#fdf0ef" },
-  { key: "oferta",        label: "Oferta/umowa",           dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a", tint: "#fbf7ea" },
-  { key: "konwersja",     label: "Konwersja",              dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e", tint: "#eff7ee" },
-  { key: "archiwum",      label: "Archiwum",               dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f", tint: "#f3f3f1" },
+  { key: "lead",          label: "Lead",                  dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f", tint: "#f8f8f7" },
+  { key: "zainteresowany",label: "Zainteresowany",        dot: "#9a6dd7", bg: "#ede1f7", fg: "#6940a5", tint: "#faf7fd" },
+  { key: "umowiony",      label: "Umówiony na spotkanie",  dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f", tint: "#f4f9fc" },
+  { key: "po_spotkaniu",  label: "po spotkaniu/sprzedaż",  dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f", tint: "#fdf6f5" },
+  { key: "oferta",        label: "Oferta/umowa",           dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a", tint: "#fdfbf2" },
+  { key: "konwersja",     label: "Konwersja",              dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e", tint: "#f5faf4" },
+  { key: "archiwum",      label: "Archiwum",               dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f", tint: "#f8f8f7" },
 ];
 const statusOf = (k) => STATUSES.find((s) => s.key === k) || STATUSES[0];
 
