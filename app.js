@@ -29,6 +29,7 @@ const initials = (name) => (name || "?").trim().charAt(0).toUpperCase();
 const state = {
   clients: [], commentsByClient: {}, team: [],
   currentTab: "all", currentUser: "Krzysztof", search: "", live: false, openCardId: null, lastNewCardId: null, skipFlipId: null,
+  suppressUntil: 0, lastSnap: "",
 };
 
 /* ============================================================
@@ -52,15 +53,17 @@ const api = {
   },
   async updateClient(id, patch) {
     if (!LIVE) return;
+    holdRefresh();
     const { error } = await sb.from("clients").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
     if (error) throw error;
   },
   async addClient(obj) {
     if (!LIVE) { obj.id = "demo-" + Date.now(); return obj; }
+    holdRefresh();
     const { data, error } = await sb.from("clients").insert(obj).select().single();
     if (error) throw error; return data;
   },
-  async deleteClient(id) { if (!LIVE) return; const { error } = await sb.from("clients").delete().eq("id", id); if (error) throw error; },
+  async deleteClient(id) { if (!LIVE) return; holdRefresh(); const { error } = await sb.from("clients").delete().eq("id", id); if (error) throw error; },
 
   async getAllComments() {
     if (!LIVE) return structuredClone(DEMO_COMMENTS);
@@ -75,6 +78,7 @@ const api = {
   },
   async addComment(clientId, body) {
     if (!LIVE) { const row = { client_id: clientId, author: state.currentUser, body, created_at: new Date().toISOString() }; (state.commentsByClient[clientId] = state.commentsByClient[clientId] || []).push(row); return row; }
+    holdRefresh();
     const { data, error } = await sb.from("comments").insert({ client_id: clientId, author: state.currentUser, body }).select().single();
     if (error) throw error; return data;
   },
@@ -92,6 +96,7 @@ const api = {
 
   async requestDemo(clientId, note) {
     if (!LIVE) return;
+    holdRefresh();
     await sb.from("demo_requests").insert({ client_id: clientId, requested_by: state.currentUser, note: note || null });
     await sb.from("clients").update({ demo_requested: true }).eq("id", clientId);
   },
@@ -473,21 +478,33 @@ function flashSaved() { const w = $("#who"); if (w) { w.classList.add("saved"); 
 
 /* ---------- Realtime → odśwież (debounced) ---------- */
 let refreshTimer = null;
-function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshData, 250); }
+// wstrzymaj odświeżanie z bazy na chwilę po WŁASNEJ zmianie (żeby „echo" nie cofało jej na ekranie)
+function holdRefresh(ms = 2000) { state.suppressUntil = Date.now() + ms; }
+function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(maybeRefresh, 250); }
+function maybeRefresh() {
+  const wait = (state.suppressUntil || 0) - Date.now();
+  if (wait > 0) { clearTimeout(refreshTimer); refreshTimer = setTimeout(maybeRefresh, wait + 60); return; }
+  refreshData();
+}
 async function refreshData() {
   try {
-    state.clients = await api.getClients();
-    state.commentsByClient = await api.getAllComments();
-    if (state.live) { try { const team = await api.getTeam(); state.team = team.map((t) => t.name); } catch {} }
+    const clients = await api.getClients();
+    const comments = await api.getAllComments();
+    let team = state.team;
+    if (state.live) { try { team = (await api.getTeam()).map((t) => t.name); } catch {} }
+    state.clients = clients; state.commentsByClient = comments; state.team = team;
+    // nie przerysowuj, jeśli nic WIDOCZNEGO się nie zmieniło (koniec migania)
+    const snap = JSON.stringify({ c: clients, cc: Object.keys(comments).reduce((a, k) => (a[k] = comments[k].length, a), {}), t: team });
+    if (snap === state.lastSnap) return;
+    state.lastSnap = snap;
     renderTabs(); renderBoard();
     if (state.openCardId) {
       const fresh = state.clients.find((c) => String(c.id) === String(state.openCardId));
       if (!fresh) { closeModal(); }
       else {
-        // jeśli ktoś właśnie pisze w modalu — NIE przebudowuj pól (nie kasuj tekstu), odśwież tylko komentarze
         const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest("#modal-body");
         if (typing) { const wrap = $("#comments-wrap"); if (wrap) wrap.innerHTML = renderComments(state.commentsByClient[state.openCardId] || []); }
-        else { openModal(state.openCardId); }  // pełne odświeżenie świeżymi danymi (pola + komentarze + tryb edycji)
+        else { openModal(state.openCardId); }
       }
     }
   } catch (err) { console.error("refresh", err); }
