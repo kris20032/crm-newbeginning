@@ -87,7 +87,7 @@ body {
 
 /* ===== Tablica kanban ===== */
 .board {
-  display: flex; gap: 14px; padding: 18px 16px 28px; overflow-x: auto; align-items: flex-start;
+  display: flex; gap: 14px; padding: 18px 16px 28px; overflow-x: auto; align-items: stretch;
   height: calc(100vh - 112px);
 }
 .column { flex: 0 0 270px; display: flex; flex-direction: column; max-height: 100%; }
