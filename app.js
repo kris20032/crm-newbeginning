@@ -5,13 +5,13 @@
 
 /* ---------- Etapy lejka (1:1 z Notion) ---------- */
 const STATUSES = [
-  { key: "lead",          label: "Lead",                  dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f" },
-  { key: "zainteresowany",label: "Zainteresowany",        dot: "#9a6dd7", bg: "#ede1f7", fg: "#6940a5" },
-  { key: "umowiony",      label: "Umówiony na spotkanie",  dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f" },
-  { key: "po_spotkaniu",  label: "po spotkaniu/sprzedaż",  dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f" },
-  { key: "oferta",        label: "Oferta/umowa",           dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a" },
-  { key: "konwersja",     label: "Konwersja",              dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e" },
-  { key: "archiwum",      label: "Archiwum",               dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f" },
+  { key: "lead",          label: "Lead",                  dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f", tint: "#f3f3f1" },
+  { key: "zainteresowany",label: "Zainteresowany",        dot: "#9a6dd7", bg: "#ede1f7", fg: "#6940a5", tint: "#f7f1fb" },
+  { key: "umowiony",      label: "Umówiony na spotkanie",  dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f", tint: "#eef6fb" },
+  { key: "po_spotkaniu",  label: "po spotkaniu/sprzedaż",  dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f", tint: "#fdf0ef" },
+  { key: "oferta",        label: "Oferta/umowa",           dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a", tint: "#fbf7ea" },
+  { key: "konwersja",     label: "Konwersja",              dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e", tint: "#eff7ee" },
+  { key: "archiwum",      label: "Archiwum",               dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f", tint: "#f3f3f1" },
 ];
 const statusOf = (k) => STATUSES.find((s) => s.key === k) || STATUSES[0];
 
@@ -164,10 +164,10 @@ function renderBoard() {
   const list = visibleClients();
   board.innerHTML = STATUSES.map((s) => {
     const cards = list.filter((c) => (c.status || "lead") === s.key);
-    return `<section class="column" data-status="${s.key}">
+    return `<section class="column" data-status="${s.key}" style="background:${s.tint}">
       <div class="column-head">
         <span class="dot" style="background:${s.dot}"></span>
-        <span>${esc(s.label)}</span>
+        <span class="col-label">${esc(s.label)}</span>
         <span class="col-count">${cards.length}</span>
         <button class="add-card" data-status="${s.key}" title="Dodaj kartę">+</button>
       </div>
@@ -188,7 +188,7 @@ function renderCard(c) {
   const ownerBorder = (state.currentTab === "all" || state.currentTab === "__due")
     ? ` style="border:2px solid ${ownerColor(c.owner)}"` : "";
   return `<article class="card" data-id="${esc(c.id)}" draggable="${editable}"${ownerBorder}>
-    <div class="card-title">${esc(c.name)}</div>
+    <div class="card-title"><span class="card-ic">👤</span>${esc(c.name)}</div>
     ${c.company ? `<div class="card-company">${esc(c.company)}</div>` : ""}
     <div class="card-meta">${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}</div>
     <div class="card-foot">
