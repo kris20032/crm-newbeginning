@@ -167,18 +167,17 @@ function renderBoard() {
     return `<section class="column" data-status="${s.key}">
       <div class="col-inner" style="background:${s.tint}">
         <div class="column-head">
-          <span class="dot" style="background:${s.dot}"></span>
-          <span class="col-label">${esc(s.label)}</span>
+          <span class="col-pill" style="background:${s.bg};color:${s.fg}"><span class="dot" style="background:${s.dot}"></span>${esc(s.label)}</span>
           <span class="col-count">${cards.length}</span>
-          <button class="add-card" data-status="${s.key}" title="Dodaj kartę">+</button>
         </div>
         <div class="cards" data-status="${s.key}">${cards.map(renderCard).join("")}</div>
+        <button class="add-card-btn" data-status="${s.key}" style="color:${s.fg}">＋ Nowa karta</button>
       </div>
     </section>`;
   }).join("");
 
   board.querySelectorAll(".card").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
-  board.querySelectorAll(".add-card").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); newCard(el.dataset.status); }));
+  board.querySelectorAll(".add-card-btn").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); newCard(el.dataset.status); }));
   wireDragAndDrop();
 }
 

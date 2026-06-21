@@ -96,6 +96,9 @@ body {
   display: flex; align-items: center; gap: 7px; padding: 9px 6px 9px; font-size: 13px; font-weight: 600;
 }
 .col-label { letter-spacing: .005em; }
+.col-pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px 2px 8px; border-radius: 6px; font-weight: 600; font-size: 13px; }
+.add-card-btn { margin: 6px 2px 0; width: calc(100% - 4px); text-align: left; background: transparent; border: 1px dashed rgba(55,53,47,.2); border-radius: 8px; padding: 9px 12px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit; transition: background .12s, border-color .12s; }
+.add-card-btn:hover { background: rgba(255,255,255,.65); border-color: rgba(55,53,47,.32); }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
 .column-head .col-count { color: var(--ink-soft); font-weight: 500; }
 .column-head .add-card { margin-left: auto; border: none; background: transparent; color: var(--ink-soft);
