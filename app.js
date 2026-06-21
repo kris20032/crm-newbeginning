@@ -477,7 +477,7 @@ function toast(msg) {
 function flashSaved() { const w = $("#who"); if (w) { w.classList.add("saved"); setTimeout(() => w.classList.remove("saved"), 600); } }
 
 /* ---------- Realtime → odśwież (debounced) ---------- */
-let refreshTimer = null;
+let refreshTimer = null, refreshInFlight = false, refreshPending = false;
 // wstrzymaj odświeżanie z bazy na chwilę po WŁASNEJ zmianie (żeby „echo" nie cofało jej na ekranie)
 function holdRefresh(ms = 2000) { state.suppressUntil = Date.now() + ms; }
 function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(maybeRefresh, 250); }
@@ -487,6 +487,8 @@ function maybeRefresh() {
   refreshData();
 }
 async function refreshData() {
+  if (refreshInFlight) { refreshPending = true; return; }  // nie nakładaj odświeżeń
+  refreshInFlight = true;
   try {
     const clients = await api.getClients();
     const comments = await api.getAllComments();
@@ -508,6 +510,17 @@ async function refreshData() {
       }
     }
   } catch (err) { console.error("refresh", err); }
+  finally { refreshInFlight = false; if (refreshPending) { refreshPending = false; setTimeout(refreshData, 0); } }
+}
+
+let safetyStarted = false;
+function startSafetyRefresh() {
+  if (safetyStarted || !state.live) return;
+  safetyStarted = true;
+  // łap zmiany, które mogły umknąć realtime (uśpienie/wybudzenie, zerwany net) + backstop co 60s
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") scheduleRefresh(); });
+  window.addEventListener("online", () => scheduleRefresh());
+  setInterval(() => { if (document.visibilityState === "visible") scheduleRefresh(); }, 60000);
 }
 
 /* ---------- Start ---------- */
@@ -519,6 +532,7 @@ async function showApp() {
   state.commentsByClient = await api.getAllComments();
   renderTabs(); renderBoard();
   api.subscribe(scheduleRefresh);
+  startSafetyRefresh();
 }
 
 const KNOWN_NAMES = { "krzychu.brzezi@gmail.com": "Krzysztof", "kozakiewicz.marceli@gmail.com": "Marceli" };
@@ -539,23 +553,35 @@ function wireChrome() {
     if (e.key === "Escape" && !$("#modal-overlay").hidden) closeModal();
     if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); const s = $("#search"); if (s) { s.focus(); s.select(); } }
   });
-  const s = $("#search"); if (s) s.addEventListener("input", () => { state.search = s.value; renderBoard(); });
+  const renderBoardDeb = debounce(renderBoard, 140);
+  const s = $("#search"); if (s) s.addEventListener("input", () => { state.search = s.value; renderBoardDeb(); });
   const nb = $("#new-card-btn"); if (nb) nb.addEventListener("click", () => newCard("lead"));
 }
 
+function showLoginForm() {
+  $("#login-view").hidden = false; $("#app-view").hidden = true;
+  const f = $("#login-form");
+  if (f && !f.dataset.wired) {
+    f.dataset.wired = "1";
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault(); $("#login-error").textContent = "";
+      try { await api.signIn($("#login-email").value.trim(), $("#login-password").value); const u = await api.getUser(); await loadTeamAndMe(u); await showApp(); }
+      catch (err) { console.error(err); $("#login-error").textContent = "Błędny e-mail lub hasło."; }
+    });
+  }
+}
 async function init() {
   await api.init(); state.live = api.isLive(); wireChrome();
   if (!state.live) { $("#demo-banner").hidden = false; state.team = [...DEMO_OWNERS]; state.currentUser = "Krzysztof"; await showApp(); return; }
   $("#logout-btn").addEventListener("click", async () => { await api.signOut(); location.reload(); });
-  const user = await api.getUser();
-  if (user) { await loadTeamAndMe(user); await showApp(); }
-  else {
-    $("#login-view").hidden = false;
-    $("#login-form").addEventListener("submit", async (e) => {
-      e.preventDefault(); $("#login-error").textContent = "";
-      try { await api.signIn($("#login-email").value.trim(), $("#login-password").value); const u = await api.getUser(); await loadTeamAndMe(u); await showApp(); }
-      catch (err) { $("#login-error").textContent = "Błędny e-mail lub hasło."; }
-    });
+  try {
+    const user = await api.getUser();
+    if (user) { await loadTeamAndMe(user); await showApp(); }
+    else { showLoginForm(); }
+  } catch (err) {
+    console.error("init", err);
+    showLoginForm();
+    $("#login-error").textContent = "Problem z połączeniem — spróbuj zalogować się ponownie.";
   }
 }
 
