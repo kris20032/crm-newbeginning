@@ -28,7 +28,7 @@ const initials = (name) => (name || "?").trim().charAt(0).toUpperCase();
 /* ---------- Stan ---------- */
 const state = {
   clients: [], commentsByClient: {}, team: [],
-  currentTab: "all", currentUser: "Krzysztof", search: "", live: false, openCardId: null, lastNewCardId: null,
+  currentTab: "all", currentUser: "Krzysztof", search: "", live: false, openCardId: null, lastNewCardId: null, skipFlipId: null,
 };
 
 /* ============================================================
@@ -127,24 +127,26 @@ const DEMO_FLAG_HTML = `<span class="demo-flag">📩 Poproszono o demo</span>`;
 const reduceMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
 // FLIP: płynne przestawianie kart (rejestruj pozycje przed przerysowaniem, animuj po)
 function flipAnimate(board, prevRects) {
-  if (reduceMotion()) return;
+  if (reduceMotion()) { state.skipFlipId = null; return; }
   try {
     board.querySelectorAll(".card").forEach((el) => {
       const old = prevRects.get(el.dataset.id);
-      const now = el.getBoundingClientRect();
-      if (old) {
+      const moved = el.dataset.id === state.skipFlipId; // karta przed chwilą przeciągnięta
+      if (old && !moved) { // istniejąca karta zmienia pozycję → płynnie dosuń
+        const now = el.getBoundingClientRect();
         const dx = old.left - now.left, dy = old.top - now.top;
         if (dx || dy) {
           el.style.transition = "none";
           el.style.transform = `translate(${dx}px,${dy}px)`;
           requestAnimationFrame(() => { el.style.transition = "transform .24s cubic-bezier(.2,.7,.3,1)"; el.style.transform = ""; });
         }
-      } else { // nowa karta — delikatne pojawienie
-        el.style.transition = "none"; el.style.opacity = "0"; el.style.transform = "scale(.96)";
-        requestAnimationFrame(() => { el.style.transition = "opacity .2s ease, transform .2s ease"; el.style.opacity = ""; el.style.transform = ""; });
+      } else { // nowa karta LUB świeżo przeniesiona → delikatne pojawienie W MIEJSCU (bez lotu przez ekran)
+        el.style.transition = "none"; el.style.opacity = "0"; el.style.transform = "scale(.97)";
+        requestAnimationFrame(() => { el.style.transition = "opacity .18s ease, transform .18s ease"; el.style.opacity = ""; el.style.transform = ""; });
       }
     });
   } catch (e) { console.error("flip", e); }
+  state.skipFlipId = null;
 }
 function flashCard(id) {
   try { const el = document.querySelector(`#board .card[data-id="${CSS.escape(String(id))}"]`); if (el) { el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 700); } } catch {}
@@ -246,7 +248,7 @@ function wireDragAndDrop() {
       const newStatus = zone.dataset.status;
       const c = state.clients.find((x) => String(x.id) === String(dragId));
       if (!c || c.status === newStatus) return;
-      c.status = newStatus; renderBoard(); flashCard(c.id);
+      c.status = newStatus; state.skipFlipId = c.id; renderBoard(); flashCard(c.id);
       try { await api.updateClient(c.id, { status: newStatus }); } catch (err) { console.error(err); toast("Nie udało się zapisać etapu"); }
     });
   });
