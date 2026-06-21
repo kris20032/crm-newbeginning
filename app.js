@@ -124,6 +124,31 @@ const dueState = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(d
 const safeUrl = (u) => { try { const x = new URL(u); return (x.protocol === "http:" || x.protocol === "https:") ? u : ""; } catch { return ""; } };
 const debounce = (fn, ms) => { let h; return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); }; };
 const DEMO_FLAG_HTML = `<span class="demo-flag">📩 Poproszono o demo</span>`;
+const reduceMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
+// FLIP: płynne przestawianie kart (rejestruj pozycje przed przerysowaniem, animuj po)
+function flipAnimate(board, prevRects) {
+  if (reduceMotion()) return;
+  try {
+    board.querySelectorAll(".card").forEach((el) => {
+      const old = prevRects.get(el.dataset.id);
+      const now = el.getBoundingClientRect();
+      if (old) {
+        const dx = old.left - now.left, dy = old.top - now.top;
+        if (dx || dy) {
+          el.style.transition = "none";
+          el.style.transform = `translate(${dx}px,${dy}px)`;
+          requestAnimationFrame(() => { el.style.transition = "transform .24s cubic-bezier(.2,.7,.3,1)"; el.style.transform = ""; });
+        }
+      } else { // nowa karta — delikatne pojawienie
+        el.style.transition = "none"; el.style.opacity = "0"; el.style.transform = "scale(.96)";
+        requestAnimationFrame(() => { el.style.transition = "opacity .2s ease, transform .2s ease"; el.style.opacity = ""; el.style.transform = ""; });
+      }
+    });
+  } catch (e) { console.error("flip", e); }
+}
+function flashCard(id) {
+  try { const el = document.querySelector(`#board .card[data-id="${CSS.escape(String(id))}"]`); if (el) { el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 700); } } catch {}
+}
 
 /* ============================================================
    RENDER — zakładki
@@ -162,6 +187,8 @@ function visibleClients() {
 function renderBoard() {
   const board = $("#board");
   const list = visibleClients();
+  const prevRects = new Map();
+  board.querySelectorAll(".card").forEach((el) => prevRects.set(el.dataset.id, el.getBoundingClientRect()));
   board.innerHTML = STATUSES.map((s) => {
     const cards = list.filter((c) => (c.status || "lead") === s.key);
     return `<section class="column" data-status="${s.key}">
@@ -179,6 +206,7 @@ function renderBoard() {
   board.querySelectorAll(".card").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
   board.querySelectorAll(".add-card-btn").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); newCard(el.dataset.status); }));
   wireDragAndDrop();
+  flipAnimate(board, prevRects);
 }
 
 function renderCard(c) {
@@ -218,7 +246,7 @@ function wireDragAndDrop() {
       const newStatus = zone.dataset.status;
       const c = state.clients.find((x) => String(x.id) === String(dragId));
       if (!c || c.status === newStatus) return;
-      c.status = newStatus; renderBoard();
+      c.status = newStatus; renderBoard(); flashCard(c.id);
       try { await api.updateClient(c.id, { status: newStatus }); } catch (err) { console.error(err); toast("Nie udało się zapisać etapu"); }
     });
   });
@@ -400,7 +428,10 @@ async function askDeleteCard(id, btn) {
       await api.deleteClient(id);
       state.clients = state.clients.filter((x) => String(x.id) !== String(id));
       delete state.commentsByClient[id];
-      closeModal(); renderTabs(); renderBoard();
+      closeModal(); renderTabs();
+      const el = document.querySelector(`#board .card[data-id="${CSS.escape(String(id))}"]`);
+      if (el && !reduceMotion()) { el.style.transition = "opacity .18s ease, transform .18s ease"; el.style.opacity = "0"; el.style.transform = "scale(.94)"; }
+      setTimeout(() => renderBoard(), reduceMotion() ? 0 : 170);
     } catch (err) { console.error(err); $(".confirm-del").textContent = "Nie udało się usunąć"; }
   });
 }
@@ -485,7 +516,10 @@ async function loadTeamAndMe(user) {
 function wireChrome() {
   $("#modal-close").addEventListener("click", closeModal);
   $("#modal-overlay").addEventListener("click", (e) => { if (e.target.id === "modal-overlay") closeModal(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#modal-overlay").hidden) closeModal(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !$("#modal-overlay").hidden) closeModal();
+    if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); const s = $("#search"); if (s) { s.focus(); s.select(); } }
+  });
   const s = $("#search"); if (s) s.addEventListener("input", () => { state.search = s.value; renderBoard(); });
   const nb = $("#new-card-btn"); if (nb) nb.addEventListener("click", () => newCard("lead"));
 }
