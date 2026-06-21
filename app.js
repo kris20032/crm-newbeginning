@@ -29,7 +29,7 @@ const initials = (name) => (name || "?").trim().charAt(0).toUpperCase();
 /* ---------- Stan ---------- */
 const state = {
   clients: [], commentsByClient: {}, team: [],
-  currentTab: "all", currentUser: "Krzysztof", search: "", live: false, openCardId: null, lastNewCardId: null, skipFlipId: null,
+  currentTab: "all", currentUser: "Krzysztof", search: "", live: false, openCardId: null, newCardIds: new Set(), skipFlipId: null, animateNextRender: false,
   suppressUntil: 0, lastSnap: "",
 };
 
@@ -57,14 +57,15 @@ const api = {
     holdRefresh();
     const { error } = await sb.from("clients").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
     if (error) throw error;
+    holdRefresh();   // przesuń okno od MOMENTU commitu, nie od startu (echo nie cofnie świeżej zmiany)
   },
   async addClient(obj) {
     if (!LIVE) { obj.id = "demo-" + Date.now(); return obj; }
     holdRefresh();
     const { data, error } = await sb.from("clients").insert(obj).select().single();
-    if (error) throw error; return data;
+    if (error) throw error; holdRefresh(); return data;
   },
-  async deleteClient(id) { if (!LIVE) return; holdRefresh(); const { error } = await sb.from("clients").delete().eq("id", id); if (error) throw error; },
+  async deleteClient(id) { if (!LIVE) return; holdRefresh(); const { error } = await sb.from("clients").delete().eq("id", id); if (error) throw error; holdRefresh(); },
 
   async getAllComments() {
     if (!LIVE) return structuredClone(DEMO_COMMENTS);
@@ -81,7 +82,7 @@ const api = {
     if (!LIVE) { const row = { client_id: clientId, author: state.currentUser, body, created_at: new Date().toISOString() }; (state.commentsByClient[clientId] = state.commentsByClient[clientId] || []).push(row); return row; }
     holdRefresh();
     const { data, error } = await sb.from("comments").insert({ client_id: clientId, author: state.currentUser, body }).select().single();
-    if (error) throw error; return data;
+    if (error) throw error; holdRefresh(); return data;
   },
 
   async getTeam() {
@@ -98,8 +99,12 @@ const api = {
   async requestDemo(clientId, note) {
     if (!LIVE) return;
     holdRefresh();
-    await sb.from("demo_requests").insert({ client_id: clientId, requested_by: state.currentUser, note: note || null });
-    await sb.from("clients").update({ demo_requested: true }).eq("id", clientId);
+    // NAJPIERW krytyczny zapis sterujący UI (flaga na karcie) — żeby flaga nigdy nie „znikała" po odświeżeniu
+    const { error } = await sb.from("clients").update({ demo_requested: true }).eq("id", clientId);
+    if (error) throw error;
+    // wpis audytowy — best-effort, jego błąd nie cofa już flagi
+    sb.from("demo_requests").insert({ client_id: clientId, requested_by: state.currentUser, note: note || null }).then(() => {}, (e) => console.error("demo_requests", e));
+    holdRefresh();
   },
 
   async subscribe(onChange) {
@@ -186,17 +191,21 @@ function visibleClients() {
   else if (state.currentTab === "all") list = state.clients;
   else list = state.clients.filter((c) => c.owner === state.currentTab);
   if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
-  // sort: najbliższy follow-up na górze, puste daty na dół, potem alfabetycznie
+  // sort: najbliższy follow-up na górze, puste/błędne daty na dół, potem alfabetycznie (stabilnie)
+  const ts = (v) => { if (!v) return Infinity; const t = Date.parse(v); return Number.isNaN(t) ? Infinity : t; };
   return [...list].sort((a, b) =>
-    ((a.follow_up ? Date.parse(a.follow_up) : Infinity) - (b.follow_up ? Date.parse(b.follow_up) : Infinity)) ||
+    (ts(a.follow_up) - ts(b.follow_up)) ||
     String(a.name || "").localeCompare(String(b.name || ""), "pl"));
 }
 
 function renderBoard() {
   const board = $("#board");
   const list = visibleClients();
+  // FLIP (mierzenie pozycji + animacja) TYLKO gdy karty realnie się przestawiają (drag / zmiana etapu / nowa / usunięta).
+  // Przy realtime i wyszukiwarce pomijamy — zero wymuszonych reflow = zero laga.
+  const animate = !reduceMotion() && (state.skipFlipId || state.animateNextRender);
   const prevRects = new Map();
-  board.querySelectorAll(".card").forEach((el) => prevRects.set(el.dataset.id, el.getBoundingClientRect()));
+  if (animate) board.querySelectorAll(".card").forEach((el) => prevRects.set(el.dataset.id, el.getBoundingClientRect()));
   board.innerHTML = STATUSES.map((s) => {
     const cards = list.filter((c) => (c.status || "lead") === s.key);
     return `<section class="column" data-status="${s.key}">
@@ -214,18 +223,14 @@ function renderBoard() {
   board.querySelectorAll(".card").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
   board.querySelectorAll(".add-card-btn").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); newCard(el.dataset.status); }));
   wireDragAndDrop();
-  flipAnimate(board, prevRects);
+  if (animate) flipAnimate(board, prevRects);
+  state.skipFlipId = null; state.animateNextRender = false;
 }
 
-function renderCard(c) {
+function renderCardInner(c) {
   const cnt = (state.commentsByClient[c.id] || []).length;
-  const editable = canEdit(c);
   const ds = dueState(c.follow_up);
-  // w widoku zbiorczym (Wszyscy / Na dziś) obwódka w kolorze właściciela — łatwo odróżnić czyj lead
-  const ownerBorder = (state.currentTab === "all" || state.currentTab === "__due")
-    ? ` style="border:2px solid ${ownerColor(c.owner)}"` : "";
-  return `<article class="card" data-id="${esc(c.id)}" draggable="${editable}"${ownerBorder}>
-    <div class="card-title"><span class="card-ic">👤</span>${esc(c.name)}</div>
+  return `<div class="card-title"><span class="card-ic">👤</span>${esc(c.name)}</div>
     ${c.company ? `<div class="card-company">${esc(c.company)}</div>` : ""}
     <div class="card-meta">${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}</div>
     <div class="card-foot">
@@ -233,8 +238,22 @@ function renderCard(c) {
       ${cnt ? `<span class="chip">💬 ${cnt}</span>` : ""}
       ${c.demo_requested ? `<span class="chip chip-demo">📩 demo</span>` : ""}
       <span class="card-owner"><span class="avatar" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span></span>
-    </div>
-  </article>`;
+    </div>`;
+}
+function renderCard(c) {
+  const editable = canEdit(c);
+  // w widoku zbiorczym (Wszyscy / Na dziś) obwódka w kolorze właściciela — łatwo odróżnić czyj lead
+  const ownerBorder = (state.currentTab === "all" || state.currentTab === "__due")
+    ? ` style="border:2px solid ${ownerColor(c.owner)}"` : "";
+  return `<article class="card" data-id="${esc(c.id)}" draggable="${editable}"${ownerBorder}>${renderCardInner(c)}</article>`;
+}
+// aktualizuj JEDNĄ kartę bez przerysowywania całej tablicy (zachowuje listenery klik/drag → zero laga, zero migania)
+function updateCardInPlace(c) {
+  if (!c) return;
+  try {
+    const card = document.querySelector(`#board .card[data-id="${CSS.escape(String(c.id))}"]`);
+    if (card) card.innerHTML = renderCardInner(c);
+  } catch (e) { console.error("updateCardInPlace", e); }
 }
 
 /* ---------- Drag & drop (cała kolumna; tylko swoje karty) ---------- */
@@ -254,8 +273,10 @@ function wireDragAndDrop() {
       const newStatus = zone.dataset.status;
       const c = state.clients.find((x) => String(x.id) === String(dragId));
       if (!c || c.status === newStatus) return;
+      const prevStatus = c.status;
       c.status = newStatus; state.skipFlipId = c.id; renderBoard(); flashCard(c.id);
-      try { await api.updateClient(c.id, { status: newStatus }); } catch (err) { console.error(err); toast("Nie udało się zapisać etapu"); }
+      try { await api.updateClient(c.id, { status: newStatus }); }
+      catch (err) { console.error(err); c.status = prevStatus; state.animateNextRender = true; renderBoard(); toast("Nie zapisano etapu — przywrócono poprzedni"); }
     });
   });
 }
@@ -268,7 +289,9 @@ async function openModal(id) {
   if (!c) return;
   state.openCardId = id;
   const editable = canEdit(c);
-  const comments = await api.getComments(id);
+  // komentarze z pamięci (są utrzymywane na bieżąco: start, dodanie, realtime) — bez osobnego zapytania,
+  // dzięki temu modal nigdy się nie „wywala" przy chwilowym błędzie sieci i otwiera się natychmiast
+  const comments = state.commentsByClient[id] || [];
   state.commentsByClient[id] = comments;
 
   const field = (label, icon, key, type = "text") => {
@@ -342,13 +365,30 @@ async function saveField(id, key, value) {
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c) return;
   const v = value === "" ? null : value;
+  const prev = c[key];
+  if (prev === v) return;            // nic się nie zmieniło — nie strzelaj zbędnym zapisem (m.in. data+Esc)
   c[key] = v;
   try {
     await api.updateClient(id, { [key]: v });
     flashSaved();
-    if (key === "owner") { renderTabs(); renderBoard(); if (state.openCardId === id) await openModal(id); return; }
-    if (["status", "name", "follow_up", "company", "phone"].includes(key)) { renderTabs(); renderBoard(); }
-  } catch (err) { console.error(err); toast("Nie udało się zapisać"); }
+    if (key === "owner") {
+      // przepisanie właściciela: bez przebudowy modala (chroni niezapisany tekst w innych polach)
+      renderTabs(); state.animateNextRender = true; renderBoard();
+      if (!canEdit(c) && state.openCardId === id) closeModal();   // karta przeszła do innej osoby → zamknij
+      return;
+    }
+    if (key === "status" || key === "follow_up") { renderTabs(); state.animateNextRender = true; renderBoard(); return; }
+    if (key === "name" || key === "company" || key === "phone") { updateCardInPlace(c); return; }
+  } catch (err) {
+    console.error(err);
+    c[key] = prev;                   // cofnij — żeby ekran nie pokazywał „zapisanej" wartości, która nie poszła do bazy
+    if (state.openCardId === id) {
+      const el = document.querySelector(`#modal-body [data-key="${key}"]`);
+      if (el && document.activeElement !== el && "value" in el) el.value = prev == null ? "" : prev;
+    }
+    renderTabs(); renderBoard(); updateCardInPlace(c);
+    toast("Nie zapisano — przywrócono poprzednią wartość");
+  }
 }
 
 function renderComments(list) {
@@ -379,7 +419,7 @@ function wireCommentBox(clientId) {
       state.commentsByClient[clientId] = fresh;
       $("#comments-wrap").innerHTML = renderComments(fresh);
       const cc = $("#comment-count"); if (cc) cc.textContent = fresh.length + " " + (fresh.length === 1 ? "komentarz" : "komentarzy");
-      renderBoard();
+      updateCardInPlace(state.clients.find((x) => String(x.id) === String(clientId)));  // tylko chip 💬, bez przebudowy tablicy
     } catch (err) { console.error(err); toast("Nie udało się dodać komentarza"); }
   };
   $("#send-comment").addEventListener("click", send);
@@ -416,12 +456,12 @@ function wireCommentBox(clientId) {
 async function doRequestDemo(id) {
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c) return;
-  c.demo_requested = true;
   try {
     await api.requestDemo(id);
+    c.demo_requested = true;          // ustaw flagę dopiero PO sukcesie (przy błędzie nic nie miga)
     const row = $(".demo-row");
     if (row) row.innerHTML = DEMO_FLAG_HTML;
-    renderBoard(); toast("Zgłoszono prośbę o demo");
+    updateCardInPlace(c); toast("Zgłoszono prośbę o demo");
   } catch (err) { console.error(err); toast("Nie udało się zgłosić"); }
 }
 
@@ -439,7 +479,7 @@ async function askDeleteCard(id, btn) {
       closeModal(); renderTabs();
       const el = document.querySelector(`#board .card[data-id="${CSS.escape(String(id))}"]`);
       if (el && !reduceMotion()) { el.style.transition = "opacity .18s ease, transform .18s ease"; el.style.opacity = "0"; el.style.transform = "scale(.94)"; }
-      setTimeout(() => renderBoard(), reduceMotion() ? 0 : 170);
+      setTimeout(() => { state.animateNextRender = true; renderBoard(); }, reduceMotion() ? 0 : 170);
     } catch (err) { console.error(err); $(".confirm-del").textContent = "Nie udało się usunąć"; }
   });
 }
@@ -455,18 +495,29 @@ function closeModal() {
   $("#modal-overlay").hidden = true;
   $("#modal-body").innerHTML = "";
   // sprzątnij porzuconą, pustą nową kartę (żeby nie zaśmiecać lejka „Nowymi klientami")
-  if (id && id === state.lastNewCardId) {
-    const c = state.clients.find((x) => String(x.id) === String(id));
-    const empty = c && (c.name === "Nowy klient" || !c.name) && !c.company && !c.phone && !c.email && !c.notes && !(state.commentsByClient[id] || []).length;
-    state.lastNewCardId = null;
-    if (empty) { api.deleteClient(id).catch(() => {}); state.clients = state.clients.filter((x) => String(x.id) !== String(id)); renderTabs(); renderBoard(); }
-  }
+  if (id && state.newCardIds.has(String(id))) cleanupEmptyNewCard(id);
+}
+function cleanupEmptyNewCard(id) {
+  state.newCardIds.delete(String(id));
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  const empty = c && (c.name === "Nowy klient" || !c.name) && !c.company && !c.phone && !c.email && !c.notes && !(state.commentsByClient[id] || []).length;
+  if (!empty) return;
+  // usuń z ekranu DOPIERO po potwierdzeniu z bazy — inaczej przy błędzie pusta karta „odrasta" przy odświeżeniu
+  api.deleteClient(id).then(() => {
+    state.clients = state.clients.filter((x) => String(x.id) !== String(id));
+    delete state.commentsByClient[id];
+    renderTabs(); state.animateNextRender = true; renderBoard();
+  }).catch((e) => console.error("cleanup", e));
 }
 
 async function newCard(status) {
   const obj = { name: "Nowy klient", company: "", phone: "", email: "", google_maps: "", quality: "", status: status || "lead", follow_up: null, owner: state.currentUser, notes: "" };
-  try { const saved = await api.addClient(obj); state.lastNewCardId = saved.id; state.clients.push(saved); renderTabs(); renderBoard(); openModal(saved.id); }
-  catch (err) { console.error(err); toast("Nie udało się dodać karty"); }
+  try {
+    const saved = await api.addClient(obj);
+    state.newCardIds.add(String(saved.id));
+    state.clients.push(saved); renderTabs(); state.animateNextRender = true; renderBoard();
+    openModal(saved.id);
+  } catch (err) { console.error(err); toast("Nie udało się dodać karty"); }
 }
 
 let toastTimer = null;
@@ -491,27 +542,39 @@ async function refreshData() {
   if (refreshInFlight) { refreshPending = true; return; }  // nie nakładaj odświeżeń
   refreshInFlight = true;
   try {
-    const clients = await api.getClients();
-    const comments = await api.getAllComments();
+    // oba niezależne pobrania równolegle (jeden round-trip mniej na każde odświeżenie)
+    const [clients, comments] = await Promise.all([api.getClients(), api.getAllComments()]);
     let team = state.team;
     if (state.live) { try { team = (await api.getTeam()).map((t) => t.name); } catch {} }
     state.clients = clients; state.commentsByClient = comments; state.team = team;
-    // nie przerysowuj, jeśli nic WIDOCZNEGO się nie zmieniło (koniec migania)
-    const snap = JSON.stringify({ c: clients, cc: Object.keys(comments).reduce((a, k) => (a[k] = comments[k].length, a), {}), t: team });
+    // nie przerysowuj, jeśli nic WIDOCZNEGO się nie zmieniło (koniec migania) — tani odcisk bez serializacji notatek
+    const snap = clients.map((c) => c.id + ":" + c.updated_at).join("|") + "#" +
+      Object.keys(comments).sort().map((k) => k + ":" + comments[k].length).join("|") + "#" +
+      (Array.isArray(team) ? team.join(",") : "");
     if (snap === state.lastSnap) return;
     state.lastSnap = snap;
     renderTabs(); renderBoard();
     if (state.openCardId) {
       const fresh = state.clients.find((c) => String(c.id) === String(state.openCardId));
-      if (!fresh) { closeModal(); }
-      else {
-        const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest("#modal-body");
-        if (typing) { const wrap = $("#comments-wrap"); if (wrap) wrap.innerHTML = renderComments(state.commentsByClient[state.openCardId] || []); }
-        else { openModal(state.openCardId); }
+      if (!fresh) {
+        // kartę usunęła inna osoba — ostrzeż, jeśli akurat coś wpisywano
+        const a = document.activeElement;
+        const typed = a && a.dataset && a.dataset.key && (a.tagName === "INPUT" || a.tagName === "TEXTAREA") && a.value && a.value.trim();
+        if (typed) toast("Tę kartę usunęła inna osoba");
+        closeModal();
+      } else {
+        // NIGDY nie przebudowuj całego modala (gubi wpisywany komentarz, scroll, podpowiedź @) —
+        // odśwież tylko listę komentarzy i licznik
+        const wrap = $("#comments-wrap");
+        if (wrap) {
+          const list = state.commentsByClient[state.openCardId] || [];
+          wrap.innerHTML = renderComments(list);
+          const cc = $("#comment-count"); if (cc) cc.textContent = list.length + " " + (list.length === 1 ? "komentarz" : "komentarzy");
+        }
       }
     }
   } catch (err) { console.error("refresh", err); }
-  finally { refreshInFlight = false; if (refreshPending) { refreshPending = false; setTimeout(refreshData, 0); } }
+  finally { refreshInFlight = false; if (refreshPending) { refreshPending = false; scheduleRefresh(); } }
 }
 
 let safetyStarted = false;
