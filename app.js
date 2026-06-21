@@ -18,10 +18,11 @@ const statusOf = (k) => STATUSES.find((s) => s.key === k) || STATUSES[0];
 /* ---------- Zespół (dynamiczny) ---------- */
 const DEMO_OWNERS = ["Krzysztof", "Marceli", "Szymon", "Bartek", "Piotr"];
 const ownerColor = (name) => {
-  const palette = ["#2383e2", "#9a6dd7", "#6aa84f", "#e0837d", "#d9942a", "#0f9b8e", "#c2487a"];
-  let h = 0; const s = String(name || "?");
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return palette[h % palette.length];
+  // ODRĘBNY kolor per osoba — wg pozycji w zespole (zero kolizji); skaluje się na wiele osób (złoty kąt barw)
+  let idx = state.team.indexOf(name);
+  if (idx < 0) { let h = 0; const s = String(name || "?"); for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; idx = 7 + (h % 12); }
+  const hue = Math.round((idx * 137.508) % 360);
+  return `hsl(${hue} 60% 45%)`;
 };
 const initials = (name) => (name || "?").trim().charAt(0).toUpperCase();
 
