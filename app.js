@@ -184,7 +184,10 @@ function renderCard(c) {
   const cnt = (state.commentsByClient[c.id] || []).length;
   const editable = canEdit(c);
   const ds = dueState(c.follow_up);
-  return `<article class="card" data-id="${esc(c.id)}" draggable="${editable}">
+  // w widoku zbiorczym (Wszyscy / Na dziś) obwódka w kolorze właściciela — łatwo odróżnić czyj lead
+  const ownerBorder = (state.currentTab === "all" || state.currentTab === "__due")
+    ? ` style="border:2px solid ${ownerColor(c.owner)}"` : "";
+  return `<article class="card" data-id="${esc(c.id)}" draggable="${editable}"${ownerBorder}>
     <div class="card-title">${esc(c.name)}</div>
     ${c.company ? `<div class="card-company">${esc(c.company)}</div>` : ""}
     <div class="card-meta">${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}</div>
