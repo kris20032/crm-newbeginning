@@ -164,14 +164,16 @@ function renderBoard() {
   const list = visibleClients();
   board.innerHTML = STATUSES.map((s) => {
     const cards = list.filter((c) => (c.status || "lead") === s.key);
-    return `<section class="column" data-status="${s.key}" style="background:${s.tint}">
-      <div class="column-head">
-        <span class="dot" style="background:${s.dot}"></span>
-        <span class="col-label">${esc(s.label)}</span>
-        <span class="col-count">${cards.length}</span>
-        <button class="add-card" data-status="${s.key}" title="Dodaj kartę">+</button>
+    return `<section class="column" data-status="${s.key}">
+      <div class="col-inner" style="background:${s.tint}">
+        <div class="column-head">
+          <span class="dot" style="background:${s.dot}"></span>
+          <span class="col-label">${esc(s.label)}</span>
+          <span class="col-count">${cards.length}</span>
+          <button class="add-card" data-status="${s.key}" title="Dodaj kartę">+</button>
+        </div>
+        <div class="cards" data-status="${s.key}">${cards.map(renderCard).join("")}</div>
       </div>
-      <div class="cards" data-status="${s.key}">${cards.map(renderCard).join("")}</div>
     </section>`;
   }).join("");
 
