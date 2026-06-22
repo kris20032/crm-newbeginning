@@ -465,6 +465,13 @@ async function openModal(id) {
         el.addEventListener("input", () => saveDeb(el));
       }
     });
+    // notatka rozciąga się na całą wysokość tekstu (cała widoczna od razu, jak w Notion)
+    const notesEl = document.querySelector("#modal-body textarea.notes");
+    if (notesEl) {
+      const autoGrow = () => { notesEl.style.height = "auto"; notesEl.style.height = notesEl.scrollHeight + "px"; };
+      notesEl.addEventListener("input", autoGrow);
+      autoGrow();
+    }
   }
   const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askDeleteCard(c.id, delBtn));
   const askBtn = $("#ask-demo"); if (askBtn) askBtn.addEventListener("click", () => doRequestDemo(c.id));
