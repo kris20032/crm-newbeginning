@@ -160,6 +160,18 @@ body {
 .prop-value.readonly { padding: 7px 8px; font-size: 13.5px; color: var(--ink); }
 .prop-value a { color: var(--accent); text-decoration: none; }
 
+/* wiersz Google Maps: pole + przyciski otwórz/kopiuj (jak w Notion) */
+.maps-cell { display: flex; align-items: center; gap: 6px; }
+.maps-cell input { flex: 1 1 auto; min-width: 0; width: auto; }
+.maps-cell .maps-link { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 7px 8px; }
+.maps-btn {
+  flex: 0 0 auto; cursor: pointer; border: 1px solid var(--line, #e6e3dd); background: #fff;
+  color: var(--ink-soft); border-radius: 6px; padding: 6px 9px; font-size: 12.5px; font-family: inherit;
+  white-space: nowrap; transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.maps-btn:hover { background: var(--bg); color: var(--ink); }
+.maps-btn.ok { color: #1a7f37; border-color: #1a7f37; background: #eaf6ec; }
+
 .status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 20px; font-size: 12.5px; font-weight: 500; }
 
 .section-divider { border: none; border-top: 1px solid var(--line); margin: 18px 0; }

@@ -383,7 +383,15 @@ async function openModal(id) {
     <div class="props">
       ${field("Quality", "🔥", "quality")}
       ${field("Nazwa Firmy", "🏢", "company")}
-      <div class="prop-label">🔗 Google Maps</div><div class="prop-value">${editable ? `<input data-key="google_maps" value="${esc(c.google_maps || "")}" placeholder="link" />` : maps}</div>
+      <div class="prop-label">🔗 Google Maps</div>
+      <div class="prop-value maps-cell">
+        ${editable
+          ? `<input data-key="google_maps" id="maps-input" value="${esc(c.google_maps || "")}" placeholder="link" />`
+          : (safe ? `<a class="maps-link" href="${esc(safe)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : `<span class="readonly">—</span>`)}
+        ${(c.google_maps || "").trim()
+          ? `${editable ? `<button type="button" class="maps-btn" id="maps-open" title="Otwórz wizytówkę Google">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="maps-copy" title="Kopiuj link">⧉ kopiuj</button>`
+          : ""}
+      </div>
       ${field("Phone", "📞", "phone")}
       ${field("Email", "@", "email")}
       <div class="prop-label">◎ Status</div><div class="prop-value">${statusSelect}</div>
@@ -411,6 +419,37 @@ async function openModal(id) {
     ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Usuń kartę</button></div>` : ""}
   `;
   $("#modal-overlay").hidden = false;
+
+  // Google Maps: jedno kliknięcie otwiera wizytówkę + przycisk kopiowania linku (jak w Notion)
+  const mapsOpenBtn = document.getElementById("maps-open");
+  if (mapsOpenBtn) {
+    mapsOpenBtn.addEventListener("click", () => {
+      const input = document.getElementById("maps-input");
+      const url = safeUrl((input ? input.value : c.google_maps) || "");
+      if (url) window.open(url, "_blank", "noopener");
+    });
+  }
+  const mapsCopyBtn = document.getElementById("maps-copy");
+  if (mapsCopyBtn) {
+    mapsCopyBtn.addEventListener("click", async () => {
+      const input = document.getElementById("maps-input");
+      const url = ((input ? input.value : c.google_maps) || "").trim();
+      if (!url) return;
+      const done = () => {
+        const old = mapsCopyBtn.textContent;
+        mapsCopyBtn.textContent = "✓ skopiowano";
+        mapsCopyBtn.classList.add("ok");
+        setTimeout(() => { mapsCopyBtn.textContent = old; mapsCopyBtn.classList.remove("ok"); }, 1300);
+      };
+      try {
+        await navigator.clipboard.writeText(url);
+        done();
+      } catch {
+        // fallback bez clipboard API: zaznacz tekst w polu do ręcznego skopiowania
+        if (input) { input.focus(); input.select(); done(); }
+      }
+    });
+  }
 
   if (editable) {
     const saveDeb = debounce((el) => saveField(c.id, el.dataset.key, el.value), 600);
