@@ -1,6 +1,11 @@
 /* ============================================================
-   CRM — New Beginning   (vanilla JS, bez budowania)   v2
+   CRM — New Beginning   (vanilla JS, bez budowania)   v26
    Realtime + auto-zapis + @oznaczenia + "Poproś o demo" + wyszukiwarka.
+   v26 (2026-06-22): ujednolicony przepływ demo —
+     • demo_requests = ŹRÓDŁO PRAWDY (księga: kto/kiedy/karta/status),
+       flaga demo_requested = tylko ZNACZNIK chipa na tablicy;
+     • "Poproś o demo": INSERT do księgi NAJPIERW (odporny), znacznik best-effort;
+     • wklejenie linku do dema → prośba 'done' + chip gaśnie.
    ============================================================ */
 
 /* ---------- Etapy lejka (1:1 z Notion) ---------- */
@@ -111,11 +116,30 @@ const api = {
   async requestDemo(clientId, note) {
     if (!LIVE) return;
     holdRefresh();
-    // NAJPIERW krytyczny zapis sterujący UI (flaga na karcie) — żeby flaga nigdy nie „znikała" po odświeżeniu
-    const { error } = await sb.from("clients").update({ demo_requested: true }).eq("id", clientId);
+    // ŹRÓDŁO PRAWDY = wpis w „księdze" demo_requests (kto + kiedy + która karta + status).
+    // Dlatego NAJPIERW wstawiamy wpis (await + rzuć błędem, gdy się nie uda) —
+    // bez wpisu prośba „nie istnieje" i nie ma sensu zapalać znacznika.
+    const { error } = await sb.from("demo_requests")
+      .insert({ client_id: clientId, requested_by: state.currentUser, note: note || null, status: "pending" });
     if (error) throw error;
-    // wpis audytowy — best-effort, jego błąd nie cofa już flagi
-    sb.from("demo_requests").insert({ client_id: clientId, requested_by: state.currentUser, note: note || null }).then(() => {}, (e) => console.error("demo_requests", e));
+    // Flaga na karcie = tylko ZNACZNIK do szybkiego „chipa" na tablicy. Best-effort:
+    // jeśli nie pyknie, prośba i tak jest zapisana w księdze (wyłapie ją dyżurny/raport).
+    sb.from("clients").update({ demo_requested: true }).eq("id", clientId)
+      .then(({ error: e2 }) => { if (e2) console.error("demo flag (znacznik)", e2); }, (e) => console.error("demo flag (znacznik)", e));
+    holdRefresh();
+  },
+
+  // Zamknięcie prośby: gdy karta dostała link do dema, oznacz JEJ otwarte prośby jako 'done'
+  // (księga przestaje je liczyć) i zgaś znacznik na karcie. Best-effort — błąd tylko logujemy,
+  // bo to porządkowanie, nie krytyczny zapis (link już się zapisał wcześniej).
+  async markDemoDone(clientId) {
+    if (!LIVE) return;
+    holdRefresh();
+    const { error } = await sb.from("demo_requests")
+      .update({ status: "done" }).eq("client_id", clientId).neq("status", "done");
+    if (error) { console.error("markDemoDone (księga)", error); return; }
+    sb.from("clients").update({ demo_requested: false }).eq("id", clientId)
+      .then(({ error: e2 }) => { if (e2) console.error("markDemoDone (znacznik)", e2); }, (e) => console.error("markDemoDone (znacznik)", e));
     holdRefresh();
   },
 
@@ -488,6 +512,16 @@ async function saveField(id, key, value) {
   try {
     await api.updateClient(id, { [key]: v });
     flashSaved();
+    // Wklejono link do dema → prośba „załatwiona": zamknij ją w księdze (status=done) i zgaś chip.
+    if (key === "demo_url" && v) {
+      api.markDemoDone(id).then(() => {
+        c.demo_requested = false;                 // lokalnie zgaś znacznik (chip 📩 znika)
+        const row = $(".demo-row");
+        if (row && state.openCardId === id) row.innerHTML = `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`;
+        const askBtn = $("#ask-demo"); if (askBtn) askBtn.addEventListener("click", () => doRequestDemo(id));
+        updateCardInPlace(c);
+      }, (e) => console.error("markDemoDone", e));
+    }
     if (key === "owner") {
       // przepisanie właściciela: bez przebudowy modala (chroni niezapisany tekst w innych polach)
       renderTabs(); state.animateNextRender = true; renderBoard();
