@@ -374,6 +374,7 @@ async function openModal(id) {
     : `<div class="prop-value readonly">${esc(c.owner)}</div>`;
   const safe = safeUrl(c.google_maps);
   const maps = safe ? `<a href="${esc(safe)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : "—";
+  const demoSafe = safeUrl(c.demo_url);
 
   $("#modal-body").innerHTML = `
     ${editable ? `<input class="title-input" data-key="name" value="${esc(c.name)}" />` : `<h2>${esc(c.name)}</h2>`}
@@ -390,6 +391,15 @@ async function openModal(id) {
           : (safe ? `<a class="maps-link" href="${esc(safe)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : `<span class="readonly">—</span>`)}
         ${(c.google_maps || "").trim()
           ? `${editable ? `<button type="button" class="maps-btn" id="maps-open" title="Otwórz wizytówkę Google">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="maps-copy" title="Kopiuj link">⧉ kopiuj</button>`
+          : ""}
+      </div>
+      <div class="prop-label">🌐 Demo (link)</div>
+      <div class="prop-value maps-cell">
+        ${editable
+          ? `<input data-key="demo_url" id="demo-input" value="${esc(c.demo_url || "")}" placeholder="link do dema" />`
+          : (demoSafe ? `<a class="maps-link" href="${esc(demoSafe)}" target="_blank" rel="noopener">otwórz demo</a>` : `<span class="readonly">—</span>`)}
+        ${(c.demo_url || "").trim()
+          ? `${editable ? `<button type="button" class="maps-btn" id="demo-open" title="Otwórz demo">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="demo-copy" title="Kopiuj link do dema">⧉ kopiuj</button>`
           : ""}
       </div>
       ${field("Phone", "📞", "phone")}
@@ -420,36 +430,31 @@ async function openModal(id) {
   `;
   $("#modal-overlay").hidden = false;
 
-  // Google Maps: jedno kliknięcie otwiera wizytówkę + przycisk kopiowania linku (jak w Notion)
-  const mapsOpenBtn = document.getElementById("maps-open");
-  if (mapsOpenBtn) {
-    mapsOpenBtn.addEventListener("click", () => {
-      const input = document.getElementById("maps-input");
-      const url = safeUrl((input ? input.value : c.google_maps) || "");
+  // Linki (Google Maps / Demo): jedno kliknięcie otwiera + przycisk kopiowania (jak w Notion)
+  const wireLink = (openId, copyId, inputId, rawVal) => {
+    const openBtn = document.getElementById(openId);
+    if (openBtn) openBtn.addEventListener("click", () => {
+      const input = document.getElementById(inputId);
+      const url = safeUrl((input ? input.value : rawVal) || "");
       if (url) window.open(url, "_blank", "noopener");
     });
-  }
-  const mapsCopyBtn = document.getElementById("maps-copy");
-  if (mapsCopyBtn) {
-    mapsCopyBtn.addEventListener("click", async () => {
-      const input = document.getElementById("maps-input");
-      const url = ((input ? input.value : c.google_maps) || "").trim();
+    const copyBtn = document.getElementById(copyId);
+    if (copyBtn) copyBtn.addEventListener("click", async () => {
+      const input = document.getElementById(inputId);
+      const url = ((input ? input.value : rawVal) || "").trim();
       if (!url) return;
       const done = () => {
-        const old = mapsCopyBtn.textContent;
-        mapsCopyBtn.textContent = "✓ skopiowano";
-        mapsCopyBtn.classList.add("ok");
-        setTimeout(() => { mapsCopyBtn.textContent = old; mapsCopyBtn.classList.remove("ok"); }, 1300);
+        const old = copyBtn.textContent;
+        copyBtn.textContent = "✓ skopiowano";
+        copyBtn.classList.add("ok");
+        setTimeout(() => { copyBtn.textContent = old; copyBtn.classList.remove("ok"); }, 1300);
       };
-      try {
-        await navigator.clipboard.writeText(url);
-        done();
-      } catch {
-        // fallback bez clipboard API: zaznacz tekst w polu do ręcznego skopiowania
-        if (input) { input.focus(); input.select(); done(); }
-      }
+      try { await navigator.clipboard.writeText(url); done(); }
+      catch { if (input) { input.focus(); input.select(); done(); } }   // fallback bez clipboard API
     });
-  }
+  };
+  wireLink("maps-open", "maps-copy", "maps-input", c.google_maps);
+  wireLink("demo-open", "demo-copy", "demo-input", c.demo_url);
 
   if (editable) {
     const saveDeb = debounce((el) => saveField(c.id, el.dataset.key, el.value), 600);
@@ -644,7 +649,7 @@ function cleanupEmptyNewCard(id) {
   if (!c || c.deleted_at) return;   // już w Koszu (np. ktoś ją „usunął") → nie kasuj trwale, zostaw w Koszu
   // „pusta" = ŻADNE pole nie wypełnione (w tym quality/maps/follow_up) — żeby nie skasować karty z samym linkiem/datą
   const empty = (c.name === "Nowy klient" || !c.name) && !c.company && !c.phone && !c.email && !c.notes
-    && !c.quality && !c.google_maps && !c.follow_up && !(state.commentsByClient[id] || []).length;
+    && !c.quality && !c.google_maps && !c.demo_url && !c.follow_up && !(state.commentsByClient[id] || []).length;
   if (!empty) return;
   // usuń z ekranu DOPIERO po potwierdzeniu z bazy — inaczej przy błędzie pusta karta „odrasta" przy odświeżeniu
   api.deleteClient(id).then(() => {
@@ -655,7 +660,7 @@ function cleanupEmptyNewCard(id) {
 }
 
 async function newCard(status) {
-  const obj = { name: "Nowy klient", company: "", phone: "", email: "", google_maps: "", quality: "", status: status || "lead", follow_up: null, owner: state.currentUser, notes: "" };
+  const obj = { name: "Nowy klient", company: "", phone: "", email: "", google_maps: "", demo_url: "", quality: "", status: status || "lead", follow_up: null, owner: state.currentUser, notes: "" };
   try {
     const saved = await api.addClient(obj);
     state.newCardIds.add(String(saved.id));
