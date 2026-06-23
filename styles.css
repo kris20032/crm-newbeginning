@@ -111,6 +111,11 @@ body {
 .cards { display: flex; flex-direction: column; gap: 8px; padding: 2px; }
 .cards:empty { min-height: 0; padding: 0; }
 .column.drag-over { background: rgba(35,131,226,.035); border-radius: 12px; outline: 1.5px dashed rgba(35,131,226,.22); outline-offset: -3px; }
+/* wskaźnik miejsca upuszczenia przy przestawianiu góra/dół w kolumnie */
+.card.drop-above, .card.drop-below { position: relative; }
+.card.drop-above::before, .card.drop-below::after { content: ""; position: absolute; left: 0; right: 0; height: 3px; background: var(--accent); border-radius: 3px; }
+.card.drop-above::before { top: -6px; }
+.card.drop-below::after { bottom: -6px; }
 
 .card {
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);

@@ -261,9 +261,11 @@ function visibleClients() {
     else list = active.filter((c) => c.owner === state.currentTab);
   }
   if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
-  // sort: najbliższy follow-up na górze, puste/błędne daty na dół, potem alfabetycznie (stabilnie)
+  // sort: RĘCZNA kolejność (position) decyduje; rezerwa = najbliższy follow-up, potem alfabetycznie (stabilnie)
   const ts = (v) => { if (!v) return Infinity; const t = Date.parse(v); return Number.isNaN(t) ? Infinity : t; };
+  const pos = (c) => (c.position == null ? Number.POSITIVE_INFINITY : Number(c.position));
   return [...list].sort((a, b) =>
+    (pos(a) - pos(b)) ||
     (ts(a.follow_up) - ts(b.follow_up)) ||
     String(a.name || "").localeCompare(String(b.name || ""), "pl"));
 }
@@ -343,25 +345,61 @@ function updateCardInPlace(c) {
 
 /* ---------- Drag & drop (cała kolumna; tylko swoje karty) ---------- */
 let dragId = null;
+// Karty w kolumnie (DOM), bez przeciąganej; do wyliczenia indeksu i sąsiadów upuszczenia
+function colCardEls(zone, excludeId) {
+  return [...zone.querySelectorAll(".cards .card")].filter((el) => el.dataset.id !== String(excludeId));
+}
+// Index wstawienia wg pozycji kursora (Y); zwraca też element, NAD który wstawiamy (lub null = na koniec)
+function dropTarget(zone, clientY, excludeId) {
+  const els = colCardEls(zone, excludeId);
+  for (let i = 0; i < els.length; i++) {
+    const r = els[i].getBoundingClientRect();
+    if (clientY < r.top + r.height / 2) return { idx: i, before: els[i], els };
+  }
+  return { idx: els.length, before: null, els };
+}
+// Nowa wartość position = średnia sąsiadów (wstawienie „pomiędzy"); brzegi ±1000
+function positionForDrop(zone, clientY, excludeId) {
+  const { before, els } = dropTarget(zone, clientY, excludeId);
+  const posOf = (el) => { const c = state.clients.find((x) => String(x.id) === el.dataset.id); return c && c.position != null ? Number(c.position) : null; };
+  const afterEl = before ? els[els.indexOf(before) - 1] : els[els.length - 1];
+  const beforePos = afterEl ? posOf(afterEl) : null;   // karta NAD miejscem wstawienia
+  const nextPos = before ? posOf(before) : null;        // karta POD miejscem wstawienia
+  if (beforePos != null && nextPos != null) return (beforePos + nextPos) / 2;
+  if (beforePos != null) return beforePos + 1000;
+  if (nextPos != null) return nextPos - 1000;
+  return 1000;
+}
+function clearDropMarks(scope) { (scope || document).querySelectorAll(".card.drop-above,.card.drop-below").forEach((el) => el.classList.remove("drop-above", "drop-below")); }
+function markDrop(zone, clientY) {
+  clearDropMarks(zone);
+  const { before, els } = dropTarget(zone, clientY, dragId);
+  if (before) before.classList.add("drop-above");
+  else if (els.length) els[els.length - 1].classList.add("drop-below");
+}
+
 function wireDragAndDrop() {
   const board = $("#board");
   board.querySelectorAll('.card[draggable="true"]').forEach((card) => {
     card.addEventListener("dragstart", (e) => { dragId = card.dataset.id; card.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", card.dataset.id); });
-    card.addEventListener("dragend", () => { dragId = null; card.classList.remove("dragging"); });
+    card.addEventListener("dragend", () => { dragId = null; card.classList.remove("dragging"); clearDropMarks(board); board.querySelectorAll(".column.drag-over").forEach((z) => z.classList.remove("drag-over")); });
   });
   board.querySelectorAll(".column").forEach((zone) => {
-    zone.addEventListener("dragover", (e) => { if (!dragId) return; e.preventDefault(); zone.classList.add("drag-over"); });
-    zone.addEventListener("dragleave", (e) => { if (!zone.contains(e.relatedTarget)) zone.classList.remove("drag-over"); });
+    zone.addEventListener("dragover", (e) => { if (!dragId) return; e.preventDefault(); zone.classList.add("drag-over"); markDrop(zone, e.clientY); });
+    zone.addEventListener("dragleave", (e) => { if (!zone.contains(e.relatedTarget)) { zone.classList.remove("drag-over"); clearDropMarks(zone); } });
     zone.addEventListener("drop", async (e) => {
-      e.preventDefault(); zone.classList.remove("drag-over");
+      e.preventDefault(); zone.classList.remove("drag-over"); clearDropMarks(zone);
       if (!dragId) return;
       const newStatus = zone.dataset.status;
       const c = state.clients.find((x) => String(x.id) === String(dragId));
-      if (!c || c.status === newStatus) return;
-      const prevStatus = c.status;
-      c.status = newStatus; state.skipFlipId = c.id; renderBoard(); flashCard(c.id);
-      try { await api.updateClient(c.id, { status: newStatus }); }
-      catch (err) { console.error(err); c.status = prevStatus; state.animateNextRender = true; renderBoard(); toast("Nie zapisano etapu — przywrócono poprzedni"); }
+      if (!c) return;
+      const prevStatus = c.status, prevPos = c.position;
+      const newPos = positionForDrop(zone, e.clientY, c.id);
+      if (c.status === newStatus && newPos === c.position) return;        // nic się nie zmienia
+      c.status = newStatus; c.position = newPos; state.skipFlipId = c.id; renderBoard(); flashCard(c.id);
+      const patch = (prevStatus !== newStatus) ? { status: newStatus, position: newPos } : { position: newPos };
+      try { await api.updateClient(c.id, patch); }
+      catch (err) { console.error(err); c.status = prevStatus; c.position = prevPos; state.animateNextRender = true; renderBoard(); toast("Nie zapisano — przywrócono poprzednią kolejność"); }
     });
   });
 }
@@ -758,7 +796,11 @@ function cleanupEmptyNewCard(id) {
 }
 
 async function newCard(status) {
-  const obj = { name: "Nowy klient", company: "", phone: "", email: "", google_maps: "", demo_url: "", quality: "", status: status || "lead", follow_up: null, owner: state.currentUser, notes: "" };
+  const st = status || "lead";
+  // nowa karta na GÓRZE swojej kolumny (pozycja mniejsza niż najmniejsza istniejąca)
+  const mins = activeClients().filter((c) => (c.status || "lead") === st && c.position != null).map((c) => Number(c.position));
+  const topPos = mins.length ? Math.min(...mins) - 1000 : 1000;
+  const obj = { name: "Nowy klient", company: "", phone: "", email: "", google_maps: "", demo_url: "", quality: "", status: st, follow_up: null, owner: state.currentUser, notes: "", position: topPos };
   try {
     const saved = await api.addClient(obj);
     state.newCardIds.add(String(saved.id));
@@ -901,12 +943,13 @@ async function init() {
 
 /* ---------- DANE DEMO (fikcyjne) ---------- */
 const DEMO_CLIENTS = [
-  { id: "d1", name: "Jan Kowalski", company: "Stolarstwo Dębowy Las", phone: "+48 600 100 201", email: "kontakt@debowylas.pl", google_maps: "https://google.com/maps", quality: "wysoka", status: "zainteresowany", follow_up: "2026-06-23", owner: "Krzysztof", notes: "Ma znajomego co robi strony, ale drogo. Pokazujemy demo." },
-  { id: "d2", name: "Marek Zieliński", company: "Auto-Serwis Zieliński", phone: "+48 600 100 202", email: "", google_maps: "", quality: "", status: "lead", follow_up: "2026-06-22", owner: "Krzysztof", notes: "" },
-  { id: "d3", name: "Hydraulika Nowak", company: "Hydraulika Nowak", phone: "+48 600 100 204", email: "", google_maps: "", quality: "", status: "lead", follow_up: null, owner: "Marceli", notes: "" },
-  { id: "d4", name: "Salon Bella", company: "Salon Fryzjerski Bella", phone: "+48 600 100 206", email: "", google_maps: "", quality: "", status: "umowiony", follow_up: "2026-06-25", owner: "Szymon", notes: "Spotkanie czwartek 17:00." },
-  { id: "d5", name: "Kwiaciarnia Storczyk", company: "Kwiaciarnia Storczyk", phone: "+48 600 100 208", email: "", google_maps: "", quality: "", status: "oferta", follow_up: "2026-06-27", owner: "Piotr", notes: "Wysłana oferta." },
-  { id: "d6", name: "Fit Klub Active", company: "Fit Klub Active", phone: "+48 600 100 209", email: "", google_maps: "", quality: "", status: "konwersja", follow_up: null, owner: "Krzysztof", notes: "PODPISANE." },
+  { id: "d1", name: "Jan Kowalski", company: "Stolarstwo Dębowy Las", phone: "+48 600 100 201", email: "kontakt@debowylas.pl", google_maps: "https://google.com/maps", quality: "wysoka", status: "zainteresowany", follow_up: "2026-06-23", owner: "Krzysztof", notes: "Ma znajomego co robi strony, ale drogo. Pokazujemy demo.", position: 1000 },
+  { id: "d2", name: "Marek Zieliński", company: "Auto-Serwis Zieliński", phone: "+48 600 100 202", email: "", google_maps: "", quality: "", status: "lead", follow_up: "2026-06-22", owner: "Krzysztof", notes: "", position: 1000 },
+  { id: "d3", name: "Hydraulika Nowak", company: "Hydraulika Nowak", phone: "+48 600 100 204", email: "", google_maps: "", quality: "", status: "lead", follow_up: null, owner: "Marceli", notes: "", position: 2000 },
+  { id: "d7", name: "Stolarnia Wiór", company: "Stolarnia Wiór", phone: "+48 600 100 203", email: "", google_maps: "", quality: "", status: "lead", follow_up: "2026-06-24", owner: "Krzysztof", notes: "", position: 3000 },
+  { id: "d4", name: "Salon Bella", company: "Salon Fryzjerski Bella", phone: "+48 600 100 206", email: "", google_maps: "", quality: "", status: "umowiony", follow_up: "2026-06-25", owner: "Szymon", notes: "Spotkanie czwartek 17:00.", position: 1000 },
+  { id: "d5", name: "Kwiaciarnia Storczyk", company: "Kwiaciarnia Storczyk", phone: "+48 600 100 208", email: "", google_maps: "", quality: "", status: "oferta", follow_up: "2026-06-27", owner: "Piotr", notes: "Wysłana oferta.", position: 1000 },
+  { id: "d6", name: "Fit Klub Active", company: "Fit Klub Active", phone: "+48 600 100 209", email: "", google_maps: "", quality: "", status: "konwersja", follow_up: null, owner: "Krzysztof", notes: "PODPISANE.", position: 1000 },
 ];
 const DEMO_COMMENTS = {
   d1: [
