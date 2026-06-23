@@ -12,8 +12,8 @@
 const STATUSES = [
   { key: "lead",          label: "Lead",                  dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f", tint: "#f8f8f7" },
   { key: "zainteresowany",label: "Zainteresowany",        dot: "#9a6dd7", bg: "#ede1f7", fg: "#6940a5", tint: "#faf7fd" },
-  { key: "umowiony",      label: "Umówiony na spotkanie",  dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f", tint: "#f4f9fc" },
-  { key: "po_spotkaniu",  label: "po spotkaniu/sprzedaż",  dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f", tint: "#fdf6f5" },
+  { key: "umowiony",      label: "Wysłane demo",           dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f", tint: "#f4f9fc" },
+  { key: "po_spotkaniu",  label: "Sprzedaż",               dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f", tint: "#fdf6f5" },
   { key: "oferta",        label: "Oferta/umowa",           dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a", tint: "#fdfbf2" },
   { key: "konwersja",     label: "Konwersja",              dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e", tint: "#f5faf4" },
   { key: "archiwum",      label: "Archiwum",               dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f", tint: "#f8f8f7" },
@@ -164,6 +164,10 @@ const api = {
 const $ = (sel) => document.querySelector(sel);
 const fmtDate = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return d; return dt.toLocaleDateString("pl-PL", { day: "numeric", month: "short", year: "numeric" }); };
 const fmtDateTime = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return d; return dt.toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
+// follow_up = timestamp; pole datetime-local chce "YYYY-MM-DDTHH:MM"
+const toDTLocal = (v) => { if (!v) return ""; let s = String(v).replace(" ", "T"); if (s.length === 10) s += "T00:00"; return s.slice(0, 16); };
+// chip follow-upu: pokaż godzinę gdy ustawiona (≠ północ), inaczej samą datę
+const fmtFollow = (v) => { if (!v) return ""; const s = String(v).replace(" ", "T"); const dt = new Date(s.length === 10 ? s + "T00:00" : s); if (isNaN(dt)) return fmtDate(v); return (dt.getHours() === 0 && dt.getMinutes() === 0) ? fmtDate(v) : dt.toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
 const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])));
 const canEdit = (client) => client.owner === state.currentUser;
 const isDueSoon = (d) => { if (!d) return false; const dt = new Date(d); if (isNaN(dt)) return false; const t = new Date(); t.setHours(23, 59, 59, 999); return dt <= t; };
@@ -292,7 +296,7 @@ function renderCardInner(c) {
     ${c.company ? `<div class="card-company">${esc(c.company)}</div>` : ""}
     <div class="card-meta">${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}</div>
     <div class="card-foot">
-      ${c.follow_up ? `<span class="chip ${ds ? "chip-" + ds : ""}">📅 ${esc(fmtDate(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>` : ""}
+      ${c.follow_up ? `<span class="chip ${ds ? "chip-" + ds : ""}">📅 ${esc(fmtFollow(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>` : ""}
       ${cnt ? `<span class="chip">💬 ${cnt}</span>` : ""}
       ${c.demo_requested ? `<span class="chip chip-demo">📩 demo</span>` : ""}
       <span class="card-owner"><span class="avatar" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span></span>
@@ -365,7 +369,7 @@ async function openModal(id) {
         ${roRow("📞 Phone", c.phone)}
         ${roRow("@ Email", c.email)}
         ${roRow("◎ Status", statusOf(c.status).label)}
-        ${roRow("📅 Follow Up", c.follow_up ? fmtDate(c.follow_up) : "")}
+        ${roRow("📅 Follow Up", c.follow_up ? fmtFollow(c.follow_up) : "")}
         ${roRow("👤 Person", c.owner)}
       </div>
       ${c.notes ? `<hr class="section-divider" /><div class="notes-label">Notatki</div><div class="prop-value readonly" style="white-space:pre-wrap">${esc(c.notes)}</div>` : ""}
@@ -376,6 +380,7 @@ async function openModal(id) {
         <button class="primary-btn" id="restore-card">↩ Przywróć kartę</button>
         <button class="ghost-btn danger-btn" id="purge-card">Usuń trwale</button>
       </div>`;
+    $(".modal").classList.remove("modal-full");   // Kosz = mały modal
     $("#modal-overlay").hidden = false;
     $("#restore-card").addEventListener("click", () => doRestoreCard(c.id));
     $("#purge-card").addEventListener("click", (e) => askPurgeCard(c.id, e.target));
@@ -401,57 +406,75 @@ async function openModal(id) {
   const demoSafe = safeUrl(c.demo_url);
 
   $("#modal-body").innerHTML = `
-    ${editable ? `<input class="title-input" data-key="name" value="${esc(c.name)}" />` : `<h2>${esc(c.name)}</h2>`}
-    <div class="modal-sub"><span id="comment-count">${comments.length} ${comments.length === 1 ? "komentarz" : "komentarzy"}</span> · ${editable ? "zmiany zapisują się automatycznie" : "karta innej osoby — możesz komentować"}</div>
-    ${!editable ? `<div class="readonly-note">To karta: ${esc(c.owner)}. Pól nie edytujesz, ale możesz dodać komentarz (z @oznaczeniem).</div>` : ""}
+    <div class="cm">
+      <div class="cm-left">
+        <div class="cm-top">
+          ${editable ? `<input class="title-input cm-name" data-key="name" value="${esc(c.name)}" placeholder="Imię i nazwisko" />` : `<h2 class="cm-name">${esc(c.name)}</h2>`}
+          <div class="cm-keyfields">
+            <div class="cm-kf">
+              <span class="cm-kf-label">🏢 Nazwa firmy</span>
+              ${editable ? `<input data-key="company" value="${esc(c.company || "")}" placeholder="Nazwa firmy" />` : `<div class="prop-value readonly">${esc(c.company) || "—"}</div>`}
+            </div>
+            <div class="cm-kf">
+              <span class="cm-kf-label">📞 Telefon</span>
+              ${editable ? `<input data-key="phone" value="${esc(c.phone || "")}" placeholder="Telefon" />` : `<div class="prop-value readonly">${esc(c.phone) || "—"}</div>`}
+            </div>
+          </div>
+          <div class="modal-sub">${editable ? "zmiany zapisują się automatycznie" : "karta innej osoby — możesz komentować"}</div>
+          ${!editable ? `<div class="readonly-note">To karta: ${esc(c.owner)}. Pól nie edytujesz, ale możesz dodać komentarz (z @oznaczeniem).</div>` : ""}
+        </div>
 
-    <div class="props">
-      ${field("Quality", "🔥", "quality")}
-      ${field("Nazwa Firmy", "🏢", "company")}
-      <div class="prop-label">🔗 Google Maps</div>
-      <div class="prop-value maps-cell">
-        ${editable
-          ? `<input data-key="google_maps" id="maps-input" value="${esc(c.google_maps || "")}" placeholder="link" />`
-          : (safe ? `<a class="maps-link" href="${esc(safe)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : `<span class="readonly">—</span>`)}
-        ${(c.google_maps || "").trim()
-          ? `${editable ? `<button type="button" class="maps-btn" id="maps-open" title="Otwórz wizytówkę Google">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="maps-copy" title="Kopiuj link">⧉ kopiuj</button>`
-          : ""}
+        <div class="props cm-props">
+          ${field("Quality", "🔥", "quality")}
+          <div class="prop-label">◎ Status</div><div class="prop-value">${statusSelect}</div>
+          <div class="prop-label">👤 Osoba</div><div class="prop-value">${ownerSelect}</div>
+          <div class="prop-label">📅 Follow-up</div>
+          <div class="prop-value">${editable ? `<input type="datetime-local" data-key="follow_up" value="${toDTLocal(c.follow_up)}" />` : `<div class="prop-value readonly">${c.follow_up ? esc(fmtFollow(c.follow_up)) : "—"}</div>`}</div>
+          ${field("Email", "@", "email")}
+          <div class="prop-label">🔗 Google Maps</div>
+          <div class="prop-value maps-cell">
+            ${editable
+              ? `<input data-key="google_maps" id="maps-input" value="${esc(c.google_maps || "")}" placeholder="link" />`
+              : (safe ? `<a class="maps-link" href="${esc(safe)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : `<span class="readonly">—</span>`)}
+            ${(c.google_maps || "").trim()
+              ? `${editable ? `<button type="button" class="maps-btn" id="maps-open" title="Otwórz wizytówkę Google">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="maps-copy" title="Kopiuj link">⧉ kopiuj</button>`
+              : ""}
+          </div>
+          <div class="prop-label">🌐 Demo (link)</div>
+          <div class="prop-value maps-cell">
+            ${editable
+              ? `<input data-key="demo_url" id="demo-input" value="${esc(c.demo_url || "")}" placeholder="link do dema" />`
+              : (demoSafe ? `<a class="maps-link" href="${esc(demoSafe)}" target="_blank" rel="noopener">otwórz demo</a>` : `<span class="readonly">—</span>`)}
+            ${(c.demo_url || "").trim()
+              ? `${editable ? `<button type="button" class="maps-btn" id="demo-open" title="Otwórz demo">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="demo-copy" title="Kopiuj link do dema">⧉ kopiuj</button>`
+              : ""}
+          </div>
+        </div>
+
+        <div class="demo-row">
+          ${c.demo_requested ? DEMO_FLAG_HTML : `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`}
+        </div>
+
+        <div class="cm-notes">
+          <div class="notes-label">Notatki</div>
+          ${editable ? `<textarea class="notes" data-key="notes" placeholder="notatki, historia rozmów...">${esc(c.notes || "")}</textarea>` : `<div class="prop-value readonly" style="white-space:pre-wrap">${esc(c.notes) || "—"}</div>`}
+        </div>
+
+        ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Usuń kartę</button></div>` : ""}
       </div>
-      <div class="prop-label">🌐 Demo (link)</div>
-      <div class="prop-value maps-cell">
-        ${editable
-          ? `<input data-key="demo_url" id="demo-input" value="${esc(c.demo_url || "")}" placeholder="link do dema" />`
-          : (demoSafe ? `<a class="maps-link" href="${esc(demoSafe)}" target="_blank" rel="noopener">otwórz demo</a>` : `<span class="readonly">—</span>`)}
-        ${(c.demo_url || "").trim()
-          ? `${editable ? `<button type="button" class="maps-btn" id="demo-open" title="Otwórz demo">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="demo-copy" title="Kopiuj link do dema">⧉ kopiuj</button>`
-          : ""}
-      </div>
-      ${field("Phone", "📞", "phone")}
-      ${field("Email", "@", "email")}
-      <div class="prop-label">◎ Status</div><div class="prop-value">${statusSelect}</div>
-      ${field("Follow Up", "📅", "follow_up", "date")}
-      <div class="prop-label">👤 Person</div><div class="prop-value">${ownerSelect}</div>
+
+      <aside class="cm-right">
+        <div class="cm-right-head">Komentarze <span class="cm-cc" id="comment-count">${comments.length} ${comments.length === 1 ? "komentarz" : "komentarzy"}</span></div>
+        <div class="comments-wrap" id="comments-wrap">${renderComments(comments)}</div>
+        <div class="add-comment">
+          <input id="new-comment" placeholder="Dodaj komentarz...  (@ aby oznaczyć osobę)" autocomplete="off" />
+          <button id="send-comment">Wyślij</button>
+          <div id="mention-pop" class="mention-pop" hidden></div>
+        </div>
+      </aside>
     </div>
-
-    <div class="demo-row">
-      ${c.demo_requested ? DEMO_FLAG_HTML : `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`}
-    </div>
-
-    <hr class="section-divider" />
-    <div class="notes-label">Notatki</div>
-    ${editable ? `<textarea class="notes" data-key="notes" placeholder="notatki, historia rozmów...">${esc(c.notes || "")}</textarea>` : `<div class="prop-value readonly" style="white-space:pre-wrap">${esc(c.notes) || "—"}</div>`}
-
-    <hr class="section-divider" />
-    <div class="notes-label">Komentarze</div>
-    <div class="comments-wrap" id="comments-wrap">${renderComments(comments)}</div>
-    <div class="add-comment">
-      <input id="new-comment" placeholder="Dodaj komentarz...  (@ aby oznaczyć osobę)" autocomplete="off" />
-      <button id="send-comment">Wyślij</button>
-      <div id="mention-pop" class="mention-pop" hidden></div>
-    </div>
-
-    ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Usuń kartę</button></div>` : ""}
   `;
+  $(".modal").classList.add("modal-full");       // główna karta = pełny ekran (Kosz/proste zostają małe)
   $("#modal-overlay").hidden = false;
 
   // Linki (Google Maps / Demo): jedno kliknięcie otwiera + przycisk kopiowania (jak w Notion)
@@ -485,7 +508,7 @@ async function openModal(id) {
     document.querySelectorAll("#modal-body [data-key]").forEach((el) => {
       el.addEventListener("change", () => saveField(c.id, el.dataset.key, el.value));
       // auto-zapis NA BIEŻĄCO przy pisaniu (inaczej tekst ginie, gdy zamkniesz modal myszą)
-      if (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.type !== "date")) {
+      if (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.type !== "date" && el.type !== "datetime-local")) {
         el.addEventListener("input", () => saveDeb(el));
       }
     });
@@ -680,6 +703,7 @@ function closeModal() {
   }
   state.openCardId = null;
   $("#modal-overlay").hidden = true;
+  $(".modal").classList.remove("modal-full");   // reset pełnego ekranu
   $("#modal-body").innerHTML = "";
   // sprzątnij porzuconą, pustą nową kartę (żeby nie zaśmiecać lejka „Nowymi klientami")
   if (id && state.newCardIds.has(String(id))) cleanupEmptyNewCard(id);

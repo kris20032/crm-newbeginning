@@ -206,6 +206,47 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .danger-btn:hover { filter: brightness(.95); }
 .confirm-del { font-size: 13px; color: #d4493f; display: inline-flex; align-items: center; }
 
+/* ===== Karta klienta NA CAŁY EKRAN (dwukolumnowa: lewo=dane+notatka, prawo=komentarze) =====
+   Włącza się TYLKO dla głównego widoku karty (klasa .modal-full dodawana w openModal);
+   Kosz i proste dialogi zostają w małym modalu. */
+.modal-overlay:has(.modal-full) { align-items: center; padding: 24px 16px; }
+.modal.modal-full {
+  max-width: 1180px; width: 95vw; height: 88vh; max-height: 900px;
+  padding: 0; display: flex; flex-direction: column; overflow: hidden;
+}
+.modal.modal-full #modal-body { flex: 1 1 auto; min-height: 0; display: flex; width: 100%; }
+.modal.modal-full .modal-close { z-index: 5; }
+.cm { display: grid; grid-template-columns: minmax(0,1fr) 340px; width: 100%; min-height: 0; }
+/* lewa kolumna — przewijalna */
+.cm-left { min-width: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 34px 34px 24px; }
+/* GÓRA: najważniejsze dane */
+.cm-top { padding-right: 30px; }
+.cm-name { font-size: 26px; font-weight: 700; margin: 0 0 2px; }
+.modal.modal-full input.title-input.cm-name { font-size: 26px; }
+.cm-keyfields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; margin: 14px 0 4px; }
+.cm-kf { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cm-kf-label { font-size: 11.5px; color: var(--ink-soft); display: flex; align-items: center; gap: 5px; }
+.cm-kf input { font-size: 15px; font-weight: 500; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-family: inherit; background: var(--panel); color: var(--ink); width: 100%; box-sizing: border-box; }
+.cm-kf input:hover { background: var(--bg); }
+.cm-kf input:focus { outline: none; border-color: var(--accent); background: #fff; }
+.cm-kf .prop-value.readonly { padding: 8px 2px; font-size: 15px; }
+/* pola (poukładane, nie zwijane) */
+.cm-props { margin: 16px 0 4px; }
+/* DUŻE pole na notatkę */
+.cm-notes { display: flex; flex-direction: column; flex: 1 1 auto; margin-top: 14px; }
+.modal.modal-full textarea.notes { min-height: 300px; flex: 1 1 auto; }
+/* PRAWA kolumna — komentarze/czat */
+.cm-right { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); background: var(--bg); }
+.cm-right-head { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); padding: 20px 20px 10px; flex: 0 0 auto; }
+.cm-right-head .cm-cc { font-weight: 500; text-transform: none; letter-spacing: 0; }
+.cm-right .comments-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 20px; margin: 0; }
+.cm-right .add-comment { flex: 0 0 auto; padding: 12px 20px 16px; margin: 0; border-top: 1px solid var(--line); background: var(--panel); }
+@media (max-width: 860px) {
+  .modal.modal-full { height: 92vh; }
+  .cm { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  .cm-right { border-left: none; border-top: 1px solid var(--line); max-height: 42vh; }
+}
+
 /* ===== Mobile ===== */
 @media (max-width: 640px) {
   .board { height: auto; }
