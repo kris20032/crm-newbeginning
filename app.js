@@ -169,22 +169,27 @@ const toDTLocal = (v) => { if (!v) return ""; let s = String(v).replace(" ", "T"
 // chip follow-upu: pokaż godzinę gdy ustawiona (≠ północ), inaczej samą datę
 const fmtFollow = (v) => { if (!v) return ""; const s = String(v).replace(" ", "T"); const dt = new Date(s.length === 10 ? s + "T00:00" : s); if (isNaN(dt)) return fmtDate(v); return (dt.getHours() === 0 && dt.getMinutes() === 0) ? fmtDate(v) : dt.toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
 const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])));
-// Linki w notatce → klikalne skróty (jeden klik otwiera w nowej karcie). Łapie http(s):// i www.
-const extractUrls = (text) => {
-  if (!text) return [];
-  const out = []; const re = /\b(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/gi; let m;
+// Notatka → zamień URL-e (http(s):// i www.) w treści na KLIKALNE hiperłącza, resztę zostaw jako bezpieczny tekst.
+// Nowe linie zachowane przez white-space:pre-wrap na widoku.
+const NOTE_PLACEHOLDER = "notatki, historia rozmów… (kliknij, aby pisać; wklejone linki staną się klikalne)";
+const linkify = (text) => {
+  if (!text) return "";
+  // 1) http(s)://… 2) www.… 3) goły adres ZE ŚCIEŻKĄ (np. firma.github.io/x) — nie poprzedzony @ (pomija maile)
+  const re = /(?<![\w@./-])((?:https?:\/\/|www\.)[^\s<>"']+|[a-z0-9][a-z0-9.-]*\.[a-z]{2,}\/[^\s<>"']*)/gi;
+  let out = "", last = 0, m;
   while ((m = re.exec(text)) !== null) {
-    let u = m[0].replace(/[.,;:)\]}>]+$/, "");          // utnij końcową interpunkcję
-    if (/^www\./i.test(u)) u = "https://" + u;
-    if (safeUrl(u) && !out.includes(u)) out.push(u);
+    out += esc(text.slice(last, m.index));                 // tekst przed linkiem
+    const trimmed = m[0].replace(/[.,;:)\]}>]+$/, "");      // utnij końcową interpunkcję (zostaje poza linkiem)
+    const trailing = m[0].slice(trimmed.length);
+    const href = /^https?:\/\//i.test(trimmed) ? trimmed : "https://" + trimmed;   // dolep https:// gdy brak
+    out += safeUrl(href)
+      ? `<a href="${esc(href)}" target="_blank" rel="noopener" class="note-link">${esc(trimmed)}</a>`
+      : esc(trimmed);
+    out += esc(trailing);
+    last = m.index + m[0].length;
   }
+  out += esc(text.slice(last));
   return out;
-};
-const urlLabel = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } };
-const renderNoteLinks = (text) => {
-  const urls = extractUrls(text);
-  if (!urls.length) return "";
-  return urls.map((u) => `<button type="button" class="note-link-chip" data-url="${esc(u)}" title="${esc(u)}">🔗 ${esc(urlLabel(u))} ↗</button>`).join("");
 };
 const canEdit = (client) => client.owner === state.currentUser;
 const isDueSoon = (d) => { if (!d) return false; const dt = new Date(d); if (isNaN(dt)) return false; const t = new Date(); t.setHours(23, 59, 59, 999); return dt <= t; };
@@ -389,7 +394,7 @@ async function openModal(id) {
         ${roRow("📅 Follow Up", c.follow_up ? fmtFollow(c.follow_up) : "")}
         ${roRow("👤 Person", c.owner)}
       </div>
-      ${c.notes ? `<hr class="section-divider" /><div class="notes-label">Notatki</div><div class="prop-value readonly" style="white-space:pre-wrap">${esc(c.notes)}</div>` : ""}
+      ${c.notes ? `<hr class="section-divider" /><div class="notes-label">Notatki</div><div class="notes-view readonly">${linkify(c.notes)}</div>` : ""}
       <hr class="section-divider" />
       <div class="notes-label">Komentarze</div>
       <div class="comments-wrap" id="comments-wrap">${renderComments(comments)}</div>
@@ -474,8 +479,10 @@ async function openModal(id) {
 
         <div class="cm-notes">
           <div class="notes-label">Notatki</div>
-          ${editable ? `<textarea class="notes" data-key="notes" placeholder="notatki, historia rozmów... (wklejone linki staną się klikalne poniżej)">${esc(c.notes || "")}</textarea>` : `<div class="prop-value readonly" style="white-space:pre-wrap">${esc(c.notes) || "—"}</div>`}
-          <div class="note-links" id="note-links">${renderNoteLinks(c.notes || "")}</div>
+          ${editable
+            ? `<div class="notes-view" id="notes-view" tabindex="0" title="Kliknij, aby edytować">${c.notes ? linkify(c.notes) : `<span class="notes-empty">${esc(NOTE_PLACEHOLDER)}</span>`}</div>
+               <textarea class="notes" data-key="notes" id="notes-edit" hidden>${esc(c.notes || "")}</textarea>`
+            : `<div class="notes-view readonly">${c.notes ? linkify(c.notes) : "—"}</div>`}
         </div>
 
         ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Usuń kartę</button></div>` : ""}
@@ -530,22 +537,22 @@ async function openModal(id) {
         el.addEventListener("input", () => saveDeb(el));
       }
     });
-    // notatka rozciąga się na całą wysokość tekstu (cała widoczna od razu, jak w Notion)
-    const notesEl = document.querySelector("#modal-body textarea.notes");
-    if (notesEl) {
-      const autoGrow = () => { notesEl.style.height = "auto"; notesEl.style.height = notesEl.scrollHeight + "px"; };
-      notesEl.addEventListener("input", autoGrow);
-      // odświeżaj klikalne linki pod notatką na bieżąco (po wklejeniu/pisaniu)
-      notesEl.addEventListener("input", () => { const nl = $("#note-links"); if (nl) nl.innerHTML = renderNoteLinks(notesEl.value); });
-      autoGrow();
+    // Notatka: widok z KLIKALNYMI linkami ↔ edycja. Klik w tekst → edytuj; klik w link → otwiera.
+    const nView = $("#notes-view"), nEdit = $("#notes-edit");
+    if (nView && nEdit) {
+      const grow = () => { nEdit.style.height = "auto"; nEdit.style.height = Math.max(220, nEdit.scrollHeight) + "px"; };
+      nView.addEventListener("click", (e) => {
+        if (e.target.closest("a")) return;                          // klik w link → otwiera, nie edytuje
+        nView.hidden = true; nEdit.hidden = false; grow(); nEdit.focus();
+        const v = nEdit.value; nEdit.value = ""; nEdit.value = v;    // kursor na koniec
+      });
+      nEdit.addEventListener("input", grow);
+      nEdit.addEventListener("blur", () => {                         // koniec edycji → znów widok z linkami
+        nView.innerHTML = nEdit.value ? linkify(nEdit.value) : `<span class="notes-empty">${esc(NOTE_PLACEHOLDER)}</span>`;
+        nEdit.hidden = true; nView.hidden = false;
+      });
     }
   }
-  // Link w notatce → jedno kliknięcie otwiera w nowej karcie (działa też w karcie tylko-do-odczytu)
-  const noteLinksEl = $("#note-links");
-  if (noteLinksEl) noteLinksEl.addEventListener("click", (e) => {
-    const b = e.target.closest(".note-link-chip"); if (!b) return;
-    const u = safeUrl(b.dataset.url || ""); if (u) window.open(u, "_blank", "noopener");
-  });
   const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askDeleteCard(c.id, delBtn));
   const askBtn = $("#ask-demo"); if (askBtn) askBtn.addEventListener("click", () => doRequestDemo(c.id));
   wireCommentBox(c.id);
