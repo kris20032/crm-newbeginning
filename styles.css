@@ -87,11 +87,14 @@ body {
 
 /* ===== Tablica kanban ===== */
 .board {
-  display: flex; gap: 14px; padding: 18px 26px 28px; overflow: auto; align-items: flex-start;
+  display: flex; gap: 14px; padding: 18px 26px 28px; overflow: auto; align-items: stretch;
   height: calc(100vh - 112px);
 }
 .column { flex: 0 0 284px; display: flex; flex-direction: column; }
-.col-inner { display: flex; flex-direction: column; border-radius: 12px; padding: 4px 8px 10px; }
+/* col-inner wypełnia całą wysokość kolumny → strefa upuszczania = cały słupek (drop działa też w pustym
+   dole kolumny), a tło/tint pokrywa pełną wysokość. align-items:stretch na .board wyrównuje kolumny do
+   najwyższej, zachowując wspólny scroll i sticky-nagłówki. */
+.col-inner { display: flex; flex-direction: column; flex: 1 1 auto; border-radius: 12px; padding: 4px 8px 10px; }
 .column-head {
   display: flex; align-items: center; gap: 7px; padding: 9px 6px 9px; font-size: 13px; font-weight: 600;
   position: sticky; top: 0; background: inherit; z-index: 2;
