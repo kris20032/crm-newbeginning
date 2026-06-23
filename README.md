@@ -23,5 +23,7 @@ Mega prosty, własny CRM dla zespołu (lejek jak w Notion + komentarze). Jeden b
 ## Własność kart
 Granica „edytuj swoje / komentuj cudze" jest **umowna**: aplikacja chowa edycję na cudzych kartach (zostaje sam komentarz), ale technicznie każdy zalogowany ma dostęp. Zasada trzyma się na umowie w zespole.
 
-## Backup (ważne!)
-Supabase Free nie ma automatycznych backupów. Zanim wejdą realne dane klientów: albo Pro (25 USD/mc, auto-backup), albo regularny ręczny eksport (Table editor → Export CSV). Nic na produkcji bez kopii.
+## Backup (ZROBIONY — darmowy, własny)
+Supabase Free nie ma wbudowanych auto-backupów, więc mamy **własny darmowy backup**: automat (launchd `com.newbeginning.crm-backup`) eksportuje całą bazę do `~/CRM-backups/*.json` o stałych porach (**9, 13, 18, 22**) oraz przy starcie/wybudzeniu Maca (nadrabia, gdy Mac spał). Trzyma ostatnie kopie; cofnięcie = restore z pliku JSON. Uwaga: kopia powstaje tylko, gdy Mac jest włączony.
+
+Dodatkowo **usuwanie w CRM jest odwracalne** — „Usuń" wrzuca kartę do **Kosza** (soft-delete `deleted_at`); trwałe usunięcie tylko świadomie z Kosza. (Plan Supabase Pro za 25 USD/mc dałby auto-backup w chmurze — na razie niepotrzebny.)
