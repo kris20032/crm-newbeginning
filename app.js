@@ -888,6 +888,8 @@ async function showApp() {
   $("#logout-btn").hidden = !state.live;
   state.clients = await api.getClients();
   state.commentsByClient = await api.getAllComments();
+  // DOMYŚLNIE pokaż MOJE karty (zakładka zalogowanej osoby), nie „Wszyscy" — przy każdym wejściu/odświeżeniu
+  if (state.currentTab === "all" && state.team.includes(state.currentUser)) state.currentTab = state.currentUser;
   renderTabs(); renderBoard();
   api.subscribe(scheduleRefresh);
   startSafetyRefresh();
