@@ -169,6 +169,23 @@ const toDTLocal = (v) => { if (!v) return ""; let s = String(v).replace(" ", "T"
 // chip follow-upu: pokaż godzinę gdy ustawiona (≠ północ), inaczej samą datę
 const fmtFollow = (v) => { if (!v) return ""; const s = String(v).replace(" ", "T"); const dt = new Date(s.length === 10 ? s + "T00:00" : s); if (isNaN(dt)) return fmtDate(v); return (dt.getHours() === 0 && dt.getMinutes() === 0) ? fmtDate(v) : dt.toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
 const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])));
+// Linki w notatce → klikalne skróty (jeden klik otwiera w nowej karcie). Łapie http(s):// i www.
+const extractUrls = (text) => {
+  if (!text) return [];
+  const out = []; const re = /\b(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/gi; let m;
+  while ((m = re.exec(text)) !== null) {
+    let u = m[0].replace(/[.,;:)\]}>]+$/, "");          // utnij końcową interpunkcję
+    if (/^www\./i.test(u)) u = "https://" + u;
+    if (safeUrl(u) && !out.includes(u)) out.push(u);
+  }
+  return out;
+};
+const urlLabel = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u; } };
+const renderNoteLinks = (text) => {
+  const urls = extractUrls(text);
+  if (!urls.length) return "";
+  return urls.map((u) => `<button type="button" class="note-link-chip" data-url="${esc(u)}" title="${esc(u)}">🔗 ${esc(urlLabel(u))} ↗</button>`).join("");
+};
 const canEdit = (client) => client.owner === state.currentUser;
 const isDueSoon = (d) => { if (!d) return false; const dt = new Date(d); if (isNaN(dt)) return false; const t = new Date(); t.setHours(23, 59, 59, 999); return dt <= t; };
 const dueState = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return ""; const t = new Date(); t.setHours(0,0,0,0); const day = new Date(dt); day.setHours(0,0,0,0); if (day < t) return "overdue"; if (day.getTime() === t.getTime()) return "today"; return ""; };
@@ -457,7 +474,8 @@ async function openModal(id) {
 
         <div class="cm-notes">
           <div class="notes-label">Notatki</div>
-          ${editable ? `<textarea class="notes" data-key="notes" placeholder="notatki, historia rozmów...">${esc(c.notes || "")}</textarea>` : `<div class="prop-value readonly" style="white-space:pre-wrap">${esc(c.notes) || "—"}</div>`}
+          ${editable ? `<textarea class="notes" data-key="notes" placeholder="notatki, historia rozmów... (wklejone linki staną się klikalne poniżej)">${esc(c.notes || "")}</textarea>` : `<div class="prop-value readonly" style="white-space:pre-wrap">${esc(c.notes) || "—"}</div>`}
+          <div class="note-links" id="note-links">${renderNoteLinks(c.notes || "")}</div>
         </div>
 
         ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Usuń kartę</button></div>` : ""}
@@ -517,9 +535,17 @@ async function openModal(id) {
     if (notesEl) {
       const autoGrow = () => { notesEl.style.height = "auto"; notesEl.style.height = notesEl.scrollHeight + "px"; };
       notesEl.addEventListener("input", autoGrow);
+      // odświeżaj klikalne linki pod notatką na bieżąco (po wklejeniu/pisaniu)
+      notesEl.addEventListener("input", () => { const nl = $("#note-links"); if (nl) nl.innerHTML = renderNoteLinks(notesEl.value); });
       autoGrow();
     }
   }
+  // Link w notatce → jedno kliknięcie otwiera w nowej karcie (działa też w karcie tylko-do-odczytu)
+  const noteLinksEl = $("#note-links");
+  if (noteLinksEl) noteLinksEl.addEventListener("click", (e) => {
+    const b = e.target.closest(".note-link-chip"); if (!b) return;
+    const u = safeUrl(b.dataset.url || ""); if (u) window.open(u, "_blank", "noopener");
+  });
   const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askDeleteCard(c.id, delBtn));
   const askBtn = $("#ask-demo"); if (askBtn) askBtn.addEventListener("click", () => doRequestDemo(c.id));
   wireCommentBox(c.id);

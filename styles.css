@@ -235,6 +235,11 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 /* DUŻE pole na notatkę */
 .cm-notes { display: flex; flex-direction: column; flex: 1 1 auto; margin-top: 14px; }
 .modal.modal-full textarea.notes { min-height: 300px; flex: 1 1 auto; }
+/* klikalne linki wyłuskane z notatki (jeden klik → otwiera w nowej karcie) */
+.note-links { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; flex: 0 0 auto; }
+.note-links:empty { display: none; }
+.note-link-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; font-size: 12.5px; color: var(--accent); cursor: pointer; font-family: inherit; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-link-chip:hover { background: #fff; border-color: var(--accent); }
 /* PRAWA kolumna — komentarze/czat */
 .cm-right { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); background: var(--bg); }
 .cm-right-head { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); padding: 20px 20px 10px; flex: 0 0 auto; }
