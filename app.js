@@ -166,6 +166,9 @@ const fmtDate = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt
 const fmtDateTime = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return d; return dt.toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
 // follow_up = timestamp; pole datetime-local chce "YYYY-MM-DDTHH:MM"
 const toDTLocal = (v) => { if (!v) return ""; let s = String(v).replace(" ", "T"); if (s.length === 10) s += "T00:00"; return s.slice(0, 16); };
+// część dla pola <input type="date"> (YYYY-MM-DD) i opcjonalnego <input type="time"> (HH:MM; pusta gdy północ = brak godziny)
+const toDateInput = (v) => toDTLocal(v).slice(0, 10);
+const toTimeInput = (v) => { const t = toDTLocal(v).slice(11, 16); return (t && t !== "00:00") ? t : ""; };
 // chip follow-upu: pokaż godzinę gdy ustawiona (≠ północ), inaczej samą datę
 const fmtFollow = (v) => { if (!v) return ""; const s = String(v).replace(" ", "T"); const dt = new Date(s.length === 10 ? s + "T00:00" : s); if (isNaN(dt)) return fmtDate(v); return (dt.getHours() === 0 && dt.getMinutes() === 0) ? fmtDate(v) : dt.toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
 const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])));
@@ -491,7 +494,7 @@ async function openModal(id) {
           <div class="prop-label">◎ Status</div><div class="prop-value">${statusSelect}</div>
           <div class="prop-label">👤 Osoba</div><div class="prop-value">${ownerSelect}</div>
           <div class="prop-label">📅 Follow-up</div>
-          <div class="prop-value">${editable ? `<input type="datetime-local" data-key="follow_up" value="${toDTLocal(c.follow_up)}" />` : `<div class="prop-value readonly">${c.follow_up ? esc(fmtFollow(c.follow_up)) : "—"}</div>`}</div>
+          <div class="prop-value">${editable ? `<span class="follow-edit" style="display:flex;gap:8px;align-items:center"><input type="date" id="fu-date" value="${toDateInput(c.follow_up)}" style="flex:1 1 auto" /><input type="time" id="fu-time" value="${toTimeInput(c.follow_up)}" title="Godzina (opcjonalnie)" style="flex:0 0 auto;width:118px" /></span>` : `<div class="prop-value readonly">${c.follow_up ? esc(fmtFollow(c.follow_up)) : "—"}</div>`}</div>
           ${field("Email", "@", "email")}
           <div class="prop-label">🔗 Google Maps</div>
           <div class="prop-value maps-cell">
@@ -577,6 +580,17 @@ async function openModal(id) {
         el.addEventListener("input", () => saveDeb(el));
       }
     });
+    // Follow-up: data + OPCJONALNA godzina → jedno pole follow_up. Sama data zapisuje się od zera;
+    // dodanie godziny daje "YYYY-MM-DDTHH:MM"; wyczyszczenie daty czyści całość.
+    const fuDate = $("#fu-date"), fuTime = $("#fu-time");
+    if (fuDate && fuTime) {
+      const saveFollow = () => {
+        const d = fuDate.value, t = fuTime.value;
+        saveField(c.id, "follow_up", !d ? "" : (t ? `${d}T${t}` : d));
+      };
+      fuDate.addEventListener("change", saveFollow);
+      fuTime.addEventListener("change", saveFollow);
+    }
     // Notatka: widok z KLIKALNYMI linkami ↔ edycja. Klik w tekst → edytuj; klik w link → otwiera.
     const nView = $("#notes-view"), nEdit = $("#notes-edit");
     if (nView && nEdit) {
@@ -908,7 +922,10 @@ async function loadTeamAndMe(user) {
 
 function wireChrome() {
   $("#modal-close").addEventListener("click", closeModal);
-  $("#modal-overlay").addEventListener("click", (e) => { if (e.target.id === "modal-overlay") closeModal(); });
+  // zamknij klikiem w tło TYLKO gdy gest myszy zaczął się na tle (nie zamykaj, gdy ktoś zaznaczał tekst w karcie i puścił myszą poza nią)
+  let overlayMouseDownSelf = false;
+  $("#modal-overlay").addEventListener("mousedown", (e) => { overlayMouseDownSelf = (e.target.id === "modal-overlay"); });
+  $("#modal-overlay").addEventListener("click", (e) => { if (e.target.id === "modal-overlay" && overlayMouseDownSelf) closeModal(); overlayMouseDownSelf = false; });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !$("#modal-overlay").hidden) closeModal();
     if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); const s = $("#search"); if (s) { s.focus(); s.select(); } }
