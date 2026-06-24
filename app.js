@@ -302,6 +302,7 @@ function renderBoard() {
         <div class="column-head">
           <span class="col-pill" style="background:${s.bg};color:${s.fg}"><span class="dot" style="background:${s.dot}"></span>${esc(s.label)}</span>
           <span class="col-count">${cards.length}</span>
+          <button class="add-card" data-status="${s.key}" title="Dodaj kartę do etapu" aria-label="Dodaj kartę do etapu">＋</button>
         </div>
         <div class="cards" data-status="${s.key}">${cards.map(renderCard).join("")}</div>
         <button class="add-card-btn" data-status="${s.key}" style="color:${s.fg}">＋ Nowa karta</button>
@@ -310,7 +311,7 @@ function renderBoard() {
   }).join("");
 
   board.querySelectorAll(".card").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
-  board.querySelectorAll(".add-card-btn").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); newCard(el.dataset.status); }));
+  board.querySelectorAll(".add-card-btn, .add-card").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); newCard(el.dataset.status); }));
   wireDragAndDrop();
   if (animate) flipAnimate(board, prevRects);
   state.skipFlipId = null; state.animateNextRender = false;
