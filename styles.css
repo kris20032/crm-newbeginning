@@ -274,6 +274,29 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .cm-props .prop-value { padding: 1px 0; }
 .cm-props .prop-value input, .cm-props .prop-value select { padding: 5px 8px; font-size: 13px; }
 .cm-props .prop-value.readonly { padding: 5px 8px; font-size: 13px; }
+/* ── Nowy układ karty: KONTAKT (lewo) | META (prawo) ── */
+.cm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 30px; margin: 16px 0 4px; align-items: start; }
+.cm-col { display: flex; flex-direction: column; }
+.cm-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.field-label { font-size: 11.5px; color: var(--ink-soft); display: flex; align-items: center; gap: 5px; }
+.cm-field input, .cm-field select { font-size: 13.5px; border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; font-family: inherit; background: var(--panel); color: var(--ink); box-sizing: border-box; }
+.cm-field > input, .cm-field > select { width: 100%; }
+.cm-field input:hover, .cm-field select:hover { background: var(--bg); }
+.cm-field input:focus, .cm-field select:focus { outline: none; border-color: var(--accent); background: #fff; }
+.cm-field .prop-value.readonly { padding: 7px 2px; font-size: 13.5px; color: var(--ink); }
+.cm-field .maps-cell, .cm-field .demo-cell { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cm-field .maps-cell input, .cm-field .demo-cell input { flex: 1 1 auto; min-width: 0; }
+.cm-field .demo-cell .demo-input { flex: 1 1 100%; }
+.cm-field .follow-edit { display: flex; gap: 8px; }
+.cm-field .follow-edit input[type="date"] { flex: 1 1 auto; }
+.cm-field .follow-edit input[type="time"] { flex: 0 0 auto; width: 108px; }
+.demo-link { font-weight: 500; white-space: nowrap; }
+/* Ocena gwiazdkowa 1–3 */
+.stars { display: inline-flex; gap: 5px; align-items: center; }
+.stars .star { background: transparent; border: none; padding: 0; cursor: pointer; font-size: 24px; line-height: 1; color: #d7d6d2; font-family: inherit; transition: color .12s ease, transform .1s ease; }
+.stars button.star:hover { transform: scale(1.12); }
+.stars .star.on { color: #e0a93c; }
+.stars.readonly .star { cursor: default; }
 /* DUŻE pole na notatkę */
 .cm-notes { display: flex; flex-direction: column; flex: 1 1 auto; margin-top: 10px; }
 .modal.modal-full textarea.notes { min-height: 200px; flex: 1 1 auto; }

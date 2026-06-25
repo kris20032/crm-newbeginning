@@ -246,12 +246,20 @@ const dueState = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(d
 const safeUrl = (u) => { try { const x = new URL(u); return (x.protocol === "http:" || x.protocol === "https:") ? u : ""; } catch { return ""; } };
 const debounce = (fn, ms) => { let h; return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); }; };
 const DEMO_FLAG_HTML = `<span class="demo-flag">📩 Poproszono o demo</span>`;
-const DEMO_DONE_HTML = `<span class="demo-flag demo-flag-done">✅ Demo gotowe</span>`;
-// 3 stany sekcji demo: jest link do dema → „Demo gotowe"; poproszono → znacznik; inaczej → przycisk „Poproś o demo"
-function demoRowHTML(c) {
-  if (c.demo_url && String(c.demo_url).trim()) return DEMO_DONE_HTML;
-  if (c.demo_requested) return DEMO_FLAG_HTML;
-  return `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`;
+// Pole demo: gdy jest link → KLIKALNY link + odnośniki (otwórz/kopiuj); inaczej → przycisk „Poproś o demo"
+// (+ „🔗 link", który odsłania pole do wklejenia gotowego linku). Po wklejeniu zmienia się w link i odnośniki.
+function demoFieldHTML(c, editable) {
+  const demoSafe = safeUrl(c.demo_url);
+  if (demoSafe) {
+    return `<a class="maps-link demo-link" href="${esc(demoSafe)}" target="_blank" rel="noopener">🌐 otwórz demo</a>
+      <button type="button" class="maps-btn" id="demo-copy" title="Kopiuj link do dema">⧉ kopiuj</button>
+      ${editable ? `<button type="button" class="maps-btn" id="demo-edit" title="Zmień / usuń link">✎</button>
+      <input data-key="demo_url" id="demo-input" class="demo-input" value="${esc(c.demo_url || "")}" placeholder="link do dema" hidden />` : ""}`;
+  }
+  if (!editable) return `<span class="readonly">—</span>`;
+  return `<span class="demo-row">${c.demo_requested ? DEMO_FLAG_HTML : `<button type="button" class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`}</span>
+    <button type="button" class="maps-btn" id="demo-add" title="Wklej gotowy link do dema">🔗 link</button>
+    <input data-key="demo_url" id="demo-input" class="demo-input" value="" placeholder="wklej link do dema" hidden />`;
 }
 const reduceMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
 // FLIP: płynne przestawianie kart (rejestruj pozycje przed przerysowaniem, animuj po)
@@ -578,53 +586,70 @@ async function openModal(id) {
     ? `<select data-key="owner">${ownerOpts.map((o) => `<option value="${esc(o)}" ${c.owner === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
     : `<div class="prop-value readonly">${esc(c.owner)}</div>`;
   const safe = safeUrl(c.google_maps);
-  const maps = safe ? `<a href="${esc(safe)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : "—";
-  const demoSafe = safeUrl(c.demo_url);
+  const stars = Math.max(0, Math.min(3, parseInt(c.quality, 10) || 0));   // ocena 1–3 (w kolumnie quality)
 
   $("#modal-body").innerHTML = `
     <div class="cm">
       <div class="cm-left">
-        <div class="cm-top">
-          ${editable ? `<input class="title-input cm-name" data-key="name" value="${esc(c.name)}" placeholder="Imię i nazwisko" />` : `<h2 class="cm-name">${esc(c.name)}</h2>`}
-          <div class="cm-keyfields">
-            <div class="cm-kf">
-              <span class="cm-kf-label">🏢 Nazwa firmy</span>
+        ${editable ? `<input class="title-input cm-name" data-key="name" value="${esc(c.name)}" placeholder="Imię i nazwisko" />` : `<h2 class="cm-name">${esc(c.name)}</h2>`}
+        ${!editable ? `<div class="readonly-note">To karta: ${esc(c.owner)}. Pól nie edytujesz, ale możesz dodać komentarz (z @oznaczeniem).</div>` : ""}
+
+        <div class="cm-grid">
+          <div class="cm-col cm-contact">
+            <div class="cm-field">
+              <span class="field-label">🏢 Nazwa firmy</span>
               ${editable ? `<input data-key="company" value="${esc(c.company || "")}" placeholder="Nazwa firmy" />` : `<div class="prop-value readonly">${esc(c.company) || "—"}</div>`}
             </div>
-            <div class="cm-kf">
-              <span class="cm-kf-label">📞 Telefon</span>
+            <div class="cm-field">
+              <span class="field-label">📞 Telefon</span>
               ${editable ? `<input data-key="phone" value="${esc(c.phone || "")}" placeholder="Telefon" />` : `<div class="prop-value readonly">${esc(c.phone) || "—"}</div>`}
             </div>
+            <div class="cm-field">
+              <span class="field-label">@ Email</span>
+              ${editable ? `<input data-key="email" value="${esc(c.email || "")}" placeholder="Email" />` : `<div class="prop-value readonly">${esc(c.email) || "—"}</div>`}
+            </div>
+            <div class="cm-field">
+              <span class="field-label">🔗 Google Maps</span>
+              <div class="maps-cell">
+                ${editable
+                  ? `<input data-key="google_maps" id="maps-input" value="${esc(c.google_maps || "")}" placeholder="link" />`
+                  : (safe ? `<a class="maps-link" href="${esc(safe)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : `<span class="readonly">—</span>`)}
+                ${(c.google_maps || "").trim()
+                  ? `${editable ? `<button type="button" class="maps-btn" id="maps-open" title="Otwórz wizytówkę Google">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="maps-copy" title="Kopiuj link">⧉ kopiuj</button>`
+                  : ""}
+              </div>
+            </div>
           </div>
-          <div class="modal-sub">${editable ? "zmiany zapisują się automatycznie" : "karta innej osoby — możesz komentować"}</div>
-          ${!editable ? `<div class="readonly-note">To karta: ${esc(c.owner)}. Pól nie edytujesz, ale możesz dodać komentarz (z @oznaczeniem).</div>` : ""}
-        </div>
 
-        <div class="props cm-props">
-          ${field("Quality", "🔥", "quality")}
-          <div class="prop-label">◎ Status</div><div class="prop-value">${statusSelect}</div>
-          <div class="prop-label">👤 Osoba</div><div class="prop-value">${ownerSelect}</div>
-          <div class="prop-label">📅 Follow-up</div>
-          <div class="prop-value">${editable ? `<span class="follow-edit" style="display:flex;gap:8px;align-items:center"><input type="date" id="fu-date" value="${toDateInput(c.follow_up)}" style="flex:1 1 auto" /><input type="time" id="fu-time" value="${toTimeInput(c.follow_up)}" title="Godzina (opcjonalnie)" style="flex:0 0 auto;width:118px" /></span>` : `<div class="prop-value readonly">${c.follow_up ? esc(fmtFollow(c.follow_up)) : "—"}</div>`}</div>
-          ${field("Email", "@", "email")}
-          <div class="prop-label">🔗 Google Maps</div>
-          <div class="prop-value maps-cell">
-            ${editable
-              ? `<input data-key="google_maps" id="maps-input" value="${esc(c.google_maps || "")}" placeholder="link" />`
-              : (safe ? `<a class="maps-link" href="${esc(safe)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : `<span class="readonly">—</span>`)}
-            ${(c.google_maps || "").trim()
-              ? `${editable ? `<button type="button" class="maps-btn" id="maps-open" title="Otwórz wizytówkę Google">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="maps-copy" title="Kopiuj link">⧉ kopiuj</button>`
-              : ""}
-          </div>
-          <div class="prop-label">🌐 Demo (link)</div>
-          <div class="prop-value maps-cell">
-            ${editable
-              ? `<input data-key="demo_url" id="demo-input" value="${esc(c.demo_url || "")}" placeholder="link do dema" />`
-              : (demoSafe ? `<a class="maps-link" href="${esc(demoSafe)}" target="_blank" rel="noopener">otwórz demo</a>` : `<span class="readonly">—</span>`)}
-            ${(c.demo_url || "").trim()
-              ? `${editable ? `<button type="button" class="maps-btn" id="demo-open" title="Otwórz demo">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="demo-copy" title="Kopiuj link do dema">⧉ kopiuj</button>`
-              : ""}
-            <span class="demo-row">${demoRowHTML(c)}</span>
+          <div class="cm-col cm-meta">
+            <div class="cm-field">
+              <span class="field-label">⭐ Ocena</span>
+              ${editable
+                ? `<div class="stars" id="stars">${[1,2,3].map((n) => `<button type="button" class="star${n <= stars ? " on" : ""}" data-val="${n}" title="${n}/3" aria-label="Ocena ${n} z 3">★</button>`).join("")}</div>`
+                : `<div class="stars readonly">${[1,2,3].map((n) => `<span class="star${n <= stars ? " on" : ""}">★</span>`).join("")}</div>`}
+            </div>
+            <div class="cm-field">
+              <span class="field-label">◎ Status</span>
+              ${statusSelect}
+            </div>
+            <div class="cm-field">
+              <span class="field-label">👤 Handlowiec</span>
+              ${ownerSelect}
+            </div>
+            <div class="cm-field">
+              <span class="field-label">📅 Follow-up</span>
+              ${editable
+                ? `<span class="follow-edit"><input type="date" id="fu-date" value="${toDateInput(c.follow_up)}" /><input type="time" id="fu-time" value="${toTimeInput(c.follow_up)}" title="Godzina (opcjonalnie)" /></span>`
+                : `<div class="prop-value readonly">${c.follow_up ? esc(fmtFollow(c.follow_up)) : "—"}</div>`}
+            </div>
+            <div class="cm-field">
+              <span class="field-label">✉️ Wiadomość</span>
+              ${editable ? `<input data-key="follow_up_note" value="${esc(c.follow_up_note || "")}" placeholder="np. o czym przypomnieć przy follow-upie" />` : `<div class="prop-value readonly">${esc(c.follow_up_note) || "—"}</div>`}
+            </div>
+            <div class="cm-field">
+              <span class="field-label">🌐 Demo</span>
+              <div class="demo-cell maps-cell" id="demo-cell">${demoFieldHTML(c, editable)}</div>
+            </div>
           </div>
         </div>
 
@@ -677,11 +702,11 @@ async function openModal(id) {
     });
   };
   wireLink("maps-open", "maps-copy", "maps-input", c.google_maps);
-  wireLink("demo-open", "demo-copy", "demo-input", c.demo_url);
 
   if (editable) {
     const saveDeb = debounce((el) => saveField(c.id, el.dataset.key, el.value), 600);
     document.querySelectorAll("#modal-body [data-key]").forEach((el) => {
+      if (el.id === "demo-input") return;   // pole demo ma własne wiązanie (wireDemoCell) — bez podwójnego zapisu
       el.addEventListener("change", () => saveField(c.id, el.dataset.key, el.value));
       // auto-zapis NA BIEŻĄCO przy pisaniu (inaczej tekst ginie, gdy zamkniesz modal myszą)
       if (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.type !== "date" && el.type !== "datetime-local")) {
@@ -714,9 +739,18 @@ async function openModal(id) {
         nEdit.hidden = true; nView.hidden = false;
       });
     }
+    // Ocena gwiazdkowa (1–3, w kolumnie quality): klik ustawia ocenę; klik w aktualną najwyższą gwiazdkę → zeruje.
+    const starsEl = $("#stars");
+    if (starsEl) starsEl.querySelectorAll(".star").forEach((b) => b.addEventListener("click", () => {
+      const val = Number(b.dataset.val);
+      const cur = Math.max(0, Math.min(3, parseInt(c.quality, 10) || 0));
+      const next = (val === cur) ? 0 : val;
+      starsEl.querySelectorAll(".star").forEach((s) => s.classList.toggle("on", Number(s.dataset.val) <= next));
+      saveField(c.id, "quality", next ? String(next) : "");
+    }));
   }
   const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askArchiveCard(c.id, delBtn));
-  const askBtn = $("#ask-demo"); if (askBtn) askBtn.addEventListener("click", () => doRequestDemo(c.id));
+  wireDemoCell(c.id);
   wireCommentBox(c.id);
 }
 
@@ -735,11 +769,11 @@ async function saveField(id, key, value) {
       if (v) {
         api.markDemoDone(id).then(() => {
           c.demo_requested = false;               // prośba załatwiona (księga: done), znacznik 📩 gaśnie
-          refreshDemoRow(id);                      // sekcja demo → „✅ Demo gotowe"
+          refreshDemoCell(id);                     // pole demo → link + odnośniki
           updateCardInPlace(c);
         }, (e) => console.error("markDemoDone", e));
       } else {
-        refreshDemoRow(id);                        // wyczyszczono link → wróć do prośby/przycisku
+        refreshDemoCell(id);                       // wyczyszczono link → wróć do prośby/przycisku
         updateCardInPlace(c);
       }
     }
@@ -825,14 +859,31 @@ function wireCommentBox(clientId) {
   });
 }
 
-// przerysuj wiersz demo wg aktualnego stanu karty (przycisk / „Poproszono" / „✅ Demo gotowe") i podłącz przycisk
-function refreshDemoRow(id) {
-  const row = $(".demo-row");
-  if (!row || state.openCardId !== id) return;
+// podłącz przyciski pola demo (kopiuj / otwórz-edycję / poproś o demo / wklejenie linku)
+function wireDemoCell(id) {
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c) return;
-  row.innerHTML = demoRowHTML(c);
+  const copyBtn = $("#demo-copy");
+  if (copyBtn) copyBtn.addEventListener("click", async () => {
+    const url = (c.demo_url || "").trim(); if (!url) return;
+    try { await navigator.clipboard.writeText(url); } catch {}
+    const old = copyBtn.textContent; copyBtn.textContent = "✓ skopiowano"; copyBtn.classList.add("ok");
+    setTimeout(() => { copyBtn.textContent = old; copyBtn.classList.remove("ok"); }, 1300);
+  });
+  const reveal = () => { const inp = $("#demo-input"); if (inp) { inp.hidden = false; inp.focus(); inp.select(); } };
+  const editBtn = $("#demo-edit"); if (editBtn) editBtn.addEventListener("click", reveal);
+  const addBtn = $("#demo-add"); if (addBtn) addBtn.addEventListener("click", reveal);
   const askBtn = $("#ask-demo"); if (askBtn) askBtn.addEventListener("click", () => doRequestDemo(id));
+  const inp = $("#demo-input"); if (inp) inp.addEventListener("change", () => saveField(id, "demo_url", inp.value));
+}
+// przerysuj CAŁE pole demo wg aktualnego stanu karty (przycisk ↔ link + odnośniki) i podłącz na nowo
+function refreshDemoCell(id) {
+  const cell = $("#demo-cell");
+  if (!cell || state.openCardId !== id) return;
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  cell.innerHTML = demoFieldHTML(c, canEdit(c));
+  wireDemoCell(id);
 }
 
 async function doRequestDemo(id) {
@@ -841,7 +892,7 @@ async function doRequestDemo(id) {
   try {
     await api.requestDemo(id);
     c.demo_requested = true;          // ustaw flagę dopiero PO sukcesie (przy błędzie nic nie miga)
-    refreshDemoRow(id);
+    refreshDemoCell(id);
     updateCardInPlace(c); toast("Zgłoszono prośbę o demo");
   } catch (err) { console.error(err); toast("Nie udało się zgłosić"); }
 }
@@ -921,7 +972,7 @@ function cleanupEmptyNewCard(id) {
   if (!c || c.deleted_at) return;   // już w Koszu (np. ktoś ją „usunął") → nie kasuj trwale, zostaw w Koszu
   // „pusta" = ŻADNE pole nie wypełnione (w tym quality/maps/follow_up) — żeby nie skasować karty z samym linkiem/datą
   const empty = (c.name === "Nowy klient" || !c.name) && !c.company && !c.phone && !c.email && !c.notes
-    && !c.quality && !c.google_maps && !c.demo_url && !c.follow_up && !(state.commentsByClient[id] || []).length;
+    && !c.quality && !c.google_maps && !c.demo_url && !c.follow_up && !c.follow_up_note && !(state.commentsByClient[id] || []).length;
   if (!empty) return;
   // usuń z ekranu DOPIERO po potwierdzeniu z bazy — inaczej przy błędzie pusta karta „odrasta" przy odświeżeniu
   api.deleteClient(id).then(() => {

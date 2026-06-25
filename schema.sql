@@ -85,3 +85,10 @@ alter publication supabase_realtime add table demo_requests;
 -- ============================================================
 alter table clients add column if not exists deleted_at timestamptz default null;
 create index if not exists idx_clients_deleted_at on clients(deleted_at);
+
+-- ============================================================
+--  v4 (nowa wersja karty): ocena gwiazdkowa + wiadomość do follow-upu
+--  - kolumna 'quality' przechowuje teraz ocenę 1–3 (gwiazdki) zamiast tekstu;
+--  - 'follow_up_note' = krótka wiadomość/przypomnienie do follow-upu.
+-- ============================================================
+alter table clients add column if not exists follow_up_note text;
