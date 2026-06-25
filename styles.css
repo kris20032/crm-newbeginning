@@ -246,9 +246,9 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 /* ===== Karta klienta NA CAŁY EKRAN (dwukolumnowa: lewo=dane+notatka, prawo=komentarze) =====
    Włącza się TYLKO dla głównego widoku karty (klasa .modal-full dodawana w openModal);
    Kosz i proste dialogi zostają w małym modalu. */
-.modal-overlay:has(.modal-full) { align-items: center; padding: 24px 16px; }
+.modal-overlay:has(.modal-full) { align-items: stretch; padding: 0; }
 .modal.modal-full {
-  max-width: 1180px; width: 95vw; height: 88vh; max-height: 900px;
+  max-width: 100vw; width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0;
   padding: 0; display: flex; flex-direction: column; overflow: hidden;
 }
 .modal.modal-full #modal-body { flex: 1 1 auto; min-height: 0; display: flex; width: 100%; }
@@ -291,7 +291,7 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .cm-right .comments-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 20px; margin: 0; }
 .cm-right .add-comment { flex: 0 0 auto; padding: 12px 20px 16px; margin: 0; border-top: 1px solid var(--line); background: var(--panel); }
 @media (max-width: 860px) {
-  .modal.modal-full { height: 92vh; }
+  .modal.modal-full { height: 100vh; max-height: 100vh; }
   .cm { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
   .cm-right { border-left: none; border-top: 1px solid var(--line); max-height: 42vh; }
 }
@@ -331,6 +331,7 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .demo-btn { color: #8a5a00; border-color: #e8d39a; }
 .demo-btn:hover { background: #fbf3e0; }
 .demo-flag { font-size: 13px; color: #8a5a00; background: #fbe7c9; padding: 6px 10px; border-radius: 8px; display: inline-block; }
+.demo-flag.demo-flag-done { color: #2e6b3e; background: #d7eede; }
 
 .no-comments { color: var(--ink-soft); font-size: 13px; padding: 6px 0; }
 .mention { color: var(--accent); font-weight: 600; }

@@ -246,6 +246,13 @@ const dueState = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(d
 const safeUrl = (u) => { try { const x = new URL(u); return (x.protocol === "http:" || x.protocol === "https:") ? u : ""; } catch { return ""; } };
 const debounce = (fn, ms) => { let h; return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); }; };
 const DEMO_FLAG_HTML = `<span class="demo-flag">📩 Poproszono o demo</span>`;
+const DEMO_DONE_HTML = `<span class="demo-flag demo-flag-done">✅ Demo gotowe</span>`;
+// 3 stany sekcji demo: jest link do dema → „Demo gotowe"; poproszono → znacznik; inaczej → przycisk „Poproś o demo"
+function demoRowHTML(c) {
+  if (c.demo_url && String(c.demo_url).trim()) return DEMO_DONE_HTML;
+  if (c.demo_requested) return DEMO_FLAG_HTML;
+  return `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`;
+}
 const reduceMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
 // FLIP: płynne przestawianie kart (rejestruj pozycje przed przerysowaniem, animuj po)
 function flipAnimate(board, prevRects) {
@@ -619,9 +626,7 @@ async function openModal(id) {
               : ""}
           </div>
           <div class="prop-label"></div>
-          <div class="prop-value demo-row">
-            ${c.demo_requested ? DEMO_FLAG_HTML : `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`}
-          </div>
+          <div class="prop-value demo-row">${demoRowHTML(c)}</div>
         </div>
 
         <div class="cm-notes">
@@ -726,15 +731,18 @@ async function saveField(id, key, value) {
   try {
     await api.updateClient(id, { [key]: v });
     flashSaved();
-    // Wklejono link do dema → prośba „załatwiona": zamknij ją w księdze (status=done) i zgaś chip.
-    if (key === "demo_url" && v) {
-      api.markDemoDone(id).then(() => {
-        c.demo_requested = false;                 // lokalnie zgaś znacznik (chip 📩 znika)
-        const row = $(".demo-row");
-        if (row && state.openCardId === id) row.innerHTML = `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`;
-        const askBtn = $("#ask-demo"); if (askBtn) askBtn.addEventListener("click", () => doRequestDemo(id));
+    // Zmiana linku do dema → odśwież wiersz demo: link gotowy → „✅ Demo gotowe"; wyczyszczony → wróć do prośby/przycisku.
+    if (key === "demo_url") {
+      if (v) {
+        api.markDemoDone(id).then(() => {
+          c.demo_requested = false;               // prośba załatwiona (księga: done), znacznik 📩 gaśnie
+          refreshDemoRow(id);                      // sekcja demo → „✅ Demo gotowe"
+          updateCardInPlace(c);
+        }, (e) => console.error("markDemoDone", e));
+      } else {
+        refreshDemoRow(id);                        // wyczyszczono link → wróć do prośby/przycisku
         updateCardInPlace(c);
-      }, (e) => console.error("markDemoDone", e));
+      }
     }
     if (key === "owner") {
       // przepisanie właściciela: bez przebudowy modala (chroni niezapisany tekst w innych polach)
@@ -818,14 +826,23 @@ function wireCommentBox(clientId) {
   });
 }
 
+// przerysuj wiersz demo wg aktualnego stanu karty (przycisk / „Poproszono" / „✅ Demo gotowe") i podłącz przycisk
+function refreshDemoRow(id) {
+  const row = $(".demo-row");
+  if (!row || state.openCardId !== id) return;
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  row.innerHTML = demoRowHTML(c);
+  const askBtn = $("#ask-demo"); if (askBtn) askBtn.addEventListener("click", () => doRequestDemo(id));
+}
+
 async function doRequestDemo(id) {
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c) return;
   try {
     await api.requestDemo(id);
     c.demo_requested = true;          // ustaw flagę dopiero PO sukcesie (przy błędzie nic nie miga)
-    const row = $(".demo-row");
-    if (row) row.innerHTML = DEMO_FLAG_HTML;
+    refreshDemoRow(id);
     updateCardInPlace(c); toast("Zgłoszono prośbę o demo");
   } catch (err) { console.error(err); toast("Nie udało się zgłosić"); }
 }
