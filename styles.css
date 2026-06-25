@@ -326,7 +326,8 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .chip-demo { color: #8a5a00; background: #fbe7c9; padding: 1px 6px; border-radius: 10px; }
 .chip-demo-done { color: #2e6b3e; background: #d7eede; padding: 1px 6px; border-radius: 10px; }
 
-.demo-row { margin: 10px 0 0; }
+/* „Poproś o demo" siedzi w kolumnie wartości, tuż pod polem „Demo (link)" */
+.demo-row { margin: 4px 0 2px; }
 .demo-btn { color: #8a5a00; border-color: #e8d39a; }
 .demo-btn:hover { background: #fbf3e0; }
 .demo-flag { font-size: 13px; color: #8a5a00; background: #fbe7c9; padding: 6px 10px; border-radius: 8px; display: inline-block; }

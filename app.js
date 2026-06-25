@@ -618,10 +618,10 @@ async function openModal(id) {
               ? `${editable ? `<button type="button" class="maps-btn" id="demo-open" title="Otwórz demo">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="demo-copy" title="Kopiuj link do dema">⧉ kopiuj</button>`
               : ""}
           </div>
-        </div>
-
-        <div class="demo-row">
-          ${c.demo_requested ? DEMO_FLAG_HTML : `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`}
+          <div class="prop-label"></div>
+          <div class="prop-value demo-row">
+            ${c.demo_requested ? DEMO_FLAG_HTML : `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`}
+          </div>
         </div>
 
         <div class="cm-notes">
