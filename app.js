@@ -1,6 +1,11 @@
 /* ============================================================
-   CRM — New Beginning   (vanilla JS, bez budowania)   v26
+   CRM — New Beginning   (vanilla JS, bez budowania)   v36
    Realtime + auto-zapis + @oznaczenia + "Poproś o demo" + wyszukiwarka.
+   v36 (2026-06-25): widoki per-osoba — każdy domyślnie widzi TYLKO swoje karty;
+     • panel zespołu (👥 Pokaż) = wybór czyje karty widać: jedna / kilka / wszyscy (dla każdego);
+     • tryby widoku rozdzielone od właścicieli: Tablica / Na dziś-zaległe / Archiwum;
+     • "Kosz" → "Archiwum" (chowanie z tablicy, odwracalne); "Usuń kartę" → "Przenieś do archiwum";
+     • etap 'archiwum' usunięty z lejka, stare karty zmigrowane do Archiwum.
    v26 (2026-06-22): ujednolicony przepływ demo —
      • demo_requests = ŹRÓDŁO PRAWDY (księga: kto/kiedy/karta/status),
        flaga demo_requested = tylko ZNACZNIK chipa na tablicy;
@@ -16,9 +21,10 @@ const STATUSES = [
   { key: "po_spotkaniu",  label: "Sprzedaż",               dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f", tint: "#fdf6f5" },
   { key: "oferta",        label: "Oferta/umowa",           dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a", tint: "#fdfbf2" },
   { key: "konwersja",     label: "Konwersja",              dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e", tint: "#f5faf4" },
-  { key: "archiwum",      label: "Archiwum",               dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f", tint: "#f8f8f7" },
 ];
 const statusOf = (k) => STATUSES.find((s) => s.key === k) || STATUSES[0];
+// status spoza lejka (np. dawny etap 'archiwum') traktuj jak 'lead' — żeby karta nigdy nie zniknęła z tablicy
+const normStatus = (c) => { const k = c && c.status; return STATUSES.some((s) => s.key === k) ? k : "lead"; };
 
 /* ---------- Zespół (dynamiczny) ---------- */
 const DEMO_OWNERS = ["Krzysztof", "Marceli", "Szymon", "Bartek", "Piotr"];
@@ -34,9 +40,49 @@ const initials = (name) => (name || "?").trim().charAt(0).toUpperCase();
 /* ---------- Stan ---------- */
 const state = {
   clients: [], commentsByClient: {}, team: [],
-  currentTab: "all", currentUser: "Krzysztof", search: "", live: false, openCardId: null, openCardWasTrashed: false, newCardIds: new Set(), skipFlipId: null, animateNextRender: false,
+  viewMode: "board",        // tryb widoku: "board" | "due" | "archive"
+  owners: null,             // Set wybranych właścicieli (panel zespołu); null → traktuj jak [zalogowany]
+  ownersAll: false,         // sentinel „Wszyscy" — rozwija się dynamicznie do bieżącego zespołu (nie zamraża listy)
+  ownerPopOpen: false,      // czy rozwinięty panel zespołu (poza DOM, by przeżyć przebudowę #tabs przez realtime)
+  currentUser: "Krzysztof", search: "", live: false, openCardId: null, openCardWasArchived: false, newCardIds: new Set(), skipFlipId: null, animateNextRender: false,
   suppressUntil: 0, lastSnap: "",
 };
+
+/* ---------- Panel zespołu: czyje karty widać (domyślnie tylko moje) ---------- */
+// pełna lista właścicieli = zespół ∪ faktyczni właściciele kart (łapie „sieroty": owner spoza team_members)
+function allOwners() {
+  return Array.from(new Set([...(state.team || []), ...state.clients.map((c) => c.owner)].filter(Boolean)));
+}
+function selectedOwnersSet() {
+  if (state.ownersAll) { const all = allOwners(); return new Set(all.length ? all : [state.currentUser]); }
+  if (state.owners && state.owners.size) return state.owners;
+  return new Set([state.currentUser]);
+}
+function ownerSummary() {
+  if (state.ownersAll) return "wszyscy";
+  const names = [...selectedOwnersSet()];
+  if (names.length === 1) return names[0] === state.currentUser ? "tylko ja" : names[0];
+  if (names.length <= 2) return names.join(", ");
+  return names.length + " osób";
+}
+function ownersKey() { return "crm.owners." + (state.currentUser || "?"); }
+function persistOwners() {
+  try { localStorage.setItem(ownersKey(), JSON.stringify(state.ownersAll ? ["*"] : [...selectedOwnersSet()])); } catch {}
+}
+function loadOwners() {   // → { all: bool, owners: Set }
+  try {
+    const raw = localStorage.getItem(ownersKey());
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        if (arr.includes("*")) return { all: true, owners: new Set([state.currentUser]) };
+        const ok = arr.filter((n) => n === state.currentUser || (state.team || []).includes(n));
+        if (ok.length) return { all: false, owners: new Set(ok) };
+      }
+    }
+  } catch {}
+  return { all: false, owners: new Set([state.currentUser]) };
+}
 
 /* ============================================================
    WARSTWA DANYCH (demo ↔ Supabase)
@@ -71,10 +117,10 @@ const api = {
     if (error) throw error; holdRefresh(); return data;
   },
   async deleteClient(id) { if (!LIVE) return; holdRefresh(); const { error } = await sb.from("clients").delete().eq("id", id); if (error) throw error; holdRefresh(); },
-  // Kosz: „usunięcie" = oznaczenie znacznikiem (odwracalne); przywrócenie = wyczyszczenie znacznika
+  // Archiwum: „przeniesienie" = oznaczenie znacznikiem (odwracalne); przywrócenie = wyczyszczenie znacznika
   async softDeleteClient(id) { return api.updateClient(id, { deleted_at: new Date().toISOString() }); },
   async restoreClient(id) { return api.updateClient(id, { deleted_at: null }); },
-  // TRWAŁE usunięcie z Kosza — warunkowe: skasuje TYLKO jeśli karta nadal jest w Koszu (deleted_at != null).
+  // TRWAŁE usunięcie z Archiwum — warunkowe: skasuje TYLKO jeśli karta nadal jest w Archiwum (deleted_at != null).
   // Dzięki temu wyścig „ktoś inny przywrócił w międzyczasie" nie skasuje żywej karty. Zwraca true gdy faktycznie usunięto.
   async purgeClient(id) {
     if (!LIVE) { return true; }
@@ -233,35 +279,92 @@ function flashCard(id) {
    ============================================================ */
 function renderTabs() {
   const tabs = $("#tabs");
-  const active = activeClients();
-  const counts = {};
-  active.forEach((c) => { counts[c.owner] = (counts[c.owner] || 0) + 1; });
+  const sel = selectedOwnersSet();
+  const mine = state.clients.filter((c) => sel.has(c.owner));      // tylko wybrani właściciele (domyślnie: ja)
+  const active = mine.filter((c) => !c.deleted_at);
   const dueCount = active.filter((c) => isDueSoon(c.follow_up)).length;
-  const trashCount = state.clients.length - active.length;
-  const items = [{ key: "all", label: "Wszyscy", count: active.length }]
-    .concat(state.team.map((o) => ({ key: o, label: o, count: counts[o] || 0 })))
-    .concat([{ key: "__due", label: "📅 Na dziś / zaległe", count: dueCount }])
-    .concat([{ key: "__trash", label: "🗑 Kosz", count: trashCount }]);
-  tabs.innerHTML = items.map((t) =>
-    `<button class="tab ${state.currentTab === t.key ? "active" : ""}" data-tab="${esc(t.key)}">${esc(t.label)}<span class="count">${t.count}</span></button>`).join("");
-  tabs.querySelectorAll(".tab").forEach((el) =>
-    el.addEventListener("click", () => { state.currentTab = el.dataset.tab; renderTabs(); renderBoard(); }));
+  const archiveCount = mine.length - active.length;
+  const modes = [
+    { key: "board",   label: "Tablica",               count: active.length },
+    { key: "due",     label: "📅 Na dziś / zaległe",  count: dueCount },
+    { key: "archive", label: "🗄 Archiwum",           count: archiveCount },
+  ];
+  tabs.innerHTML =
+    `<div class="tab-modes">${modes.map((m) =>
+      `<button class="tab ${state.viewMode === m.key ? "active" : ""}" data-mode="${m.key}">${esc(m.label)}<span class="count">${m.count}</span></button>`).join("")}</div>
+     <div class="owner-panel">
+       <button class="owner-toggle" id="owner-toggle" aria-haspopup="true" title="Wybierz, czyje karty widać">👥 Pokaż: <strong>${esc(ownerSummary())}</strong> <span class="caret">▾</span></button>
+       <div class="owner-pop" id="owner-pop" hidden></div>
+     </div>`;
+  tabs.querySelectorAll(".tab[data-mode]").forEach((el) =>
+    el.addEventListener("click", () => { state.viewMode = el.dataset.mode; renderTabs(); renderBoard(); }));
+  wireOwnerPanel();
+}
+
+/* Panel zespołu (rozwijany): klik = dodaj/usuń osobę z widoku; „Wszyscy" = wszyscy naraz (dynamicznie). Dostępny dla każdego. */
+function wireOwnerPanel() {
+  const toggle = $("#owner-toggle"), pop = $("#owner-pop");
+  if (!toggle || !pop) return;
+  const sel = selectedOwnersSet();
+  const people = allOwners().length ? allOwners() : [state.currentUser];   // unia: zespół + faktyczni właściciele kart (nie gubimy „sierot")
+  const allOn = !!state.ownersAll;
+  pop.innerHTML =
+    `<button class="owner-opt owner-all ${allOn ? "on" : ""}" data-all="1"><span class="owner-check">${allOn ? "✓" : ""}</span> Wszyscy</button>
+     <div class="owner-sep"></div>
+     ${people.map((n) => {
+       const on = sel.has(n);
+       const me = n === state.currentUser ? ` <span class="owner-me">(ja)</span>` : "";
+       return `<button class="owner-opt ${on ? "on" : ""}" data-name="${esc(n)}"><span class="owner-check">${on ? "✓" : ""}</span><span class="avatar sm" style="background:${ownerColor(n)}">${initials(n)}</span> ${esc(n)}${me}</button>`;
+     }).join("")}`;
+  pop.hidden = !state.ownerPopOpen;                            // odtwórz stan otwarcia po przebudowie (#tabs przerysowuje realtime)
+  toggle.setAttribute("aria-expanded", String(!!state.ownerPopOpen));
+  toggle.onclick = (e) => {
+    e.stopPropagation();
+    const willOpen = pop.hidden;
+    pop.hidden = !willOpen; state.ownerPopOpen = willOpen;
+    toggle.setAttribute("aria-expanded", String(willOpen));
+  };
+  pop.querySelectorAll(".owner-opt").forEach((opt) => opt.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (opt.dataset.all) {
+      if (allOn) { state.ownersAll = false; state.owners = new Set([state.currentUser]); }   // „Wszyscy" wyłączone → wróć do mnie
+      else { state.ownersAll = true; }                                                        // „Wszyscy" = sentinel (rozwija się do bieżącego zespołu)
+    } else {
+      const cur = new Set(selectedOwnersSet());                // gdy było „wszyscy", rozwiń unię i odznacz jedną osobę
+      state.ownersAll = false;
+      const n = opt.dataset.name;
+      if (cur.has(n)) cur.delete(n); else cur.add(n);
+      if (!cur.size) cur.add(state.currentUser);               // nigdy pusto
+      state.owners = cur;
+    }
+    persistOwners();
+    state.ownerPopOpen = true;                                 // zostaw panel otwarty (wybór wielu naraz)
+    renderTabs(); renderBoard();
+  }));
+}
+function closeOwnerPanel() {
+  state.ownerPopOpen = false;
+  const pop = $("#owner-pop"); if (pop) pop.hidden = true;
+  const t = $("#owner-toggle"); if (t) t.setAttribute("aria-expanded", "false");
 }
 
 /* ============================================================
    RENDER — tablica
    ============================================================ */
-const activeClients = () => state.clients.filter((c) => !c.deleted_at);   // karty NIE w Koszu
+const activeClients = () => state.clients.filter((c) => !c.deleted_at);   // karty NIE w archiwum
 function visibleClients() {
   const q = state.search.trim().toLowerCase();
+  const sel = selectedOwnersSet();
+  const mine = state.clients.filter((c) => sel.has(c.owner));     // tylko wybrani właściciele (domyślnie: ja)
   let list;
-  if (state.currentTab === "__trash") list = state.clients.filter((c) => c.deleted_at);   // Kosz: tylko usunięte
+  // SZUKANIE jest GLOBALNE — po wszystkich właścicielach (łatwo wykryć, że kolega ma już danego klienta);
+  // filtr właścicieli z panelu działa tylko przy pustym polu szukania.
+  if (state.viewMode === "archive") list = (q ? state.clients : mine).filter((c) => c.deleted_at);   // Archiwum (szukasz → globalnie)
   else {
-    const active = activeClients();
-    if (q) list = active;                                         // szukaj GLOBALNIE (nie tylko w zakładce), ale bez Kosza
-    else if (state.currentTab === "__due") list = active.filter((c) => isDueSoon(c.follow_up));
-    else if (state.currentTab === "all") list = active;
-    else list = active.filter((c) => c.owner === state.currentTab);
+    const active = (q ? activeClients() : mine.filter((c) => !c.deleted_at));   // szukasz → wszyscy; inaczej → wybrani
+    if (q) list = active;
+    else if (state.viewMode === "due") list = active.filter((c) => isDueSoon(c.follow_up));
+    else list = active;                                           // tablica
   }
   if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
   // sort: RĘCZNA kolejność (position) decyduje; rezerwa = najbliższy follow-up, potem alfabetycznie (stabilnie)
@@ -281,13 +384,13 @@ function renderBoard() {
   const prevRects = new Map();
   if (animate) board.querySelectorAll(".card").forEach((el) => prevRects.set(el.dataset.id, el.getBoundingClientRect()));
 
-  if (state.currentTab === "__trash") {
-    // KOSZ — osobny, prosty widok: lista usuniętych (najświeższe na górze), bez kolumn lejka i bez „Nowej karty"
-    const del = [...visibleClients()].sort((a, b) => String(b.deleted_at || "").localeCompare(String(a.deleted_at || "")));
-    board.innerHTML = del.length
-      ? `<div class="trash-head">🗑 Kosz — usunięte karty. Kliknij kartę, aby ją przywrócić.</div>
-         <div class="trash-list">${del.map(renderCard).join("")}</div>`
-      : `<div class="empty-trash">🗑 Kosz jest pusty</div>`;
+  if (state.viewMode === "archive") {
+    // ARCHIWUM — osobny, prosty widok: lista zarchiwizowanych (najświeższe na górze), bez kolumn lejka i bez „Nowej karty"
+    const arch = [...visibleClients()].sort((a, b) => String(b.deleted_at || "").localeCompare(String(a.deleted_at || "")));
+    board.innerHTML = arch.length
+      ? `<div class="archive-head">🗄 Archiwum — karty schowane z tablicy. Kliknij kartę, aby ją przywrócić.</div>
+         <div class="archive-list">${arch.map(renderCard).join("")}</div>`
+      : `<div class="empty-archive">🗄 Archiwum jest puste</div>`;
     board.querySelectorAll(".card").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
     if (animate) flipAnimate(board, prevRects);
     state.skipFlipId = null; state.animateNextRender = false;
@@ -296,7 +399,7 @@ function renderBoard() {
 
   const list = visibleClients();
   board.innerHTML = STATUSES.map((s) => {
-    const cards = list.filter((c) => (c.status || "lead") === s.key);
+    const cards = list.filter((c) => normStatus(c) === s.key);
     return `<section class="column" data-status="${s.key}">
       <div class="col-inner" style="background:${s.tint}">
         <div class="column-head">
@@ -333,12 +436,12 @@ function renderCardInner(c) {
     </div>`;
 }
 function renderCard(c) {
-  const inTrash = state.currentTab === "__trash";
-  const editable = canEdit(c) && !inTrash;       // w Koszu nic nie przeciągamy
-  // w widoku zbiorczym (Wszyscy / Na dziś / Kosz) obwódka w kolorze właściciela — łatwo odróżnić czyj lead
-  const ownerBorder = (state.currentTab === "all" || state.currentTab === "__due" || inTrash)
-    ? ` style="border:2px solid ${ownerColor(c.owner)}"` : "";
-  return `<article class="card${inTrash ? " trashed" : ""}" data-id="${esc(c.id)}" draggable="${editable}"${ownerBorder}>${renderCardInner(c)}</article>`;
+  const inArchive = state.viewMode === "archive";
+  const editable = canEdit(c) && !inArchive;       // w archiwum nic nie przeciągamy
+  // gdy widać karty kilku osób — obwódka w kolorze właściciela (łatwo odróżnić, czyj to lead)
+  const multiOwner = selectedOwnersSet().size > 1;
+  const ownerBorder = multiOwner ? ` style="border:2px solid ${ownerColor(c.owner)}"` : "";
+  return `<article class="card${inArchive ? " archived" : ""}" data-id="${esc(c.id)}" draggable="${editable}"${ownerBorder}>${renderCardInner(c)}</article>`;
 }
 // aktualizuj JEDNĄ kartę bez przerysowywania całej tablicy (zachowuje listenery klik/drag → zero laga, zero migania)
 function updateCardInPlace(c) {
@@ -417,18 +520,18 @@ async function openModal(id) {
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c) return;
   state.openCardId = id;
-  state.openCardWasTrashed = !!c.deleted_at;   // zapamiętaj, w jakim trybie otwarto (do wykrycia zmiany przez inną osobę)
+  state.openCardWasArchived = !!c.deleted_at;   // zapamiętaj, w jakim trybie otwarto (do wykrycia zmiany przez inną osobę)
   // komentarze z pamięci (są utrzymywane na bieżąco: start, dodanie, realtime) — bez osobnego zapytania,
   // dzięki temu modal nigdy się nie „wywala" przy chwilowym błędzie sieci i otwiera się natychmiast
   const comments = state.commentsByClient[id] || [];
   state.commentsByClient[id] = comments;
 
-  // KARTA W KOSZU → widok przywracania (read-only + Przywróć / Usuń trwale)
+  // KARTA W ARCHIWUM → widok przywracania (read-only + Przywróć / Usuń trwale)
   if (c.deleted_at) {
     const roRow = (label, val) => `<div class="prop-label">${label}</div><div class="prop-value readonly">${esc(val) || "—"}</div>`;
     $("#modal-body").innerHTML = `
       <h2>${esc(c.name)}</h2>
-      <div class="trash-banner">🗑 Ta karta jest w Koszu — usunięta ${esc(fmtDateTime(c.deleted_at))}. Możesz ją przywrócić.</div>
+      <div class="archive-banner">🗄 Ta karta jest w Archiwum — schowana ${esc(fmtDateTime(c.deleted_at))}. Możesz ją przywrócić.</div>
       <div class="props">
         ${roRow("🔥 Quality", c.quality)}
         ${roRow("🏢 Nazwa Firmy", c.company)}
@@ -442,11 +545,11 @@ async function openModal(id) {
       <hr class="section-divider" />
       <div class="notes-label">Komentarze</div>
       <div class="comments-wrap" id="comments-wrap">${renderComments(comments)}</div>
-      <div class="save-row trash-actions">
+      <div class="save-row archive-actions">
         <button class="primary-btn" id="restore-card">↩ Przywróć kartę</button>
         <button class="ghost-btn danger-btn" id="purge-card">Usuń trwale</button>
       </div>`;
-    $(".modal").classList.remove("modal-full");   // Kosz = mały modal
+    $(".modal").classList.remove("modal-full");   // Archiwum = mały modal
     $("#modal-overlay").hidden = false;
     $("#restore-card").addEventListener("click", () => doRestoreCard(c.id));
     $("#purge-card").addEventListener("click", (e) => askPurgeCard(c.id, e.target));
@@ -461,8 +564,8 @@ async function openModal(id) {
     return `<div class="prop-label">${icon} ${label}</div><div class="prop-value">${input}</div>`;
   };
   const statusSelect = editable
-    ? `<select data-key="status">${STATUSES.map((s) => `<option value="${s.key}" ${c.status === s.key ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select>`
-    : `<div class="prop-value readonly"><span class="status-pill" style="background:${statusOf(c.status).bg};color:${statusOf(c.status).fg}"><span class="dot" style="background:${statusOf(c.status).dot}"></span>${esc(statusOf(c.status).label)}</span></div>`;
+    ? `<select data-key="status">${STATUSES.map((s) => `<option value="${s.key}" ${normStatus(c) === s.key ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select>`
+    : `<div class="prop-value readonly"><span class="status-pill" style="background:${statusOf(normStatus(c)).bg};color:${statusOf(normStatus(c)).fg}"><span class="dot" style="background:${statusOf(normStatus(c)).dot}"></span>${esc(statusOf(normStatus(c)).label)}</span></div>`;
   const ownerOpts = Array.from(new Set([...state.team, c.owner].filter(Boolean)));
   const ownerSelect = editable
     ? `<select data-key="owner">${ownerOpts.map((o) => `<option value="${esc(o)}" ${c.owner === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
@@ -529,7 +632,7 @@ async function openModal(id) {
             : `<div class="notes-view readonly">${c.notes ? linkify(c.notes) : "—"}</div>`}
         </div>
 
-        ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Usuń kartę</button></div>` : ""}
+        ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">🗄 Przenieś do archiwum</button></div>` : ""}
       </div>
 
       <aside class="cm-right">
@@ -608,7 +711,7 @@ async function openModal(id) {
       });
     }
   }
-  const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askDeleteCard(c.id, delBtn));
+  const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askArchiveCard(c.id, delBtn));
   const askBtn = $("#ask-demo"); if (askBtn) askBtn.addEventListener("click", () => doRequestDemo(c.id));
   wireCommentBox(c.id);
 }
@@ -727,22 +830,22 @@ async function doRequestDemo(id) {
   } catch (err) { console.error(err); toast("Nie udało się zgłosić"); }
 }
 
-async function askDeleteCard(id, btn) {
+async function askArchiveCard(id, btn) {
   const row = btn.parentElement;
-  row.innerHTML = `<span class="confirm-del">Przenieść kartę do Kosza? (będzie można przywrócić)</span>
+  row.innerHTML = `<span class="confirm-del">Przenieść kartę do Archiwum? (będzie można przywrócić)</span>
      <button class="ghost-btn" id="del-no" style="margin-left:auto">Anuluj</button>
-     <button class="primary-btn danger-btn" id="del-yes">Tak, do Kosza</button>`;
+     <button class="primary-btn" id="del-yes">Tak, do Archiwum</button>`;
   $("#del-no").addEventListener("click", () => openModal(id));
   $("#del-yes").addEventListener("click", async () => {
     try {
-      await api.softDeleteClient(id);                 // do Kosza (odwracalne), NIE trwałe usunięcie
+      await api.softDeleteClient(id);                 // do Archiwum (odwracalne), NIE trwałe usunięcie
       const c = state.clients.find((x) => String(x.id) === String(id));
       if (c) c.deleted_at = new Date().toISOString();
       closeModal(); renderTabs();
       const el = document.querySelector(`#board .card[data-id="${CSS.escape(String(id))}"]`);
       if (el && !reduceMotion()) { el.style.transition = "opacity .18s ease, transform .18s ease"; el.style.opacity = "0"; el.style.transform = "scale(.94)"; }
       setTimeout(() => { state.animateNextRender = true; renderBoard(); }, reduceMotion() ? 0 : 170);
-      toast("Przeniesiono do Kosza");
+      toast("Przeniesiono do Archiwum");
     } catch (err) { console.error(err); $(".confirm-del").textContent = "Nie udało się przenieść"; }
   });
 }
@@ -767,13 +870,13 @@ function askPurgeCard(id, btn) {
      <button class="primary-btn danger-btn" id="purge-yes">Tak, na zawsze</button>`;
   $("#purge-no").addEventListener("click", () => openModal(id));
   $("#purge-yes").addEventListener("click", async () => {
-    // BRAMKA: jeśli ktoś w międzyczasie przywrócił kartę z Kosza — NIE kasuj żywego leada
+    // BRAMKA: jeśli ktoś w międzyczasie przywrócił kartę z Archiwum — NIE kasuj żywego leada
     const cur = state.clients.find((x) => String(x.id) === String(id));
     if (!cur) { toast("Tej karty już nie ma"); closeModal(); renderTabs(); renderBoard(); return; }
-    if (!cur.deleted_at) { toast("Ta karta nie jest już w Koszu — odświeżam"); openModal(id); return; }
+    if (!cur.deleted_at) { toast("Ta karta nie jest już w Archiwum — odświeżam"); openModal(id); return; }
     try {
-      const purged = await api.purgeClient(id);        // warunkowy DELETE (tylko gdy nadal w Koszu)
-      if (!purged) { toast("Ta karta nie jest już w Koszu — odświeżam"); openModal(id); return; }
+      const purged = await api.purgeClient(id);        // warunkowy DELETE (tylko gdy nadal w Archiwum)
+      if (!purged) { toast("Ta karta nie jest już w Archiwum — odświeżam"); openModal(id); return; }
       state.clients = state.clients.filter((x) => String(x.id) !== String(id));
       delete state.commentsByClient[id];
       closeModal(); renderTabs(); state.animateNextRender = true; renderBoard();
@@ -814,6 +917,9 @@ function cleanupEmptyNewCard(id) {
 
 async function newCard(status) {
   const st = status || "lead";
+  // nowa karta jest MOJA — upewnij się, że widzę siebie i jestem na tablicy (inaczej zostałaby odfiltrowana)
+  if (!selectedOwnersSet().has(state.currentUser)) { const s = new Set(selectedOwnersSet()); s.add(state.currentUser); state.owners = s; persistOwners(); }
+  state.viewMode = "board";
   // nowa karta na GÓRZE swojej kolumny (pozycja mniejsza niż najmniejsza istniejąca)
   const mins = activeClients().filter((c) => (c.status || "lead") === st && c.position != null).map((c) => Number(c.position));
   const topPos = mins.length ? Math.min(...mins) - 1000 : 1000;
@@ -866,10 +972,10 @@ async function refreshData() {
         // kartę TRWALE usunęła inna osoba — zamknij modal z komunikatem
         toast("Tę kartę usunął ktoś inny");
         closeModal();
-      } else if (!!fresh.deleted_at !== state.openCardWasTrashed) {
-        // inna osoba przeniosła kartę do Kosza / przywróciła ją, gdy mam ją otwartą →
+      } else if (!!fresh.deleted_at !== state.openCardWasArchived) {
+        // inna osoba przeniosła kartę do Archiwum / przywróciła ją, gdy mam ją otwartą →
         // przełącz modal na właściwy widok (zamiast trwać w starym, co groziło edycją/„Usuń trwale" na złym stanie)
-        toast(fresh.deleted_at ? "Tę kartę przeniesiono do Kosza" : "Tę kartę przywrócono z Kosza");
+        toast(fresh.deleted_at ? "Tę kartę przeniesiono do Archiwum" : "Tę kartę przywrócono z Archiwum");
         openModal(state.openCardId);
       } else {
         // NIGDY nie przebudowuj całego modala (gubi wpisywany komentarz, scroll, podpowiedź @) —
@@ -903,11 +1009,24 @@ async function showApp() {
   $("#logout-btn").hidden = !state.live;
   state.clients = await api.getClients();
   state.commentsByClient = await api.getAllComments();
-  // DOMYŚLNIE pokaż MOJE karty (zakładka zalogowanej osoby), nie „Wszyscy" — przy każdym wejściu/odświeżeniu
-  if (state.currentTab === "all" && state.team.includes(state.currentUser)) state.currentTab = state.currentUser;
+  // DOMYŚLNIE: każdy widzi tylko SWOJE karty; przez panel zespołu może dobrać innych / wszystkich
+  const loaded = loadOwners(); state.ownersAll = loaded.all; state.owners = loaded.owners;
+  migrateArchiwumStatus();
   renderTabs(); renderBoard();
   api.subscribe(scheduleRefresh);
   startSafetyRefresh();
+}
+
+// Jednorazowa migracja: dawny etap 'archiwum' (usunięty z lejka) → nowe Archiwum (schowek poza tablicą).
+// Karty z status='archiwum' chowamy (deleted_at) i normalizujemy status na 'lead' (po przywróceniu wrócą do Leadów).
+function migrateArchiwumStatus() {
+  const old = state.clients.filter((c) => c.status === "archiwum" && !c.deleted_at);
+  if (!old.length) return;
+  const stamp = new Date().toISOString();
+  old.forEach((c) => {
+    c.deleted_at = stamp; c.status = "lead";
+    if (state.live) api.updateClient(c.id, { deleted_at: stamp, status: "lead" }).catch((e) => console.error("migrate archiwum", e));
+  });
 }
 
 const KNOWN_NAMES = { "krzychu.brzezi@gmail.com": "Krzysztof", "kozakiewicz.marceli@gmail.com": "Marceli", "kluchobiznes@gmail.com": "Szymon" };
@@ -928,12 +1047,21 @@ function wireChrome() {
   $("#modal-overlay").addEventListener("mousedown", (e) => { overlayMouseDownSelf = (e.target.id === "modal-overlay"); });
   $("#modal-overlay").addEventListener("click", (e) => { if (e.target.id === "modal-overlay" && overlayMouseDownSelf) closeModal(); overlayMouseDownSelf = false; });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !$("#modal-overlay").hidden) closeModal();
+    if (e.key === "Escape") {
+      if (!$("#modal-overlay").hidden) { closeModal(); return; }
+      const pop = $("#owner-pop");
+      if (pop && !pop.hidden) { closeOwnerPanel(); const t = $("#owner-toggle"); if (t) t.focus(); return; }
+    }
     if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); const s = $("#search"); if (s) { s.focus(); s.select(); } }
   });
   const renderBoardDeb = debounce(renderBoard, 140);
   const s = $("#search"); if (s) s.addEventListener("input", () => { state.search = s.value; renderBoardDeb(); });
   const nb = $("#new-card-btn"); if (nb) nb.addEventListener("click", () => newCard("lead"));
+  // klik poza panelem zespołu zamyka jego rozwijaną listę
+  document.addEventListener("click", (e) => {
+    const pop = $("#owner-pop");
+    if (pop && !pop.hidden && !e.target.closest(".owner-panel")) closeOwnerPanel();
+  });
 }
 
 function showLoginForm() {

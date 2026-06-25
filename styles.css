@@ -72,11 +72,40 @@ body {
 }
 .ghost-btn:hover { background: var(--bg); }
 
-/* ===== Zakładki (widoki per osoba) ===== */
+/* ===== Pasek widoków (Tablica / Na dziś / Archiwum) + panel zespołu ===== */
 .tabs {
-  display: flex; gap: 2px; padding: 8px 22px 0; background: var(--panel);
-  border-bottom: 1px solid var(--line); overflow-x: auto;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+  padding: 8px 22px 0; background: var(--panel); border-bottom: 1px solid var(--line);
 }
+/* min-width:0 jest KLUCZOWE — bez niego min-width:auto blokuje kurczenie i overflow-x nigdy się nie włącza (pasek rozpycha stronę na mobile) */
+.tab-modes { display: flex; gap: 2px; overflow-x: auto; min-width: 0; flex: 1 1 auto; }
+/* Panel zespołu — rozwijany wybór, czyje karty widać (dostępny dla każdego) */
+.owner-panel { position: relative; flex: 0 0 auto; padding-bottom: 6px; }
+.owner-toggle {
+  display: inline-flex; align-items: center; gap: 6px; background: var(--bg);
+  border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 11px;
+  font-size: 13px; font-family: inherit; color: var(--ink); cursor: pointer; white-space: nowrap;
+}
+.owner-toggle:hover { border-color: var(--ink-soft); }
+.owner-toggle strong { font-weight: 600; }
+.owner-toggle .caret { color: var(--ink-soft); font-size: 11px; }
+.owner-pop {
+  position: absolute; top: calc(100% + 6px); right: 0; min-width: 224px; z-index: 60;
+  background: #fff; border: 1px solid var(--line-strong); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 6px;
+}
+.owner-opt {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  background: transparent; border: none; border-radius: 7px; padding: 7px 9px;
+  font-size: 13.5px; font-family: inherit; color: var(--ink); cursor: pointer;
+}
+.owner-opt:hover { background: var(--bg); }
+.owner-opt.on { background: rgba(35,131,226,.08); font-weight: 600; }
+.owner-check { width: 14px; flex: 0 0 auto; color: var(--accent); font-weight: 700; text-align: center; }
+.owner-all { font-weight: 600; }
+.owner-sep { height: 1px; background: var(--line); margin: 5px 2px; }
+.owner-me { color: var(--ink-soft); font-weight: 400; }
+.avatar.sm { width: 18px; height: 18px; font-size: 10px; }
 .tab {
   border: none; background: transparent; padding: 8px 14px 11px; font-size: 13.5px; font-weight: 500;
   color: var(--ink-soft); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; font-family: inherit;
@@ -207,8 +236,9 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .save-row { margin-top: 18px; display: flex; justify-content: flex-end; gap: 8px; }
 .primary-btn { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 9px 18px; font-size: 13.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
 .primary-btn:hover { filter: brightness(.96); }
-#delete-card { color: #d4493f; border-color: #f0c4c0; }
-#delete-card:hover { background: #fbe4e2; }
+/* „Przenieś do archiwum" — neutralne (to NIE jest usuwanie) */
+#delete-card { color: var(--ink-soft); border-color: var(--line-strong); }
+#delete-card:hover { background: var(--bg); color: var(--ink); }
 .danger-btn { background: #d4493f; }
 .danger-btn:hover { filter: brightness(.95); }
 .confirm-del { font-size: 13px; color: #d4493f; display: inline-flex; align-items: center; }
@@ -272,6 +302,10 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
   .topbar-center { order: 3; flex-basis: 100%; padding: 0; }
   .board { scroll-snap-type: x mandatory; }
   .column { scroll-snap-align: start; }
+  /* pasek widoków + panel zespołu: na wąskim ekranie panel spada pod taby (zero poziomego scrolla strony) */
+  .tabs { flex-wrap: wrap; }
+  .owner-panel { width: 100%; padding-bottom: 8px; }
+  .owner-pop { left: 0; right: auto; }
 }
 
 /* ===== v2: wyszukiwarka, nowa karta, demo, @mention, toast ===== */
@@ -315,13 +349,13 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 @media (hover: none) { .add-card { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
 
-/* ===== Kosz (soft-delete / przywracanie) ===== */
-.card.trashed { opacity: .62; }
-.card.trashed:hover { opacity: .85; }
-.trash-banner { background: #fbe4e2; color: #a8362f; padding: 9px 12px; border-radius: 8px; font-size: 13px; margin: 4px 0 16px; }
-.trash-actions { display: flex; gap: 8px; align-items: center; }
+/* ===== Archiwum (chowanie / przywracanie) ===== */
+.card.archived { opacity: .62; }
+.card.archived:hover { opacity: .85; }
+.archive-banner { background: #eef0f3; color: #4a4843; padding: 9px 12px; border-radius: 8px; font-size: 13px; margin: 4px 0 16px; }
+.archive-actions { display: flex; gap: 8px; align-items: center; }
 .confirm-del { color: #a8362f; font-size: 13.5px; }
-.trash-head { padding: 4px 2px 16px; color: var(--ink-soft); font-size: 13.5px; }
-.trash-list { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
-.trash-list .card { width: 280px; cursor: pointer; }
-.empty-trash { padding: 70px 20px; text-align: center; color: var(--ink-soft); font-size: 15px; }
+.archive-head { padding: 4px 2px 16px; color: var(--ink-soft); font-size: 13.5px; }
+.archive-list { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.archive-list .card { width: 280px; cursor: pointer; }
+.empty-archive { padding: 70px 20px; text-align: center; color: var(--ink-soft); font-size: 15px; }

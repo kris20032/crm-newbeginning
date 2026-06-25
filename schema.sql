@@ -13,7 +13,7 @@ create table if not exists clients (
   email       text,
   google_maps text,
   quality     text,
-  status      text not null default 'lead',   -- lead | zainteresowany | umowiony | po_spotkaniu | oferta | konwersja | archiwum
+  status      text not null default 'lead',   -- lead | zainteresowany | umowiony | po_spotkaniu | oferta | konwersja  (Archiwum = deleted_at, nie status)
   follow_up   date,
   owner       text not null,                  -- imię właściciela: Krzysztof | Marceli | Szymon | Bartek | Piotr
   notes       text,
@@ -79,9 +79,9 @@ alter publication supabase_realtime add table comments;
 alter publication supabase_realtime add table demo_requests;
 
 -- ============================================================
---  v3 (2026-06-21): KOSZ / soft-delete (usuwanie odwracalne)
---  deleted_at NULL = karta aktywna; data = karta w Koszu (do przywrócenia).
---  "Usuń kartę" w UI ustawia deleted_at; "Przywróć" zeruje; "Usuń trwale" robi DELETE.
+--  v3 (2026-06-21): ARCHIWUM / soft-delete (chowanie odwracalne)
+--  deleted_at NULL = karta aktywna; data = karta w Archiwum (schowana z tablicy, do przywrócenia).
+--  "Przenieś do archiwum" w UI ustawia deleted_at; "Przywróć" zeruje; "Usuń trwale" robi DELETE.
 -- ============================================================
 alter table clients add column if not exists deleted_at timestamptz default null;
 create index if not exists idx_clients_deleted_at on clients(deleted_at);
