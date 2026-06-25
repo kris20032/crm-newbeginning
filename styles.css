@@ -233,7 +233,7 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .add-comment button { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 0 16px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
 
 .readonly-note { background: #fbf3e4; color: #7a5b14; font-size: 12px; padding: 7px 10px; border-radius: 7px; margin-bottom: 14px; }
-.save-row { margin-top: 18px; display: flex; justify-content: flex-end; gap: 8px; }
+.save-row { margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; }
 .primary-btn { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 9px 18px; font-size: 13.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
 .primary-btn:hover { filter: brightness(.96); }
 /* „Przenieś do archiwum" — neutralne (to NIE jest usuwanie) */
@@ -255,25 +255,30 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .modal.modal-full .modal-close { z-index: 5; }
 .cm { display: grid; grid-template-columns: minmax(0,1fr) 340px; width: 100%; min-height: 0; }
 /* lewa kolumna — przewijalna */
-.cm-left { min-width: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 34px 34px 24px; }
-/* GÓRA: najważniejsze dane */
+.cm-left { min-width: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 22px 28px 18px; }
+/* GÓRA: najważniejsze dane (kompaktowo) */
 .cm-top { padding-right: 30px; }
-.cm-name { font-size: 26px; font-weight: 700; margin: 0 0 2px; }
-.modal.modal-full input.title-input.cm-name { font-size: 26px; }
-.cm-keyfields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; margin: 14px 0 4px; }
-.cm-kf { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.cm-kf-label { font-size: 11.5px; color: var(--ink-soft); display: flex; align-items: center; gap: 5px; }
-.cm-kf input { font-size: 15px; font-weight: 500; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-family: inherit; background: var(--panel); color: var(--ink); width: 100%; box-sizing: border-box; }
+.cm-top .modal-sub { margin: 3px 0 0; }
+.cm-name { font-size: 21px; font-weight: 700; margin: 0 0 1px; }
+.modal.modal-full input.title-input.cm-name { font-size: 21px; }
+.cm-keyfields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 10px 0 2px; }
+.cm-kf { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.cm-kf-label { font-size: 11px; color: var(--ink-soft); display: flex; align-items: center; gap: 5px; }
+.cm-kf input { font-size: 13.5px; font-weight: 500; border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; font-family: inherit; background: var(--panel); color: var(--ink); width: 100%; box-sizing: border-box; }
 .cm-kf input:hover { background: var(--bg); }
 .cm-kf input:focus { outline: none; border-color: var(--accent); background: #fff; }
-.cm-kf .prop-value.readonly { padding: 8px 2px; font-size: 15px; }
-/* pola (poukładane, nie zwijane) */
-.cm-props { margin: 16px 0 4px; }
+.cm-kf .prop-value.readonly { padding: 6px 2px; font-size: 13.5px; }
+/* pola (poukładane, kompaktowa siatka — węższa kolumna etykiet, ciaśniejsze wiersze) */
+.cm-props { margin: 10px 0 2px; grid-template-columns: 130px 1fr; gap: 0 10px; }
+.cm-props .prop-label { padding: 5px 6px; font-size: 12.5px; }
+.cm-props .prop-value { padding: 1px 0; }
+.cm-props .prop-value input, .cm-props .prop-value select { padding: 5px 8px; font-size: 13px; }
+.cm-props .prop-value.readonly { padding: 5px 8px; font-size: 13px; }
 /* DUŻE pole na notatkę */
-.cm-notes { display: flex; flex-direction: column; flex: 1 1 auto; margin-top: 14px; }
-.modal.modal-full textarea.notes { min-height: 300px; flex: 1 1 auto; }
+.cm-notes { display: flex; flex-direction: column; flex: 1 1 auto; margin-top: 10px; }
+.modal.modal-full textarea.notes { min-height: 200px; flex: 1 1 auto; }
 /* Notatka: widok z KLIKALNYMI linkami (klik w tekst = edycja, klik w link = otwiera) */
-.notes-view { min-height: 300px; flex: 1 1 auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 13.5px; line-height: 1.5; font-family: inherit; white-space: pre-wrap; word-break: break-word; cursor: text; box-sizing: border-box; overflow-y: auto; }
+.notes-view { min-height: 200px; flex: 1 1 auto; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font-size: 13.5px; line-height: 1.5; font-family: inherit; white-space: pre-wrap; word-break: break-word; cursor: text; box-sizing: border-box; overflow-y: auto; }
 .notes-view:hover { border-color: var(--line-strong); }
 .notes-view .note-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
 .notes-view .note-link:hover { filter: brightness(.9); }
@@ -321,7 +326,7 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .chip-demo { color: #8a5a00; background: #fbe7c9; padding: 1px 6px; border-radius: 10px; }
 .chip-demo-done { color: #2e6b3e; background: #d7eede; padding: 1px 6px; border-radius: 10px; }
 
-.demo-row { margin: 16px 0 2px; }
+.demo-row { margin: 10px 0 0; }
 .demo-btn { color: #8a5a00; border-color: #e8d39a; }
 .demo-btn:hover { background: #fbf3e0; }
 .demo-flag { font-size: 13px; color: #8a5a00; background: #fbe7c9; padding: 6px 10px; border-radius: 8px; display: inline-block; }
