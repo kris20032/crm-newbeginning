@@ -624,9 +624,8 @@ async function openModal(id) {
             ${(c.demo_url || "").trim()
               ? `${editable ? `<button type="button" class="maps-btn" id="demo-open" title="Otwórz demo">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="demo-copy" title="Kopiuj link do dema">⧉ kopiuj</button>`
               : ""}
+            <span class="demo-row">${demoRowHTML(c)}</span>
           </div>
-          <div class="prop-label"></div>
-          <div class="prop-value demo-row">${demoRowHTML(c)}</div>
         </div>
 
         <div class="cm-notes">
