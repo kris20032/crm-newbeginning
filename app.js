@@ -764,27 +764,34 @@ async function saveField(id, key, value) {
 }
 
 /* ---------- Follow-up: przypięta karta nad czatem + odhaczanie „zrobione" ---------- */
+const FU_ICON = `<svg class="fu-ic" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`;
 function followUpHTML(c, editable) {
   const done = !!c.follow_up_done;
   const has = !!c.follow_up;
   if (!editable) {
-    if (!has) return `<div class="fu-empty">Brak follow-upu.</div>`;
-    return `<div class="fu-card${done ? " done" : ""}">
-        <div class="fu-top"><span class="fu-tag">Follow-up</span>${done ? `<span class="fu-badge">zrobione</span>` : ""}</div>
+    if (!has) return `<div class="fu-card fu-card-ro empty"><span class="fu-title">${FU_ICON} Follow-up</span><span class="fu-ro-empty">— brak —</span></div>`;
+    return `<div class="fu-card fu-card-ro${done ? " done" : ""}">
+        <div class="fu-head"><span class="fu-title">${FU_ICON} Follow-up</span>${done ? `<span class="fu-badge">✓ zrobione</span>` : ""}</div>
         <div class="fu-when">${esc(fmtFollow(c.follow_up))}</div>
         ${c.follow_up_note ? `<div class="fu-note">${esc(c.follow_up_note)}</div>` : ""}
       </div>`;
   }
   return `<div class="fu-card${done ? " done" : ""}">
-      <div class="fu-top">
-        <span class="fu-tag">Follow-up</span>
-        <label class="fu-done"><input type="checkbox" id="fu-done"${done ? " checked" : ""} /> zrobione</label>
+      <div class="fu-head">
+        <span class="fu-title">${FU_ICON} Follow-up</span>
+        <button type="button" class="fu-toggle${done ? " on" : ""}" id="fu-done-btn" aria-pressed="${done}">${done ? "✓ Zrobione" : "Oznacz zrobione"}</button>
       </div>
       <div class="fu-when-edit">
         <input type="date" id="fu-date" value="${toDateInput(c.follow_up)}" />
         <input type="time" id="fu-time" value="${toTimeInput(c.follow_up)}" title="Godzina (opcjonalnie)" />
       </div>
-      <input class="fu-note-input" id="fu-note" value="${esc(c.follow_up_note || "")}" placeholder="o czym przypomnieć przy follow-upie" />
+      <div class="fu-quick">
+        <button type="button" class="fu-chip" data-days="1">Jutro</button>
+        <button type="button" class="fu-chip" data-days="3">+3 dni</button>
+        <button type="button" class="fu-chip" data-days="7">+tydzień</button>
+        <button type="button" class="fu-chip fu-chip-clear" data-clear="1">Wyczyść</button>
+      </div>
+      <input class="fu-note-input" id="fu-note" value="${esc(c.follow_up_note || "")}" placeholder="o czym przypomnieć…" />
     </div>`;
 }
 function refreshFollowUp(id) {
@@ -798,17 +805,27 @@ function refreshFollowUp(id) {
 function wireFollowUp(id) {
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c || !canEdit(c)) return;
-  const fuDate = $("#fu-date"), fuTime = $("#fu-time"), fuDone = $("#fu-done"), fuNote = $("#fu-note");
-  if (fuDate && fuTime) {
-    const saveFollow = () => {                                  // sama data zapisuje od zera; +godzina = "YYYY-MM-DDTHH:MM"; brak daty czyści całość
-      const d = fuDate.value, t = fuTime.value;
-      saveField(c.id, "follow_up", !d ? "" : (t ? `${d}T${t}` : d));
-    };
-    fuDate.addEventListener("change", saveFollow);
-    fuTime.addEventListener("change", saveFollow);
-  }
+  const fuDate = $("#fu-date"), fuTime = $("#fu-time"), fuNote = $("#fu-note");
+  const saveFollow = () => {                                    // sama data zapisuje od zera; +godzina = "YYYY-MM-DDTHH:MM"; brak daty czyści całość
+    const d = fuDate ? fuDate.value : "", t = fuTime ? fuTime.value : "";
+    saveField(c.id, "follow_up", !d ? "" : (t ? `${d}T${t}` : d));
+    if (d && c.follow_up_done) setFollowDone(c.id, false);      // nowy termin → znów „do zrobienia"
+  };
+  if (fuDate) fuDate.addEventListener("change", saveFollow);
+  if (fuTime) fuTime.addEventListener("change", saveFollow);
   if (fuNote) fuNote.addEventListener("change", () => saveField(c.id, "follow_up_note", fuNote.value));
-  if (fuDone) fuDone.addEventListener("change", () => setFollowDone(c.id, fuDone.checked));
+  const doneBtn = $("#fu-done-btn");
+  if (doneBtn) doneBtn.addEventListener("click", () => setFollowDone(c.id, !c.follow_up_done));
+  // szybkie terminy: Jutro / +3 dni / +tydzień / Wyczyść
+  document.querySelectorAll("#cm-fu .fu-chip").forEach((ch) => ch.addEventListener("click", () => {
+    if (ch.dataset.clear) { if (fuDate) fuDate.value = ""; if (fuTime) fuTime.value = ""; }
+    else {
+      const dt = new Date(); dt.setHours(0, 0, 0, 0); dt.setDate(dt.getDate() + (Number(ch.dataset.days) || 0));
+      const y = dt.getFullYear(), m = String(dt.getMonth() + 1).padStart(2, "0"), dd = String(dt.getDate()).padStart(2, "0");
+      if (fuDate) fuDate.value = `${y}-${m}-${dd}`;
+    }
+    saveFollow();
+  }));
 }
 async function setFollowDone(id, done) {
   const c = state.clients.find((x) => String(x.id) === String(id));
