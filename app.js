@@ -946,7 +946,7 @@ function wireChrome() {
    ============================================================ */
 function parseMentions(body) {
   const out = new Set(); const team = state.team || [];
-  const re = /@([A-Za-zÀ-ÿĄąĆćĘꣳŃńÓ󌜏źŻż]+)/g; let m;
+  const re = /@([A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]+)/g; let m;
   while ((m = re.exec(body || ""))) {
     const nick = m[1].toLowerCase();
     const hit = team.find((t) => String(t).toLowerCase() === nick);
