@@ -14,7 +14,7 @@ create table if not exists clients (
   google_maps text,
   quality     text,
   status      text not null default 'lead',   -- lead | zainteresowany | umowiony | po_spotkaniu | oferta | konwersja  (Archiwum = deleted_at, nie status)
-  follow_up   date,
+  follow_up   timestamptz,                    -- data LUB data+godzina follow-upu (modal zapisuje 'YYYY-MM-DD' albo 'YYYY-MM-DDTHH:MM')
   owner       text not null,                  -- imię właściciela: Krzysztof | Marceli | Szymon | Bartek | Piotr
   notes       text,
   created_at  timestamptz default now(),
@@ -92,3 +92,15 @@ create index if not exists idx_clients_deleted_at on clients(deleted_at);
 --  - 'follow_up_note' = krótka wiadomość/przypomnienie do follow-upu.
 -- ============================================================
 alter table clients add column if not exists follow_up_note text;
+
+-- ============================================================
+--  v5 (2026-06-26): domknięcie kolumn używanych przez aplikację
+--  - demo_url      = link do gotowego dema (chip „✅ demo");
+--  - demo_building = znacznik „🔨 w budowie" (ustawiany przez sesję/skrypt robiący demo);
+--  - position      = ręczna kolejność kart w kolumnie (drag&drop);
+--  - follow_up     = był 'date', a modal zapisuje też godzinę → zmiana na 'timestamptz'.
+-- ============================================================
+alter table clients add column if not exists demo_url      text;
+alter table clients add column if not exists demo_building  boolean default false;
+alter table clients add column if not exists position       double precision;
+alter table clients alter column follow_up type timestamptz using follow_up::timestamptz;

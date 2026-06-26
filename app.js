@@ -184,7 +184,7 @@ const api = {
     const { error } = await sb.from("demo_requests")
       .update({ status: "done" }).eq("client_id", clientId).neq("status", "done");
     if (error) { console.error("markDemoDone (księga)", error); return; }
-    sb.from("clients").update({ demo_requested: false }).eq("id", clientId)
+    sb.from("clients").update({ demo_requested: false, demo_building: false }).eq("id", clientId)
       .then(({ error: e2 }) => { if (e2) console.error("markDemoDone (znacznik)", e2); }, (e) => console.error("markDemoDone (znacznik)", e));
     holdRefresh();
   },
@@ -772,6 +772,7 @@ async function saveField(id, key, value) {
       if (v) {
         api.markDemoDone(id).then(() => {
           c.demo_requested = false;               // prośba załatwiona (księga: done), znacznik 📩 gaśnie
+          c.demo_building = false;                 // demo dostarczone → gaśnie też znacznik „🔨 w budowie"
           refreshDemoCell(id);                     // pole demo → link + odnośniki
           updateCardInPlace(c);
         }, (e) => console.error("markDemoDone", e));
@@ -1141,7 +1142,7 @@ function wireChrome() {
    ============================================================ */
 function parseMentions(body) {
   const out = new Set(); const team = state.team || [];
-  const re = /@([A-Za-zÀ-ÿĄąĆćĘꣳŃńÓ󌜏źŻż]+)/g; let m;
+  const re = /@([A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]+)/g; let m;
   while ((m = re.exec(body || ""))) {
     const nick = m[1].toLowerCase();
     const hit = team.find((t) => String(t).toLowerCase() === nick);
