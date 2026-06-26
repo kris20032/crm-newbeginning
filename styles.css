@@ -253,7 +253,7 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 }
 .modal.modal-full #modal-body { flex: 1 1 auto; min-height: 0; display: flex; width: 100%; }
 .modal.modal-full .modal-close { z-index: 5; }
-.cm { display: grid; grid-template-columns: minmax(0,1fr) 340px; width: 100%; min-height: 0; }
+.cm { display: grid; grid-template-columns: minmax(0,1fr) clamp(380px, 34%, 540px); width: 100%; min-height: 0; }
 /* lewa kolumna — przewijalna */
 .cm-left { min-width: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 22px 28px 18px; }
 .cm-name { font-size: 21px; font-weight: 700; margin: 0 0 1px; }
