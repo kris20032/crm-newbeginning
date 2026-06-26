@@ -356,42 +356,40 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .no-comments { color: var(--ink-soft); font-size: 13px; padding: 6px 0; }
 .mention { color: var(--accent); font-weight: 600; }
 
-/* ===== Follow-up: przypięta karta nad czatem ===== */
-.cm-fu { flex: 0 0 auto; padding: 16px 20px 4px; }
-.fu-card { background: #fffaf0; border: 1px solid #efe2c4; border-radius: 12px; padding: 12px 13px 13px; box-shadow: 0 1px 2px rgba(60,50,20,.04); }
-.fu-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 9px; padding-right: 18px; }
-.fu-title { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #9a7b1e; }
-.fu-ic { color: #c39a36; flex: 0 0 auto; }
-/* przycisk „Oznacz zrobione" ↔ „Zrobione" (pigułka, duży cel kliknięcia) */
-.fu-toggle { font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid #e0d3ad; background: #fff; color: #8a6d1a; border-radius: 999px; padding: 5px 12px; transition: background .14s ease, border-color .14s ease, color .14s ease; }
-.fu-toggle:hover { background: #fbf3df; }
-.fu-toggle.on { background: #e7f4ea; border-color: #bfe0c6; color: #1a7f37; }
-.fu-toggle.on:hover { background: #ddeede; }
-/* data + godzina */
-.fu-when-edit { display: flex; gap: 7px; margin-bottom: 8px; }
-.fu-when-edit input[type="date"] { flex: 1 1 auto; min-width: 0; }
-.fu-when-edit input[type="time"] { flex: 0 0 auto; width: 98px; }
-.cm-fu input[type="date"], .cm-fu input[type="time"], .fu-note-input { font-size: 13px; font-family: inherit; color: var(--ink); background: #fff; border: 1px solid #e7dcc0; border-radius: 8px; padding: 7px 9px; box-sizing: border-box; transition: border-color .14s ease, box-shadow .14s ease; }
-.cm-fu input:hover { border-color: #d9c99e; }
-.cm-fu input:focus { outline: none; border-color: #c39a36; box-shadow: 0 0 0 3px rgba(195,154,54,.14); }
-.fu-note-input { width: 100%; }
-/* szybkie terminy */
-.fu-quick { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 9px; }
+/* ===== Composer (pod feedem): komentarz + tryb „Follow-up" ===== */
+.composer { flex: 0 0 auto; border-top: 1px solid var(--line); background: var(--panel); padding: 10px 16px 14px; }
+.composer .add-comment { margin-top: 0; padding: 0; border-top: none; background: none; }
+/* przycisk-kwadracik „Follow-up" przy polu (wyższa specyficzność niż .add-comment button) */
+.composer .fu-mode { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--line-strong); background: #fff; color: var(--ink-soft); border-radius: 8px; padding: 7px 9px; transition: background .14s ease, border-color .14s ease, color .14s ease; }
+.composer .fu-mode svg { flex: 0 0 auto; }
+.composer .fu-mode:hover { background: var(--bg); color: var(--ink); }
+.composer .fu-mode.on { background: #fff7e6; border-color: #e7d3a0; color: #8a6d1a; }
+/* setter daty/godziny — pojawia się po włączeniu trybu */
+.fu-setter { background: #fffaf0; border: 1px solid #efe2c4; border-radius: 10px; padding: 10px 11px; margin-bottom: 10px; }
+.fu-setter-row { display: flex; gap: 7px; margin-bottom: 8px; }
+.fu-setter-row input[type="date"] { flex: 1 1 auto; min-width: 0; }
+.fu-setter-row input[type="time"] { flex: 0 0 auto; width: 98px; }
+.fu-setter input { font-size: 13px; font-family: inherit; color: var(--ink); background: #fff; border: 1px solid #e7dcc0; border-radius: 8px; padding: 7px 9px; box-sizing: border-box; transition: border-color .14s ease, box-shadow .14s ease; }
+.fu-setter input:hover { border-color: #d9c99e; }
+.fu-setter input:focus { outline: none; border-color: #c39a36; box-shadow: 0 0 0 3px rgba(195,154,54,.14); }
+/* szybkie terminy (Jutro / +3 dni / +tydzień / Wyczyść) */
+.fu-quick { display: flex; flex-wrap: wrap; gap: 5px; }
 .fu-chip { font-family: inherit; font-size: 12px; cursor: pointer; border: 1px solid #e7dcc0; background: #fff; color: #6b5a2e; border-radius: 999px; padding: 4px 9px; white-space: nowrap; transition: background .14s ease, border-color .14s ease, color .14s ease; }
 .fu-chip:hover { background: #fbf3df; border-color: #d9c99e; color: #4a3e1c; }
 .fu-chip-clear { margin-left: auto; color: var(--ink-soft); }
 .fu-chip-clear:hover { background: #f5efe2; color: #a8362f; border-color: #e3d9c2; }
-/* readonly (cudza karta) */
-.fu-card-ro .fu-when { font-size: 14px; font-weight: 600; color: var(--ink); }
-.fu-card-ro .fu-note { font-size: 13px; color: var(--ink-soft); margin-top: 3px; }
-.fu-card-ro.empty { display: flex; align-items: center; justify-content: space-between; }
-.fu-ro-empty { font-size: 12.5px; color: var(--ink-soft); }
-.fu-badge { font-size: 11px; font-weight: 700; color: #1a7f37; background: #e7f4ea; border-radius: 999px; padding: 2px 9px; }
-/* stan „zrobione" — wygaszony, zielonkawy, przekreślony */
-.fu-card.done { background: #f1f7f2; border-color: #d4e8d8; }
-.fu-card.done .fu-title { color: #5a7a60; }
-.fu-card.done .fu-ic { color: #7aaa84; }
-.fu-card.done .fu-when, .fu-card.done .fu-note, .fu-card.done .fu-when-edit input, .fu-card.done .fu-note-input { text-decoration: line-through; color: var(--ink-soft); }
+/* ===== Wpisy statusowe w feedzie (follow-up / demo) — układ jak komentarz ===== */
+.feed-item .comment-head { display: flex; align-items: center; }
+.feed-item .c-author { font-weight: 600; }
+.feed-ic { background: #eef0f2; color: #8a8f98; }
+.feed-followup .feed-ic { background: #fbf0d8; color: #b0852c; }
+.feed-demo .feed-ic { background: #e6eef9; color: #3a6ea5; }
+.feed-muted { color: var(--ink-soft); }
+.feed-tick { margin-left: auto; flex: 0 0 auto; cursor: pointer; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--line-strong); background: #fff; color: #b8bcc2; font-size: 12px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; transition: background .14s ease, border-color .14s ease, color .14s ease; }
+.feed-tick:hover { border-color: #1a7f37; color: #1a7f37; }
+.feed-tick.on { background: #1a7f37; border-color: #1a7f37; color: #fff; }
+.feed-done-badge { margin-left: auto; color: #1a7f37; font-weight: 700; }
+.feed-followup.done .comment-body, .feed-followup.done .c-time { text-decoration: line-through; color: var(--ink-soft); }
 /* awatar opiekuna na karcie tablicy (obok handlowca) */
 .card-owner { display: inline-flex; align-items: center; }
 .avatar.avatar-sec { margin-right: -5px; box-shadow: 0 0 0 1.5px var(--panel); }

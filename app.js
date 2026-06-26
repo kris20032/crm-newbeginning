@@ -638,13 +638,27 @@ async function openModal(id) {
       </div>
 
       <aside class="cm-right">
-        <div class="cm-fu" id="cm-fu">${followUpHTML(c, editable)}</div>
-        <div class="cm-right-head">Komentarze <span class="cm-cc" id="comment-count">${comments.length} ${comments.length === 1 ? "komentarz" : "komentarzy"}</span></div>
-        <div class="comments-wrap" id="comments-wrap">${renderComments(comments)}</div>
-        <div class="add-comment">
-          <input id="new-comment" placeholder="Dodaj komentarz...  (@ aby oznaczyć osobę)" autocomplete="off" />
-          <button id="send-comment">Wyślij</button>
-          <div id="mention-pop" class="mention-pop" hidden></div>
+        <div class="cm-right-head">Aktywność <span class="cm-cc" id="comment-count">${comments.length} ${comments.length === 1 ? "komentarz" : "komentarzy"}</span></div>
+        <div class="comments-wrap" id="comments-wrap">${renderFeed(c, comments)}</div>
+        <div class="composer">
+          ${editable ? `<div class="fu-setter" id="fu-setter" hidden>
+            <div class="fu-setter-row">
+              <input type="date" id="fu-date" />
+              <input type="time" id="fu-time" title="Godzina (opcjonalnie)" />
+            </div>
+            <div class="fu-quick">
+              <button type="button" class="fu-chip" data-days="1">Jutro</button>
+              <button type="button" class="fu-chip" data-days="3">+3 dni</button>
+              <button type="button" class="fu-chip" data-days="7">+tydzień</button>
+              <button type="button" class="fu-chip fu-chip-clear" data-clear="1">Wyczyść</button>
+            </div>
+          </div>` : ""}
+          <div class="add-comment">
+            ${editable ? `<button type="button" class="fu-mode" id="fu-mode" title="Zaplanuj follow-up" aria-pressed="false">${FU_ICON}<span>Follow-up</span></button>` : ""}
+            <input id="new-comment" placeholder="Dodaj komentarz...  (@ aby oznaczyć osobę)" autocomplete="off" />
+            <button id="send-comment">Wyślij</button>
+            <div id="mention-pop" class="mention-pop" hidden></div>
+          </div>
         </div>
       </aside>
     </div>
@@ -687,7 +701,7 @@ async function openModal(id) {
         el.addEventListener("input", () => saveDeb(el));
       }
     });
-    // (Follow-up przeniesiony nad czat — datę/godzinę/wiadomość i odhaczanie wiąże wireFollowUp.)
+    // (Follow-up i komentarze obsługuje feed po prawej — wiąże wireComposer.)
     // Notatka: widok z KLIKALNYMI linkami ↔ edycja. Klik w tekst → edytuj; klik w link → otwiera.
     const nView = $("#notes-view"), nEdit = $("#notes-edit");
     if (nView && nEdit) {
@@ -714,9 +728,8 @@ async function openModal(id) {
     }));
   }
   const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askArchiveCard(c.id, delBtn));
-  wireFollowUp(c.id);
   wireDemoCell(c.id);
-  wireCommentBox(c.id);
+  wireComposer(c.id);
 }
 
 async function saveField(id, key, value) {
@@ -736,11 +749,11 @@ async function saveField(id, key, value) {
           c.demo_requested = false;               // prośba załatwiona (księga: done), znacznik 📩 gaśnie
           c.demo_building = false;                 // demo dostarczone → gaśnie też znacznik „🔨 w budowie"
           refreshDemoCell(id);                     // pole demo → link + odnośniki
-          updateCardInPlace(c);
+          updateCardInPlace(c); refreshFeed(id);   // wpis „Demo gotowe" w feedzie
         }, (e) => console.error("markDemoDone", e));
       } else {
         refreshDemoCell(id);                       // wyczyszczono link → wróć do prośby/przycisku
-        updateCardInPlace(c);
+        updateCardInPlace(c); refreshFeed(id);
       }
     }
     if (key === "owner") {
@@ -763,69 +776,63 @@ async function saveField(id, key, value) {
   }
 }
 
-/* ---------- Follow-up: przypięta karta nad czatem + odhaczanie „zrobione" ---------- */
-const FU_ICON = `<svg class="fu-ic" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`;
-function followUpHTML(c, editable) {
-  const done = !!c.follow_up_done;
-  const has = !!c.follow_up;
-  if (!editable) {
-    if (!has) return `<div class="fu-card fu-card-ro empty"><span class="fu-title">${FU_ICON} Follow-up</span><span class="fu-ro-empty">— brak —</span></div>`;
-    return `<div class="fu-card fu-card-ro${done ? " done" : ""}">
-        <div class="fu-head"><span class="fu-title">${FU_ICON} Follow-up</span>${done ? `<span class="fu-badge">✓ zrobione</span>` : ""}</div>
-        <div class="fu-when">${esc(fmtFollow(c.follow_up))}</div>
-        ${c.follow_up_note ? `<div class="fu-note">${esc(c.follow_up_note)}</div>` : ""}
-      </div>`;
-  }
-  return `<div class="fu-card${done ? " done" : ""}">
-      <div class="fu-head">
-        <span class="fu-title">${FU_ICON} Follow-up</span>
-        <button type="button" class="fu-toggle${done ? " on" : ""}" id="fu-done-btn" aria-pressed="${done}">${done ? "✓ Zrobione" : "Oznacz zrobione"}</button>
+/* ---------- Feed aktywności: follow-up + demo jako wpisy „jak komentarz" ---------- */
+const FU_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`;
+const DEMO_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`;
+
+// Wpis statusowy w feedzie (follow-up / demo) — ten sam układ co komentarz, z ikoną i (opcjonalnie) ptaszkiem
+function statusItemHTML({ icon, tag, time, body, cls, tick }) {
+  return `<div class="comment feed-item ${cls || ""}">
+      <span class="avatar feed-ic">${icon}</span>
+      <div class="comment-main">
+        <div class="comment-head"><span class="c-author">${esc(tag)}</span>${time ? `<span class="c-time">${esc(time)}</span>` : ""}${tick || ""}</div>
+        <div class="comment-body">${body}</div>
       </div>
-      <div class="fu-when-edit">
-        <input type="date" id="fu-date" value="${toDateInput(c.follow_up)}" />
-        <input type="time" id="fu-time" value="${toTimeInput(c.follow_up)}" title="Godzina (opcjonalnie)" />
-      </div>
-      <div class="fu-quick">
-        <button type="button" class="fu-chip" data-days="1">Jutro</button>
-        <button type="button" class="fu-chip" data-days="3">+3 dni</button>
-        <button type="button" class="fu-chip" data-days="7">+tydzień</button>
-        <button type="button" class="fu-chip fu-chip-clear" data-clear="1">Wyczyść</button>
-      </div>
-      <input class="fu-note-input" id="fu-note" value="${esc(c.follow_up_note || "")}" placeholder="o czym przypomnieć…" />
     </div>`;
 }
-function refreshFollowUp(id) {
-  const box = $("#cm-fu");
-  if (!box || state.openCardId !== id) return;
-  const c = state.clients.find((x) => String(x.id) === String(id));
-  if (!c) return;
-  box.innerHTML = followUpHTML(c, canEdit(c));
-  wireFollowUp(id);
+function commentHTML(c) {
+  return `<div class="comment">
+      <span class="avatar" style="background:${ownerColor(c.author)}">${initials(c.author)}</span>
+      <div class="comment-main">
+        <div class="comment-head"><span class="c-author">${esc(c.author)}</span><span class="c-time">${esc(fmtDateTime(c.created_at))}</span></div>
+        <div class="comment-body">${highlightMentions(c.body)}</div>
+      </div>
+    </div>`;
 }
-function wireFollowUp(id) {
+// Feed = wpisy statusowe (follow-up, demo) NAD komentarzami; wszystko w jednym stylu
+function renderFeed(c, comments) {
+  const editable = canEdit(c);
+  let status = "";
+  if (c.follow_up) {
+    const done = !!c.follow_up_done;
+    status += statusItemHTML({
+      icon: FU_ICON, tag: "Follow-up", time: fmtFollow(c.follow_up), cls: `feed-followup${done ? " done" : ""}`,
+      body: c.follow_up_note ? esc(c.follow_up_note) : `<span class="feed-muted">— przypomnienie —</span>`,
+      tick: editable ? `<button type="button" class="feed-tick${done ? " on" : ""}" title="${done ? "Cofnij" : "Oznacz jako zrobione"}" aria-pressed="${done}">✓</button>` : (done ? `<span class="feed-done-badge">✓</span>` : ""),
+    });
+  }
+  const demoSafe = c.demo_url ? safeUrl(c.demo_url) : "";
+  if (c.demo_url && String(c.demo_url).trim()) {
+    status += statusItemHTML({ icon: DEMO_ICON, tag: "Demo", cls: "feed-demo done",
+      body: demoSafe ? `Demo gotowe — <a href="${esc(demoSafe)}" target="_blank" rel="noopener">otwórz</a>` : "Demo gotowe" });
+  } else if (c.demo_building) {
+    status += statusItemHTML({ icon: DEMO_ICON, tag: "Demo", cls: "feed-demo", body: "Demo w budowie" });
+  } else if (c.demo_requested) {
+    status += statusItemHTML({ icon: DEMO_ICON, tag: "Demo", cls: "feed-demo", body: "Poproszono o demo" });
+  }
+  const cmts = comments.length ? comments.map(commentHTML).join("") : "";
+  if (!status && !cmts) return `<div class="no-comments">Brak aktywności — dodaj komentarz albo zaplanuj follow-up.</div>`;
+  return status + cmts;
+}
+// Przerysuj feed w otwartej (pełnej) karcie + popraw licznik
+function refreshFeed(id) {
+  const wrap = $("#comments-wrap");
+  if (!wrap || state.openCardId !== id) return;
   const c = state.clients.find((x) => String(x.id) === String(id));
-  if (!c || !canEdit(c)) return;
-  const fuDate = $("#fu-date"), fuTime = $("#fu-time"), fuNote = $("#fu-note");
-  const saveFollow = () => {                                    // sama data zapisuje od zera; +godzina = "YYYY-MM-DDTHH:MM"; brak daty czyści całość
-    const d = fuDate ? fuDate.value : "", t = fuTime ? fuTime.value : "";
-    saveField(c.id, "follow_up", !d ? "" : (t ? `${d}T${t}` : d));
-    if (d && c.follow_up_done) setFollowDone(c.id, false);      // nowy termin → znów „do zrobienia"
-  };
-  if (fuDate) fuDate.addEventListener("change", saveFollow);
-  if (fuTime) fuTime.addEventListener("change", saveFollow);
-  if (fuNote) fuNote.addEventListener("change", () => saveField(c.id, "follow_up_note", fuNote.value));
-  const doneBtn = $("#fu-done-btn");
-  if (doneBtn) doneBtn.addEventListener("click", () => setFollowDone(c.id, !c.follow_up_done));
-  // szybkie terminy: Jutro / +3 dni / +tydzień / Wyczyść
-  document.querySelectorAll("#cm-fu .fu-chip").forEach((ch) => ch.addEventListener("click", () => {
-    if (ch.dataset.clear) { if (fuDate) fuDate.value = ""; if (fuTime) fuTime.value = ""; }
-    else {
-      const dt = new Date(); dt.setHours(0, 0, 0, 0); dt.setDate(dt.getDate() + (Number(ch.dataset.days) || 0));
-      const y = dt.getFullYear(), m = String(dt.getMonth() + 1).padStart(2, "0"), dd = String(dt.getDate()).padStart(2, "0");
-      if (fuDate) fuDate.value = `${y}-${m}-${dd}`;
-    }
-    saveFollow();
-  }));
+  if (!c || c.deleted_at) return;                 // Archiwum ma własny, prosty widok
+  wrap.innerHTML = renderFeed(c, state.commentsByClient[id] || []);
+  const cc = $("#comment-count"); const n = (state.commentsByClient[id] || []).length;
+  if (cc) cc.textContent = n + " " + (n === 1 ? "komentarz" : "komentarzy");
 }
 async function setFollowDone(id, done) {
   const c = state.clients.find((x) => String(x.id) === String(id));
@@ -833,29 +840,42 @@ async function setFollowDone(id, done) {
   const prev = !!c.follow_up_done;
   if (prev === done) return;
   c.follow_up_done = done;
-  refreshFollowUp(id); updateCardInPlace(c); renderTabs();      // odśwież kartę follow-upu, chip na tablicy i licznik „zaległe"
+  refreshFeed(id); updateCardInPlace(c); renderTabs();         // odśwież feed, chip na tablicy i licznik „zaległe"
   try { await api.updateClient(id, { follow_up_done: done }); flashSaved(); }
-  catch (err) { console.error(err); c.follow_up_done = prev; refreshFollowUp(id); updateCardInPlace(c); renderTabs(); toast("Nie zapisano"); }
+  catch (err) { console.error(err); c.follow_up_done = prev; refreshFeed(id); updateCardInPlace(c); renderTabs(); toast("Nie zapisano"); }
 }
 function renderComments(list) {
   if (!list.length) return `<div class="no-comments">Brak komentarzy.</div>`;
-  return list.map((c) => `
-    <div class="comment">
-      <span class="avatar" style="background:${ownerColor(c.author)}">${initials(c.author)}</span>
-      <div class="comment-main">
-        <div class="comment-head"><span class="c-author">${esc(c.author)}</span><span class="c-time">${esc(fmtDateTime(c.created_at))}</span></div>
-        <div class="comment-body">${highlightMentions(c.body)}</div>
-      </div>
-    </div>`).join("");
+  return list.map(commentHTML).join("");
 }
 function highlightMentions(text) {
   return esc(text).replace(/@([A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż][\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)/g, '<span class="mention">@$1</span>');
 }
 
-/* ---------- Komentarz + @mention ---------- */
-function wireCommentBox(clientId) {
+/* ---------- Pole pod feedem: komentarz + tryb „Follow-up" + @mention ---------- */
+function wireComposer(clientId) {
+  const c = state.clients.find((x) => String(x.id) === String(clientId));
   const inp = $("#new-comment"), pop = $("#mention-pop");
-  const send = async () => {
+  const modeBtn = $("#fu-mode"), setter = $("#fu-setter"), sendBtn = $("#send-comment");
+  const fuDate = $("#fu-date"), fuTime = $("#fu-time");
+  const PH_COMMENT = "Dodaj komentarz...  (@ aby oznaczyć osobę)";
+  let fuMode = false;
+
+  const setMode = (on) => {                                    // przełącz pole między „komentarz" a „follow-up"
+    fuMode = on && !!modeBtn;
+    if (modeBtn) { modeBtn.classList.toggle("on", fuMode); modeBtn.setAttribute("aria-pressed", fuMode ? "true" : "false"); }
+    if (setter) setter.hidden = !fuMode;
+    inp.placeholder = fuMode ? "Treść follow-upu (opcjonalnie)…" : PH_COMMENT;
+    if (sendBtn) sendBtn.textContent = fuMode ? "Zaplanuj" : "Wyślij";
+    if (fuMode && c) {                                          // wejście w tryb → prefill bieżącym follow-upem
+      if (fuDate) fuDate.value = toDateInput(c.follow_up);
+      if (fuTime) fuTime.value = toTimeInput(c.follow_up);
+      inp.value = c.follow_up_note || "";
+    }
+    inp.focus();
+  };
+
+  const sendComment = async () => {
     const body = inp.value.trim();
     if (!body) return;
     inp.value = ""; pop.hidden = true;
@@ -863,12 +883,42 @@ function wireCommentBox(clientId) {
       await api.addComment(clientId, body);
       const fresh = await api.getComments(clientId);
       state.commentsByClient[clientId] = fresh;
-      $("#comments-wrap").innerHTML = renderComments(fresh);
-      const cc = $("#comment-count"); if (cc) cc.textContent = fresh.length + " " + (fresh.length === 1 ? "komentarz" : "komentarzy");
-      updateCardInPlace(state.clients.find((x) => String(x.id) === String(clientId)));  // tylko chip 💬, bez przebudowy tablicy
+      refreshFeed(clientId);
+      updateCardInPlace(c);                                     // tylko chip 💬, bez przebudowy tablicy
     } catch (err) { console.error(err); toast("Nie udało się dodać komentarza"); }
   };
-  $("#send-comment").addEventListener("click", send);
+
+  const saveFollowUp = () => {                                  // „Zaplanuj": data(+godz) + treść → follow_up na karcie, pojawia się w feedzie
+    const d = fuDate ? fuDate.value : "", t = fuTime ? fuTime.value : "";
+    if (!d) { toast("Ustaw datę follow-upu"); return; }
+    saveField(clientId, "follow_up_note", inp.value.trim());
+    saveField(clientId, "follow_up", t ? `${d}T${t}` : d);
+    if (c && c.follow_up_done) setFollowDone(clientId, false);  // nowy termin → znów „do zrobienia"
+    inp.value = "";
+    setMode(false);
+    refreshFeed(clientId);
+  };
+
+  const submit = () => { if (fuMode) saveFollowUp(); else sendComment(); };
+
+  if (modeBtn) modeBtn.addEventListener("click", () => setMode(!fuMode));
+  if (sendBtn) sendBtn.addEventListener("click", submit);
+  // szybkie terminy w setterze (Jutro / +3 dni / +tydzień / Wyczyść)
+  if (setter) setter.querySelectorAll(".fu-chip").forEach((ch) => ch.addEventListener("click", () => {
+    if (ch.dataset.clear) { if (fuDate) fuDate.value = ""; if (fuTime) fuTime.value = ""; }
+    else {
+      const dt = new Date(); dt.setHours(0, 0, 0, 0); dt.setDate(dt.getDate() + (Number(ch.dataset.days) || 0));
+      const y = dt.getFullYear(), m = String(dt.getMonth() + 1).padStart(2, "0"), dd = String(dt.getDate()).padStart(2, "0");
+      if (fuDate) fuDate.value = `${y}-${m}-${dd}`;
+    }
+    inp.focus();
+  }));
+  // ptaszek „zrobione" na wpisie follow-up (delegacja — feed się przerysowuje)
+  const wrap = $("#comments-wrap");
+  if (wrap) wrap.addEventListener("click", (e) => {
+    if (e.target.closest(".feed-tick") && c) setFollowDone(clientId, !c.follow_up_done);
+  });
+
   inp.addEventListener("keydown", (e) => {
     if (!pop.hidden) {
       const items = [...pop.querySelectorAll(".mention-item")];
@@ -881,7 +931,7 @@ function wireCommentBox(clientId) {
       }
       if (e.key === "Escape") { pop.hidden = true; return; }
     }
-    if (e.key === "Enter") send();
+    if (e.key === "Enter") submit();
   });
   inp.addEventListener("input", () => {
     const m = inp.value.slice(0, inp.selectionStart).match(/@([\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)$/);
@@ -933,7 +983,7 @@ async function doRequestDemo(id) {
     await api.requestDemo(id);
     c.demo_requested = true;          // ustaw flagę dopiero PO sukcesie (przy błędzie nic nie miga)
     refreshDemoCell(id);
-    updateCardInPlace(c); toast("Zgłoszono prośbę o demo");
+    updateCardInPlace(c); refreshFeed(id); toast("Zgłoszono prośbę o demo");   // wpis „Poproszono o demo" w feedzie
   } catch (err) { console.error(err); toast("Nie udało się zgłosić"); }
 }
 
@@ -1086,13 +1136,8 @@ async function refreshData() {
         openModal(state.openCardId);
       } else {
         // NIGDY nie przebudowuj całego modala (gubi wpisywany komentarz, scroll, podpowiedź @) —
-        // odśwież tylko listę komentarzy i licznik
-        const wrap = $("#comments-wrap");
-        if (wrap) {
-          const list = state.commentsByClient[state.openCardId] || [];
-          wrap.innerHTML = renderComments(list);
-          const cc = $("#comment-count"); if (cc) cc.textContent = list.length + " " + (list.length === 1 ? "komentarz" : "komentarzy");
-        }
+        // odśwież tylko feed (komentarze + status follow-up/demo) i licznik
+        refreshFeed(state.openCardId);
       }
     }
   } catch (err) { console.error("refresh", err); }
