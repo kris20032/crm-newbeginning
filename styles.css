@@ -295,10 +295,10 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .stars .star.on { color: #e0a93c; }
 .stars.readonly .star { cursor: default; }
 /* Pole na notatkę — kompaktowe, rośnie z treścią (bez rozpychania na cały ekran) */
-.cm-notes { display: flex; flex-direction: column; flex: 0 0 auto; margin-top: 18px; max-width: 820px; }
-.modal.modal-full textarea.notes { min-height: 130px; flex: 0 0 auto; }
+.cm-notes { display: flex; flex-direction: column; flex: 1 1 auto; margin-top: 18px; max-width: 820px; }
+.modal.modal-full textarea.notes { min-height: 140px; flex: 1 1 auto; }
 /* Notatka: widok z KLIKALNYMI linkami (klik w tekst = edycja, klik w link = otwiera) */
-.notes-view { min-height: 130px; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font-size: 13.5px; line-height: 1.5; font-family: inherit; white-space: pre-wrap; word-break: break-word; cursor: text; box-sizing: border-box; overflow-y: auto; }
+.notes-view { min-height: 140px; flex: 1 1 auto; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font-size: 13.5px; line-height: 1.5; font-family: inherit; white-space: pre-wrap; word-break: break-word; cursor: text; box-sizing: border-box; overflow-y: auto; }
 .notes-view:hover { border-color: var(--line-strong); }
 .notes-view .note-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
 .notes-view .note-link:hover { filter: brightness(.9); }
