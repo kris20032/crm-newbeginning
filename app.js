@@ -16,8 +16,8 @@
 /* ---------- Etapy lejka (1:1 z Notion) ---------- */
 const STATUSES = [
   { key: "lead",          label: "Lead",                  dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f", tint: "#f8f8f7" },
-  { key: "zainteresowany",label: "Zainteresowany",        dot: "#9a6dd7", bg: "#ede1f7", fg: "#6940a5", tint: "#faf7fd" },
-  { key: "umowiony",      label: "Wysłane demo",           dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f", tint: "#f4f9fc" },
+  { key: "zainteresowany",label: "Wysłane demo",           dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f", tint: "#f4f9fc" },
+  { key: "umowiony",      label: "Zainteresowany",        dot: "#9a6dd7", bg: "#ede1f7", fg: "#6940a5", tint: "#faf7fd" },
   { key: "po_spotkaniu",  label: "Sprzedaż",               dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f", tint: "#fdf6f5" },
   { key: "oferta",        label: "Oferta/umowa",           dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a", tint: "#fdfbf2" },
   { key: "konwersja",     label: "Konwersja",              dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e", tint: "#f5faf4" },
@@ -433,6 +433,7 @@ function renderBoard() {
   wireDragAndDrop();
   if (animate) flipAnimate(board, prevRects);
   state.skipFlipId = null; state.animateNextRender = false;
+  if (typeof renderBell === "function") renderBell();
 }
 
 function renderCardInner(c) {
@@ -446,7 +447,9 @@ function renderCardInner(c) {
       ${cnt ? `<span class="chip">💬 ${cnt}</span>` : ""}
       ${(c.demo_url && String(c.demo_url).trim())
         ? `<span class="chip chip-demo-done" title="Demo gotowe — link w karcie">✅ demo</span>`
-        : (c.demo_requested ? `<span class="chip chip-demo" title="Poproszono o demo">📩 demo</span>` : "")}
+        : (c.demo_building
+          ? `<span class="chip chip-building" title="Demo w budowie — sesja właśnie je robi">🔨 w budowie</span>`
+          : (c.demo_requested ? `<span class="chip chip-demo" title="Poproszono o demo">📩 demo</span>` : ""))}
       <span class="card-owner"><span class="avatar" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span></span>
     </div>`;
 }
@@ -1080,6 +1083,7 @@ async function showApp() {
   const loaded = loadOwners(); state.ownersAll = loaded.all; state.owners = loaded.owners;
   migrateArchiwumStatus();
   renderTabs(); renderBoard();
+  wireNotif(); renderBell();
   api.subscribe(scheduleRefresh);
   startSafetyRefresh();
 }
@@ -1129,6 +1133,79 @@ function wireChrome() {
     const pop = $("#owner-pop");
     if (pop && !pop.hidden && !e.target.closest(".owner-panel")) closeOwnerPanel();
   });
+}
+
+/* ============================================================
+   POWIADOMIENIA — @oznaczenia (frontend-only, liczone z komentarzy;
+   "przeczytane" trzymane lokalnie per zalogowana osoba). Zero zmian w bazie.
+   ============================================================ */
+function parseMentions(body) {
+  const out = new Set(); const team = state.team || [];
+  const re = /@([A-Za-zÀ-ÿĄąĆćĘꣳŃńÓ󌜏źŻż]+)/g; let m;
+  while ((m = re.exec(body || ""))) {
+    const nick = m[1].toLowerCase();
+    const hit = team.find((t) => String(t).toLowerCase() === nick);
+    if (hit) out.add(hit);
+  }
+  return out;
+}
+function notifReadKey() { return "crm_notif_read_" + (state.currentUser || "?"); }
+function getNotifReadAt() {
+  let v = localStorage.getItem(notifReadKey());
+  if (!v) { v = new Date().toISOString(); localStorage.setItem(notifReadKey(), v); } // czyste konto: licz od teraz, nie zalewaj historią
+  return v;
+}
+function buildNotifications() {
+  const me = state.currentUser; const list = []; const byId = state.commentsByClient || {};
+  for (const cid in byId) {
+    const cl = state.clients.find((x) => String(x.id) === String(cid));
+    if (!cl || cl.deleted_at) continue; // pomiń karty z Archiwum / usunięte — nie powiadamiaj o schowanych
+    for (const cm of (byId[cid] || [])) {
+      if (cm.author === me) continue;
+      if (parseMentions(cm.body).has(me)) {
+        list.push({ clientId: cid, clientName: (cl && (cl.name || cl.company)) || "karta", author: cm.author, body: cm.body, at: cm.created_at });
+      }
+    }
+  }
+  list.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  return list;
+}
+function renderBell() {
+  const bell = $("#notif-bell"); if (!bell) return;
+  const readAt = getNotifReadAt();
+  const unread = buildNotifications().filter((n) => String(n.at) > String(readAt)).length;
+  const badge = $("#notif-badge");
+  if (badge) { badge.textContent = unread > 9 ? "9+" : String(unread); badge.hidden = unread === 0; }
+  bell.classList.toggle("has-unread", unread > 0);
+}
+function renderNotifPanel() {
+  const panel = $("#notif-panel"); if (!panel) return;
+  const readAt = getNotifReadAt();
+  const all = buildNotifications().slice(0, 30);
+  const head = `<div class="notif-head"><strong>Powiadomienia</strong>${all.length ? `<button id="notif-readall" class="notif-readall">Oznacz przeczytane</button>` : ""}</div>`;
+  const body = all.length
+    ? all.map((n) => {
+        const unread = String(n.at) > String(readAt);
+        return `<button class="notif-item${unread ? " unread" : ""}" data-cid="${esc(n.clientId)}">
+          <div class="notif-it-top"><span class="notif-who">${esc(n.author)}</span> oznaczył(a) Cię · <span class="notif-cli">${esc(n.clientName)}</span></div>
+          <div class="notif-it-body">${esc(n.body)}</div>
+          <div class="notif-it-time">${esc(fmtDateTime(n.at))}</div>
+        </button>`;
+      }).join("")
+    : `<div class="notif-empty">Brak powiadomień. Gdy ktoś oznaczy Cię <b>@${esc(state.currentUser || "")}</b> w komentarzu, pojawi się tutaj.</div>`;
+  panel.innerHTML = head + `<div class="notif-list">${body}</div>`;
+  const ra = $("#notif-readall"); if (ra) ra.addEventListener("click", (e) => { e.stopPropagation(); markAllNotifRead(); });
+  panel.querySelectorAll(".notif-item").forEach((el) => el.addEventListener("click", () => {
+    const cid = el.dataset.cid; markAllNotifRead(); panel.hidden = true; openModal(cid);
+  }));
+}
+function markAllNotifRead() { localStorage.setItem(notifReadKey(), new Date().toISOString()); renderBell(); renderNotifPanel(); }
+function wireNotif() {
+  const bell = $("#notif-bell"); const panel = $("#notif-panel");
+  if (!bell || !panel || bell.dataset.wired) return;
+  bell.dataset.wired = "1";
+  bell.addEventListener("click", (e) => { e.stopPropagation(); const show = panel.hidden; panel.hidden = !show; if (show) renderNotifPanel(); });
+  document.addEventListener("click", (e) => { if (!panel.hidden && !panel.contains(e.target) && e.target !== bell) panel.hidden = true; });
 }
 
 function showLoginForm() {
