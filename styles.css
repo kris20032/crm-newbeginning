@@ -257,35 +257,48 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 /* lewa kolumna — przewijalna */
 .cm-left { min-width: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 22px 28px 18px; }
 .cm-name { font-size: 21px; font-weight: 700; margin: 0 0 1px; }
-.modal.modal-full input.title-input.cm-name { font-size: 21px; }
-/* ── Nowy układ karty: KONTAKT (lewo) | META (prawo) ── */
-.cm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 30px; margin: 16px 0 4px; align-items: start; }
-.cm-col { display: flex; flex-direction: column; }
-.cm-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
-.field-label { font-size: 11.5px; color: var(--ink-soft); display: flex; align-items: center; gap: 5px; }
-.cm-field input, .cm-field select { font-size: 13.5px; border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; font-family: inherit; background: var(--panel); color: var(--ink); box-sizing: border-box; }
-.cm-field > input, .cm-field > select { width: 100%; }
-.cm-field input:hover, .cm-field select:hover { background: var(--bg); }
-.cm-field input:focus, .cm-field select:focus { outline: none; border-color: var(--accent); background: #fff; }
-.cm-field .prop-value.readonly { padding: 7px 2px; font-size: 13.5px; color: var(--ink); }
-.cm-field .maps-cell, .cm-field .demo-cell { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.cm-field .maps-cell input, .cm-field .demo-cell input { flex: 1 1 auto; min-width: 0; }
-.cm-field .demo-cell .demo-input { flex: 1 1 100%; }
-.cm-field .follow-edit { display: flex; gap: 8px; }
-.cm-field .follow-edit input[type="date"] { flex: 1 1 auto; }
-.cm-field .follow-edit input[type="time"] { flex: 0 0 auto; width: 108px; }
+.modal.modal-full input.title-input.cm-name { font-size: 21px; width: 100%; border: 1px solid transparent; border-radius: 8px; padding: 3px 7px; margin-left: -7px; box-sizing: border-box; transition: background .12s ease, border-color .12s ease; }
+.modal.modal-full input.title-input.cm-name:hover { background: var(--bg); }
+.modal.modal-full input.title-input.cm-name:focus { background: var(--panel); border-color: var(--accent); }
+/* nagłówek sekcji „Notatki" — spójny z nagłówkami grup */
+.cm-left .cm-notes .notes-label { font-size: 11px; letter-spacing: .07em; padding-bottom: 7px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+/* ── Karta: właściwości w 2 grupach (Kontakt | Sprzedaż), pola „inline" jak w Notion ── */
+.cm-props { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 48px; align-items: start; margin: 18px 0 6px; max-width: 820px; }
+.cm-group { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cm-gh { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-soft); padding-bottom: 7px; margin-bottom: 5px; border-bottom: 1px solid var(--line); }
+.cm-row { display: grid; grid-template-columns: 92px minmax(0,1fr); align-items: center; gap: 8px; min-height: 32px; }
+.cm-row > .k { font-size: 12.5px; color: var(--ink-soft); }
+.cm-row > .v { min-width: 0; display: flex; align-items: center; }
+/* pola „bez ramki" — wyglądają jak tekst; ramka i tło dopiero przy najechaniu / edycji */
+.cm-row input, .cm-row select { width: 100%; font-size: 13.5px; font-family: inherit; color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 5px 7px; box-sizing: border-box; cursor: pointer; }
+.cm-row input { cursor: text; }
+.cm-row input:hover, .cm-row select:hover { background: var(--bg); }
+.cm-row input:focus, .cm-row select:focus { outline: none; background: var(--panel); border-color: var(--accent); cursor: text; }
+.cm-row input::placeholder { color: #c4c4c2; }
+.cm-row .prop-value.readonly { font-size: 13.5px; color: var(--ink); padding: 5px 7px; }
+.cm-row .v.maps-cell, .cm-row .v.demo-cell { gap: 4px; }
+.cm-row .v.maps-cell { flex-wrap: nowrap; }
+.cm-row .v.demo-cell { flex-wrap: wrap; }
+.cm-row .v.maps-cell > input, .cm-row .v.demo-cell > input { flex: 1 1 auto; min-width: 0; }
+.cm-row .v.demo-cell .demo-input { flex: 1 1 100%; }
+.cm-row .v.demo-cell .demo-row { margin-left: 0; }
+.cm-row .v .maps-btn { padding: 4px 7px; font-size: 12px; }
+.cm-row .follow-edit { display: flex; gap: 6px; width: 100%; }
+.cm-row .follow-edit input[type="date"] { flex: 1 1 auto; }
+.cm-row .follow-edit input[type="time"] { flex: 0 0 auto; width: 92px; }
 .demo-link { font-weight: 500; white-space: nowrap; }
-/* Ocena gwiazdkowa 1–3 */
-.stars { display: inline-flex; gap: 5px; align-items: center; }
-.stars .star { background: transparent; border: none; padding: 0; cursor: pointer; font-size: 24px; line-height: 1; color: #d7d6d2; font-family: inherit; transition: color .12s ease, transform .1s ease; }
+@media (max-width: 760px) { .cm-props { grid-template-columns: 1fr; gap: 16px 0; } }
+/* Ocena gwiazdkowa 1–3 (mniejsze, spokojniejsze) */
+.stars { display: inline-flex; gap: 4px; align-items: center; }
+.stars .star { background: transparent; border: none; padding: 0; cursor: pointer; font-size: 18px; line-height: 1; color: #dcdcd8; font-family: inherit; transition: color .12s ease, transform .1s ease; }
 .stars button.star:hover { transform: scale(1.12); }
 .stars .star.on { color: #e0a93c; }
 .stars.readonly .star { cursor: default; }
-/* DUŻE pole na notatkę */
-.cm-notes { display: flex; flex-direction: column; flex: 1 1 auto; margin-top: 10px; }
-.modal.modal-full textarea.notes { min-height: 200px; flex: 1 1 auto; }
+/* Pole na notatkę — kompaktowe, rośnie z treścią (bez rozpychania na cały ekran) */
+.cm-notes { display: flex; flex-direction: column; flex: 0 0 auto; margin-top: 18px; max-width: 820px; }
+.modal.modal-full textarea.notes { min-height: 130px; flex: 0 0 auto; }
 /* Notatka: widok z KLIKALNYMI linkami (klik w tekst = edycja, klik w link = otwiera) */
-.notes-view { min-height: 200px; flex: 1 1 auto; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; font-size: 13.5px; line-height: 1.5; font-family: inherit; white-space: pre-wrap; word-break: break-word; cursor: text; box-sizing: border-box; overflow-y: auto; }
+.notes-view { min-height: 130px; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font-size: 13.5px; line-height: 1.5; font-family: inherit; white-space: pre-wrap; word-break: break-word; cursor: text; box-sizing: border-box; overflow-y: auto; }
 .notes-view:hover { border-color: var(--line-strong); }
 .notes-view .note-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
 .notes-view .note-link:hover { filter: brightness(.9); }

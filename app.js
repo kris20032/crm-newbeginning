@@ -245,20 +245,20 @@ const isDueSoon = (d) => { if (!d) return false; const dt = new Date(d); if (isN
 const dueState = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return ""; const t = new Date(); t.setHours(0,0,0,0); const day = new Date(dt); day.setHours(0,0,0,0); if (day < t) return "overdue"; if (day.getTime() === t.getTime()) return "today"; return ""; };
 const safeUrl = (u) => { try { const x = new URL(u); return (x.protocol === "http:" || x.protocol === "https:") ? u : ""; } catch { return ""; } };
 const debounce = (fn, ms) => { let h; return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); }; };
-const DEMO_FLAG_HTML = `<span class="demo-flag">📩 Poproszono o demo</span>`;
+const DEMO_FLAG_HTML = `<span class="demo-flag">Poproszono o demo</span>`;
 // Pole demo: gdy jest link → KLIKALNY link + odnośniki (otwórz/kopiuj); inaczej → przycisk „Poproś o demo"
 // (+ „🔗 link", który odsłania pole do wklejenia gotowego linku). Po wklejeniu zmienia się w link i odnośniki.
 function demoFieldHTML(c, editable) {
   const demoSafe = safeUrl(c.demo_url);
   if (demoSafe) {
-    return `<a class="maps-link demo-link" href="${esc(demoSafe)}" target="_blank" rel="noopener">🌐 otwórz demo</a>
-      <button type="button" class="maps-btn" id="demo-copy" title="Kopiuj link do dema">⧉ kopiuj</button>
+    return `<a class="maps-link demo-link" href="${esc(demoSafe)}" target="_blank" rel="noopener">otwórz demo</a>
+      <button type="button" class="maps-btn" id="demo-copy" title="Kopiuj link do dema">⧉</button>
       ${editable ? `<button type="button" class="maps-btn" id="demo-edit" title="Zmień / usuń link">✎</button>
       <input data-key="demo_url" id="demo-input" class="demo-input" value="${esc(c.demo_url || "")}" placeholder="link do dema" hidden />` : ""}`;
   }
   if (!editable) return `<span class="readonly">—</span>`;
-  return `<span class="demo-row">${c.demo_requested ? DEMO_FLAG_HTML : `<button type="button" class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`}</span>
-    <button type="button" class="maps-btn" id="demo-add" title="Wklej gotowy link do dema">🔗 link</button>
+  return `<span class="demo-row">${c.demo_requested ? DEMO_FLAG_HTML : `<button type="button" class="ghost-btn demo-btn" id="ask-demo">Poproś o demo</button>`}</span>
+    <button type="button" class="maps-btn" id="demo-add" title="Wklej gotowy link do dema">link</button>
     <input data-key="demo_url" id="demo-input" class="demo-input" value="" placeholder="wklej link do dema" hidden />`;
 }
 const reduceMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
@@ -597,62 +597,31 @@ async function openModal(id) {
         ${editable ? `<input class="title-input cm-name" data-key="name" value="${esc(c.name)}" placeholder="Imię i nazwisko" />` : `<h2 class="cm-name">${esc(c.name)}</h2>`}
         ${!editable ? `<div class="readonly-note">To karta: ${esc(c.owner)}. Pól nie edytujesz, ale możesz dodać komentarz (z @oznaczeniem).</div>` : ""}
 
-        <div class="cm-grid">
-          <div class="cm-col cm-contact">
-            <div class="cm-field">
-              <span class="field-label">🏢 Nazwa firmy</span>
-              ${editable ? `<input data-key="company" value="${esc(c.company || "")}" placeholder="Nazwa firmy" />` : `<div class="prop-value readonly">${esc(c.company) || "—"}</div>`}
-            </div>
-            <div class="cm-field">
-              <span class="field-label">📞 Telefon</span>
-              ${editable ? `<input data-key="phone" value="${esc(c.phone || "")}" placeholder="Telefon" />` : `<div class="prop-value readonly">${esc(c.phone) || "—"}</div>`}
-            </div>
-            <div class="cm-field">
-              <span class="field-label">@ Email</span>
-              ${editable ? `<input data-key="email" value="${esc(c.email || "")}" placeholder="Email" />` : `<div class="prop-value readonly">${esc(c.email) || "—"}</div>`}
-            </div>
-            <div class="cm-field">
-              <span class="field-label">🔗 Google Maps</span>
-              <div class="maps-cell">
-                ${editable
+        <div class="cm-props">
+          <div class="cm-group">
+            <div class="cm-gh">Kontakt</div>
+            <div class="cm-row"><span class="k">Firma</span><div class="v">${editable ? `<input data-key="company" value="${esc(c.company || "")}" placeholder="—" />` : `<div class="prop-value readonly">${esc(c.company) || "—"}</div>`}</div></div>
+            <div class="cm-row"><span class="k">Telefon</span><div class="v">${editable ? `<input data-key="phone" value="${esc(c.phone || "")}" placeholder="—" />` : `<div class="prop-value readonly">${esc(c.phone) || "—"}</div>`}</div></div>
+            <div class="cm-row"><span class="k">Email</span><div class="v">${editable ? `<input data-key="email" value="${esc(c.email || "")}" placeholder="—" />` : `<div class="prop-value readonly">${esc(c.email) || "—"}</div>`}</div></div>
+            <div class="cm-row"><span class="k">Maps</span><div class="v maps-cell">${editable
                   ? `<input data-key="google_maps" id="maps-input" value="${esc(c.google_maps || "")}" placeholder="link" />`
-                  : (safe ? `<a class="maps-link" href="${esc(safe)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : `<span class="readonly">—</span>`)}
-                ${(c.google_maps || "").trim()
-                  ? `${editable ? `<button type="button" class="maps-btn" id="maps-open" title="Otwórz wizytówkę Google">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="maps-copy" title="Kopiuj link">⧉ kopiuj</button>`
-                  : ""}
-              </div>
-            </div>
+                  : (safe ? `<a class="maps-link" href="${esc(safe)}" target="_blank" rel="noopener">otwórz</a>` : `<span class="readonly">—</span>`)}${(c.google_maps || "").trim()
+                  ? `${editable ? `<button type="button" class="maps-btn" id="maps-open" title="Otwórz wizytówkę Google">↗</button>` : ""}<button type="button" class="maps-btn" id="maps-copy" title="Kopiuj link">⧉</button>`
+                  : ""}</div></div>
           </div>
 
-          <div class="cm-col cm-meta">
-            <div class="cm-field">
-              <span class="field-label">⭐ Ocena</span>
-              ${editable
+          <div class="cm-group">
+            <div class="cm-gh">Sprzedaż</div>
+            <div class="cm-row"><span class="k">Status</span><div class="v">${statusSelect}</div></div>
+            <div class="cm-row"><span class="k">Handlowiec</span><div class="v">${ownerSelect}</div></div>
+            <div class="cm-row"><span class="k">Ocena</span><div class="v">${editable
                 ? `<div class="stars" id="stars">${[1,2,3].map((n) => `<button type="button" class="star${n <= stars ? " on" : ""}" data-val="${n}" title="${n}/3" aria-label="Ocena ${n} z 3">★</button>`).join("")}</div>`
-                : `<div class="stars readonly">${[1,2,3].map((n) => `<span class="star${n <= stars ? " on" : ""}">★</span>`).join("")}</div>`}
-            </div>
-            <div class="cm-field">
-              <span class="field-label">◎ Status</span>
-              ${statusSelect}
-            </div>
-            <div class="cm-field">
-              <span class="field-label">👤 Handlowiec</span>
-              ${ownerSelect}
-            </div>
-            <div class="cm-field">
-              <span class="field-label">📅 Follow-up</span>
-              ${editable
+                : `<div class="stars readonly">${[1,2,3].map((n) => `<span class="star${n <= stars ? " on" : ""}">★</span>`).join("")}</div>`}</div></div>
+            <div class="cm-row"><span class="k">Termin</span><div class="v">${editable
                 ? `<span class="follow-edit"><input type="date" id="fu-date" value="${toDateInput(c.follow_up)}" /><input type="time" id="fu-time" value="${toTimeInput(c.follow_up)}" title="Godzina (opcjonalnie)" /></span>`
-                : `<div class="prop-value readonly">${c.follow_up ? esc(fmtFollow(c.follow_up)) : "—"}</div>`}
-            </div>
-            <div class="cm-field">
-              <span class="field-label">✉️ Wiadomość</span>
-              ${editable ? `<input data-key="follow_up_note" value="${esc(c.follow_up_note || "")}" placeholder="np. o czym przypomnieć przy follow-upie" />` : `<div class="prop-value readonly">${esc(c.follow_up_note) || "—"}</div>`}
-            </div>
-            <div class="cm-field">
-              <span class="field-label">🌐 Demo</span>
-              <div class="demo-cell maps-cell" id="demo-cell">${demoFieldHTML(c, editable)}</div>
-            </div>
+                : `<div class="prop-value readonly">${c.follow_up ? esc(fmtFollow(c.follow_up)) : "—"}</div>`}</div></div>
+            <div class="cm-row"><span class="k">Wiadomość</span><div class="v">${editable ? `<input data-key="follow_up_note" value="${esc(c.follow_up_note || "")}" placeholder="o czym przypomnieć" />` : `<div class="prop-value readonly">${esc(c.follow_up_note) || "—"}</div>`}</div></div>
+            <div class="cm-row"><span class="k">Demo</span><div class="v demo-cell maps-cell" id="demo-cell">${demoFieldHTML(c, editable)}</div></div>
           </div>
         </div>
 
@@ -664,7 +633,7 @@ async function openModal(id) {
             : `<div class="notes-view readonly">${c.notes ? linkify(c.notes) : "—"}</div>`}
         </div>
 
-        ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">🗄 Przenieś do archiwum</button></div>` : ""}
+        ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Przenieś do archiwum</button></div>` : ""}
       </div>
 
       <aside class="cm-right">
