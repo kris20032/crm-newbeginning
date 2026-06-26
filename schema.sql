@@ -104,3 +104,11 @@ alter table clients add column if not exists demo_url      text;
 alter table clients add column if not exists demo_building  boolean default false;
 alter table clients add column if not exists position       double precision;
 alter table clients alter column follow_up type timestamptz using follow_up::timestamptz;
+
+-- ============================================================
+--  v6 (2026-06-26): opiekun + odhaczanie follow-upa
+--  - opiekun        = dodatkowy członek zespołu przypisany do karty (obok handlowca);
+--  - follow_up_done = czy follow-up został zrobiony (odhaczony na czacie).
+-- ============================================================
+alter table clients add column if not exists opiekun        text;
+alter table clients add column if not exists follow_up_done  boolean default false;

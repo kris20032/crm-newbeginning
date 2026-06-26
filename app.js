@@ -297,7 +297,7 @@ function renderTabs() {
   const sel = selectedOwnersSet();
   const mine = state.clients.filter((c) => sel.has(c.owner));      // tylko wybrani właściciele (domyślnie: ja)
   const active = mine.filter((c) => !c.deleted_at);
-  const dueCount = active.filter((c) => isDueSoon(c.follow_up)).length;
+  const dueCount = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up)).length;
   const archiveCount = mine.length - active.length;
   const modes = [
     { key: "board",   label: "Tablica",               count: active.length },
@@ -378,7 +378,7 @@ function visibleClients() {
   else {
     const active = (q ? activeClients() : mine.filter((c) => !c.deleted_at));   // szukasz → wszyscy; inaczej → wybrani
     if (q) list = active;
-    else if (state.viewMode === "due") list = active.filter((c) => isDueSoon(c.follow_up));
+    else if (state.viewMode === "due") list = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up));
     else list = active;                                           // tablica
   }
   if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
@@ -438,19 +438,19 @@ function renderBoard() {
 
 function renderCardInner(c) {
   const cnt = (state.commentsByClient[c.id] || []).length;
-  const ds = dueState(c.follow_up);
+  const ds = c.follow_up_done ? "" : dueState(c.follow_up);   // zrobiony follow-up nie świeci jako „dziś/zaległe"
   return `<div class="card-title"><span class="card-ic">👤</span>${esc(c.name)}</div>
     ${c.company ? `<div class="card-company">${esc(c.company)}</div>` : ""}
     <div class="card-meta">${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}</div>
     <div class="card-foot">
-      ${c.follow_up ? `<span class="chip ${ds ? "chip-" + ds : ""}">📅 ${esc(fmtFollow(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>` : ""}
+      ${c.follow_up ? `<span class="chip ${c.follow_up_done ? "chip-fu-done" : (ds ? "chip-" + ds : "")}" title="${c.follow_up_done ? "Follow-up zrobiony" : "Follow-up"}">${c.follow_up_done ? "✓" : "📅"} ${esc(fmtFollow(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>` : ""}
       ${cnt ? `<span class="chip">💬 ${cnt}</span>` : ""}
       ${(c.demo_url && String(c.demo_url).trim())
         ? `<span class="chip chip-demo-done" title="Demo gotowe — link w karcie">✅ demo</span>`
         : (c.demo_building
           ? `<span class="chip chip-building" title="Demo w budowie — sesja właśnie je robi">🔨 w budowie</span>`
           : (c.demo_requested ? `<span class="chip chip-demo" title="Poproszono o demo">📩 demo</span>` : ""))}
-      <span class="card-owner"><span class="avatar" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span></span>
+      <span class="card-owner">${c.opiekun ? `<span class="avatar avatar-sec" title="Opiekun: ${esc(c.opiekun)}" style="background:${ownerColor(c.opiekun)}">${initials(c.opiekun)}</span>` : ""}<span class="avatar" title="Handlowiec: ${esc(c.owner)}" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span></span>
     </div>`;
 }
 function renderCard(c) {
@@ -588,6 +588,10 @@ async function openModal(id) {
   const ownerSelect = editable
     ? `<select data-key="owner">${ownerOpts.map((o) => `<option value="${esc(o)}" ${c.owner === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
     : `<div class="prop-value readonly">${esc(c.owner)}</div>`;
+  const opiekunOpts = Array.from(new Set([...state.team, c.opiekun].filter(Boolean)));
+  const opiekunSelect = editable
+    ? `<select data-key="opiekun"><option value="">— brak —</option>${opiekunOpts.map((o) => `<option value="${esc(o)}" ${c.opiekun === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
+    : `<div class="prop-value readonly">${esc(c.opiekun) || "—"}</div>`;
   const safe = safeUrl(c.google_maps);
   const stars = Math.max(0, Math.min(3, parseInt(c.quality, 10) || 0));   // ocena 1–3 (w kolumnie quality)
 
@@ -612,15 +616,12 @@ async function openModal(id) {
 
           <div class="cm-group">
             <div class="cm-gh">Sprzedaż</div>
-            <div class="cm-row"><span class="k">Status</span><div class="v">${statusSelect}</div></div>
-            <div class="cm-row"><span class="k">Handlowiec</span><div class="v">${ownerSelect}</div></div>
             <div class="cm-row"><span class="k">Ocena</span><div class="v">${editable
                 ? `<div class="stars" id="stars">${[1,2,3].map((n) => `<button type="button" class="star${n <= stars ? " on" : ""}" data-val="${n}" title="${n}/3" aria-label="Ocena ${n} z 3">★</button>`).join("")}</div>`
                 : `<div class="stars readonly">${[1,2,3].map((n) => `<span class="star${n <= stars ? " on" : ""}">★</span>`).join("")}</div>`}</div></div>
-            <div class="cm-row"><span class="k">Termin</span><div class="v">${editable
-                ? `<span class="follow-edit"><input type="date" id="fu-date" value="${toDateInput(c.follow_up)}" /><input type="time" id="fu-time" value="${toTimeInput(c.follow_up)}" title="Godzina (opcjonalnie)" /></span>`
-                : `<div class="prop-value readonly">${c.follow_up ? esc(fmtFollow(c.follow_up)) : "—"}</div>`}</div></div>
-            <div class="cm-row"><span class="k">Wiadomość</span><div class="v">${editable ? `<input data-key="follow_up_note" value="${esc(c.follow_up_note || "")}" placeholder="o czym przypomnieć" />` : `<div class="prop-value readonly">${esc(c.follow_up_note) || "—"}</div>`}</div></div>
+            <div class="cm-row"><span class="k">Status</span><div class="v">${statusSelect}</div></div>
+            <div class="cm-row"><span class="k">Handlowiec</span><div class="v">${ownerSelect}</div></div>
+            <div class="cm-row"><span class="k">Opiekun</span><div class="v">${opiekunSelect}</div></div>
             <div class="cm-row"><span class="k">Demo</span><div class="v demo-cell maps-cell" id="demo-cell">${demoFieldHTML(c, editable)}</div></div>
           </div>
         </div>
@@ -637,6 +638,7 @@ async function openModal(id) {
       </div>
 
       <aside class="cm-right">
+        <div class="cm-fu" id="cm-fu">${followUpHTML(c, editable)}</div>
         <div class="cm-right-head">Komentarze <span class="cm-cc" id="comment-count">${comments.length} ${comments.length === 1 ? "komentarz" : "komentarzy"}</span></div>
         <div class="comments-wrap" id="comments-wrap">${renderComments(comments)}</div>
         <div class="add-comment">
@@ -685,17 +687,7 @@ async function openModal(id) {
         el.addEventListener("input", () => saveDeb(el));
       }
     });
-    // Follow-up: data + OPCJONALNA godzina → jedno pole follow_up. Sama data zapisuje się od zera;
-    // dodanie godziny daje "YYYY-MM-DDTHH:MM"; wyczyszczenie daty czyści całość.
-    const fuDate = $("#fu-date"), fuTime = $("#fu-time");
-    if (fuDate && fuTime) {
-      const saveFollow = () => {
-        const d = fuDate.value, t = fuTime.value;
-        saveField(c.id, "follow_up", !d ? "" : (t ? `${d}T${t}` : d));
-      };
-      fuDate.addEventListener("change", saveFollow);
-      fuTime.addEventListener("change", saveFollow);
-    }
+    // (Follow-up przeniesiony nad czat — datę/godzinę/wiadomość i odhaczanie wiąże wireFollowUp.)
     // Notatka: widok z KLIKALNYMI linkami ↔ edycja. Klik w tekst → edytuj; klik w link → otwiera.
     const nView = $("#notes-view"), nEdit = $("#notes-edit");
     if (nView && nEdit) {
@@ -722,6 +714,7 @@ async function openModal(id) {
     }));
   }
   const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askArchiveCard(c.id, delBtn));
+  wireFollowUp(c.id);
   wireDemoCell(c.id);
   wireCommentBox(c.id);
 }
@@ -757,7 +750,7 @@ async function saveField(id, key, value) {
       return;
     }
     if (key === "status" || key === "follow_up") { renderTabs(); state.animateNextRender = true; renderBoard(); return; }
-    if (key === "name" || key === "company" || key === "phone") { updateCardInPlace(c); return; }
+    if (key === "name" || key === "company" || key === "phone" || key === "opiekun") { updateCardInPlace(c); return; }
   } catch (err) {
     console.error(err);
     c[key] = prev;                   // cofnij — żeby ekran nie pokazywał „zapisanej" wartości, która nie poszła do bazy
@@ -770,6 +763,63 @@ async function saveField(id, key, value) {
   }
 }
 
+/* ---------- Follow-up: przypięta karta nad czatem + odhaczanie „zrobione" ---------- */
+function followUpHTML(c, editable) {
+  const done = !!c.follow_up_done;
+  const has = !!c.follow_up;
+  if (!editable) {
+    if (!has) return `<div class="fu-empty">Brak follow-upu.</div>`;
+    return `<div class="fu-card${done ? " done" : ""}">
+        <div class="fu-top"><span class="fu-tag">Follow-up</span>${done ? `<span class="fu-badge">zrobione</span>` : ""}</div>
+        <div class="fu-when">${esc(fmtFollow(c.follow_up))}</div>
+        ${c.follow_up_note ? `<div class="fu-note">${esc(c.follow_up_note)}</div>` : ""}
+      </div>`;
+  }
+  return `<div class="fu-card${done ? " done" : ""}">
+      <div class="fu-top">
+        <span class="fu-tag">Follow-up</span>
+        <label class="fu-done"><input type="checkbox" id="fu-done"${done ? " checked" : ""} /> zrobione</label>
+      </div>
+      <div class="fu-when-edit">
+        <input type="date" id="fu-date" value="${toDateInput(c.follow_up)}" />
+        <input type="time" id="fu-time" value="${toTimeInput(c.follow_up)}" title="Godzina (opcjonalnie)" />
+      </div>
+      <input class="fu-note-input" id="fu-note" value="${esc(c.follow_up_note || "")}" placeholder="o czym przypomnieć przy follow-upie" />
+    </div>`;
+}
+function refreshFollowUp(id) {
+  const box = $("#cm-fu");
+  if (!box || state.openCardId !== id) return;
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  box.innerHTML = followUpHTML(c, canEdit(c));
+  wireFollowUp(id);
+}
+function wireFollowUp(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c || !canEdit(c)) return;
+  const fuDate = $("#fu-date"), fuTime = $("#fu-time"), fuDone = $("#fu-done"), fuNote = $("#fu-note");
+  if (fuDate && fuTime) {
+    const saveFollow = () => {                                  // sama data zapisuje od zera; +godzina = "YYYY-MM-DDTHH:MM"; brak daty czyści całość
+      const d = fuDate.value, t = fuTime.value;
+      saveField(c.id, "follow_up", !d ? "" : (t ? `${d}T${t}` : d));
+    };
+    fuDate.addEventListener("change", saveFollow);
+    fuTime.addEventListener("change", saveFollow);
+  }
+  if (fuNote) fuNote.addEventListener("change", () => saveField(c.id, "follow_up_note", fuNote.value));
+  if (fuDone) fuDone.addEventListener("change", () => setFollowDone(c.id, fuDone.checked));
+}
+async function setFollowDone(id, done) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  const prev = !!c.follow_up_done;
+  if (prev === done) return;
+  c.follow_up_done = done;
+  refreshFollowUp(id); updateCardInPlace(c); renderTabs();      // odśwież kartę follow-upu, chip na tablicy i licznik „zaległe"
+  try { await api.updateClient(id, { follow_up_done: done }); flashSaved(); }
+  catch (err) { console.error(err); c.follow_up_done = prev; refreshFollowUp(id); updateCardInPlace(c); renderTabs(); toast("Nie zapisano"); }
+}
 function renderComments(list) {
   if (!list.length) return `<div class="no-comments">Brak komentarzy.</div>`;
   return list.map((c) => `
