@@ -328,7 +328,9 @@ function renderCardInner(c) {
       ${cnt ? `<span class="chip">💬 ${cnt}</span>` : ""}
       ${(c.demo_url && String(c.demo_url).trim())
         ? `<span class="chip chip-demo-done" title="Demo gotowe — link w karcie">✅ demo</span>`
-        : (c.demo_requested ? `<span class="chip chip-demo" title="Poproszono o demo">📩 demo</span>` : "")}
+        : (c.demo_building
+          ? `<span class="chip chip-building" title="Demo w budowie — sesja właśnie je robi">🔨 w budowie</span>`
+          : (c.demo_requested ? `<span class="chip chip-demo" title="Poproszono o demo">📩 demo</span>` : ""))}
       <span class="card-owner"><span class="avatar" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span></span>
     </div>`;
 }

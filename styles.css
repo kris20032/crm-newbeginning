@@ -286,6 +286,7 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .chip-today { color: #b8860b; font-weight: 600; }
 .chip-demo { color: #8a5a00; background: #fbe7c9; padding: 1px 6px; border-radius: 10px; }
 .chip-demo-done { color: #2e6b3e; background: #d7eede; padding: 1px 6px; border-radius: 10px; }
+.chip-building { color: #1d5fb5; background: #d8e8fb; padding: 1px 6px; border-radius: 10px; font-weight: 600; }
 
 .demo-row { margin: 16px 0 2px; }
 .demo-btn { color: #8a5a00; border-color: #e8d39a; }
