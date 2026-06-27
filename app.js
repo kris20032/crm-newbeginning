@@ -3,7 +3,7 @@
    Realtime + auto-zapis + @oznaczenia + "Poproś o demo" + wyszukiwarka.
    v36 (2026-06-25): widoki per-osoba — każdy domyślnie widzi TYLKO swoje karty;
      • panel zespołu (👥 Pokaż) = wybór czyje karty widać: jedna / kilka / wszyscy (dla każdego);
-     • tryby widoku rozdzielone od właścicieli: Tablica / Na dziś-zaległe / Archiwum;
+     • tryby widoku: Wszystkie (moje + gdzie jestem opiekunem) / Moje / Na dziś-zaległe / Archiwum;
      • "Kosz" → "Archiwum" (chowanie z tablicy, odwracalne); "Usuń kartę" → "Przenieś do archiwum";
      • etap 'archiwum' usunięty z lejka, stare karty zmigrowane do Archiwum.
    v26 (2026-06-22): ujednolicony przepływ demo —
@@ -40,7 +40,8 @@ const initials = (name) => (name || "?").trim().charAt(0).toUpperCase();
 /* ---------- Stan ---------- */
 const state = {
   clients: [], commentsByClient: {}, team: [],
-  viewMode: "board",        // tryb widoku: "board" | "due" | "archive"
+  viewMode: "all",          // tryb widoku: "all" (Wszystkie: moje + gdzie jestem opiekunem) | "board" (Moje) | "due" | "archive"
+  layout: "kanban",         // układ tablicy/„na dziś": "kanban" (kolumny) | "table" (tabela)
   owners: null,             // Set wybranych właścicieli (panel zespołu); null → traktuj jak [zalogowany]
   ownersAll: false,         // sentinel „Wszyscy" — rozwija się dynamicznie do bieżącego zespołu (nie zamraża listy)
   ownerPopOpen: false,      // czy rozwinięty panel zespołu (poza DOM, by przeżyć przebudowę #tabs przez realtime)
@@ -292,6 +293,9 @@ function flashCard(id) {
 /* ============================================================
    RENDER — zakładki
    ============================================================ */
+// Przełącznik układu (kanban / tabela) — w pasku tabów, po prawej obok „Pokaż"
+const KANBAN_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="16" rx="1.5"/><rect x="17" y="4" width="4" height="10" rx="1.5"/></svg>`;
+const TABLE_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 15h18M11 4v16"/></svg>`;
 function renderTabs() {
   const tabs = $("#tabs");
   const sel = selectedOwnersSet();
@@ -299,20 +303,31 @@ function renderTabs() {
   const active = mine.filter((c) => !c.deleted_at);
   const dueCount = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up)).length;
   const archiveCount = mine.length - active.length;
+  const me = state.currentUser;
+  const allCount = state.clients.filter((c) => !c.deleted_at && (c.owner === me || c.opiekun === me)).length;   // moje + gdzie jestem opiekunem
   const modes = [
-    { key: "board",   label: "Tablica",               count: active.length },
+    { key: "all",     label: "Wszystkie",             count: allCount },
+    { key: "board",   label: "Moje",                  count: active.length },
     { key: "due",     label: "📅 Na dziś / zaległe",  count: dueCount },
     { key: "archive", label: "🗄 Archiwum",           count: archiveCount },
   ];
+  const showSwitch = state.viewMode !== "archive";       // Archiwum ma własny widok-listę — przełącznik nie dotyczy
+  // „Wszystkie" jest z definicji o MNIE (mój owner / opiekun) — panel „Pokaż" tu nie ma sensu, więc go chowamy
+  const showOwnerPanel = state.viewMode !== "all";
+  const vsBtn = (key, icon, label) =>
+    `<button class="vs-btn ${state.layout === key ? "on" : ""}" data-layout="${key}" title="Widok: ${label}" aria-pressed="${state.layout === key}">${icon}<span>${label}</span></button>`;
   tabs.innerHTML =
     `<div class="tab-modes">${modes.map((m) =>
       `<button class="tab ${state.viewMode === m.key ? "active" : ""}" data-mode="${m.key}">${esc(m.label)}<span class="count">${m.count}</span></button>`).join("")}</div>
-     <div class="owner-panel">
+     ${showSwitch ? `<div class="view-switch" role="group" aria-label="Układ widoku">${vsBtn("kanban", KANBAN_ICON, "Kanban")}${vsBtn("table", TABLE_ICON, "Tabela")}</div>` : ""}
+     ${showOwnerPanel ? `<div class="owner-panel">
        <button class="owner-toggle" id="owner-toggle" aria-haspopup="true" title="Wybierz, czyje karty widać">👥 Pokaż: <strong>${esc(ownerSummary())}</strong> <span class="caret">▾</span></button>
        <div class="owner-pop" id="owner-pop" hidden></div>
-     </div>`;
+     </div>` : ""}`;
   tabs.querySelectorAll(".tab[data-mode]").forEach((el) =>
     el.addEventListener("click", () => { state.viewMode = el.dataset.mode; renderTabs(); renderBoard(); }));
+  tabs.querySelectorAll(".vs-btn[data-layout]").forEach((el) =>
+    el.addEventListener("click", () => { if (state.layout === el.dataset.layout) return; state.layout = el.dataset.layout; renderTabs(); renderBoard(); }));
   wireOwnerPanel();
 }
 
@@ -376,10 +391,13 @@ function visibleClients() {
   // filtr właścicieli z panelu działa tylko przy pustym polu szukania.
   if (state.viewMode === "archive") list = (q ? state.clients : mine).filter((c) => c.deleted_at);   // Archiwum (szukasz → globalnie)
   else {
-    const active = (q ? activeClients() : mine.filter((c) => !c.deleted_at));   // szukasz → wszyscy; inaczej → wybrani
-    if (q) list = active;
-    else if (state.viewMode === "due") list = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up));
-    else list = active;                                           // tablica
+    const me = state.currentUser;
+    let active;
+    if (q) active = activeClients();                                              // szukasz → wszyscy
+    else if (state.viewMode === "all") active = activeClients().filter((c) => c.owner === me || c.opiekun === me);  // Wszystkie = moje + gdzie jestem opiekunem
+    else active = mine.filter((c) => !c.deleted_at);                             // Moje / Na dziś → wybrani właściciele (Pokaż)
+    if (state.viewMode === "due" && !q) list = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up));
+    else list = active;
   }
   if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
   // sort: RĘCZNA kolejność (position) decyduje; rezerwa = najbliższy follow-up, potem alfabetycznie (stabilnie)
@@ -393,11 +411,20 @@ function visibleClients() {
 
 function renderBoard() {
   const board = $("#board");
+  const tableMode = state.layout === "table" && state.viewMode !== "archive";
+  board.classList.toggle("board-table", tableMode);
   // FLIP (mierzenie pozycji + animacja) TYLKO gdy karty realnie się przestawiają (drag / zmiana etapu / nowa / usunięta).
   // Przy realtime i wyszukiwarce pomijamy — zero wymuszonych reflow = zero laga.
-  const animate = !reduceMotion() && (state.skipFlipId || state.animateNextRender);
+  const animate = !tableMode && !reduceMotion() && (state.skipFlipId || state.animateNextRender);
   const prevRects = new Map();
   if (animate) board.querySelectorAll(".card").forEach((el) => prevRects.set(el.dataset.id, el.getBoundingClientRect()));
+
+  if (tableMode) {                                  // widok tabeli (Tablica / Na dziś) — zamiast kolumn kanban
+    renderTable(board, visibleClients());
+    state.skipFlipId = null; state.animateNextRender = false;
+    if (typeof renderBell === "function") renderBell();
+    return;
+  }
 
   if (state.viewMode === "archive") {
     // ARCHIWUM — osobny, prosty widok: lista zarchiwizowanych (najświeższe na górze), bez kolumn lejka i bez „Nowej karty"
@@ -436,6 +463,40 @@ function renderBoard() {
   if (typeof renderBell === "function") renderBell();
 }
 
+// Widok tabeli — te same karty (z bieżącego trybu/właścicieli), wiersze zamiast kolumn. Klik w wiersz → karta.
+function renderTable(board, list) {
+  if (!list.length) { board.innerHTML = `<div class="table-empty">Brak kart do wyświetlenia.</div>`; return; }
+  const dash = `<span class="tb-empty">—</span>`;
+  const rows = list.map((c) => {
+    const s = statusOf(normStatus(c));
+    const cnt = (state.commentsByClient[c.id] || []).length;
+    const ds = c.follow_up_done ? "" : dueState(c.follow_up);
+    const fu = c.follow_up
+      ? `<span class="tb-fu ${c.follow_up_done ? "fu-done" : (ds ? "fu-" + ds : "")}">${c.follow_up_done ? "✓ " : ""}${esc(fmtFollow(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>`
+      : dash;
+    const demo = (c.demo_url && String(c.demo_url).trim()) ? `<span class="chip chip-demo-done" title="Demo gotowe">✅ demo</span>`
+      : c.demo_building ? `<span class="chip chip-building" title="Demo w budowie">🔨 w budowie</span>`
+      : c.demo_requested ? `<span class="chip chip-demo" title="Poproszono o demo">📩 demo</span>` : dash;
+    const team = `${c.opiekun ? `<span class="avatar avatar-sec" title="Opiekun: ${esc(c.opiekun)}" style="background:${ownerColor(c.opiekun)}">${initials(c.opiekun)}</span>` : ""}<span class="avatar" title="Handlowiec: ${esc(c.owner)}" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span>`;
+    return `<tr class="tb-row" data-id="${esc(String(c.id))}">
+        <td><div class="tb-name"><span class="tb-nm">${esc(c.name)}</span>${c.company ? `<span class="tb-co">${esc(c.company)}</span>` : ""}</div></td>
+        <td>${c.phone ? esc(c.phone) : dash}</td>
+        <td><span class="status-pill" style="background:${s.bg};color:${s.fg}"><span class="dot" style="background:${s.dot}"></span>${esc(s.label)}</span></td>
+        <td>${fu}</td>
+        <td class="tb-num">${cnt ? `💬 ${cnt}` : dash}</td>
+        <td class="tb-demo">${demo}</td>
+        <td class="tb-team"><div class="tb-team-in">${team}</div></td>
+      </tr>`;
+  }).join("");
+  board.innerHTML = `<div class="table-wrap"><table class="crm-table">
+      <thead><tr>
+        <th>Klient</th><th>Telefon</th><th>Status</th><th>Follow-up</th><th>Komentarze</th><th>Demo</th><th>Zespół</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  board.querySelectorAll(".tb-row").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
+}
+
 function renderCardInner(c) {
   const cnt = (state.commentsByClient[c.id] || []).length;
   const ds = c.follow_up_done ? "" : dueState(c.follow_up);   // zrobiony follow-up nie świeci jako „dziś/zaległe"
@@ -443,7 +504,7 @@ function renderCardInner(c) {
     ${c.company ? `<div class="card-company">${esc(c.company)}</div>` : ""}
     <div class="card-meta">${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}</div>
     <div class="card-foot">
-      ${c.follow_up ? `<span class="chip ${c.follow_up_done ? "chip-fu-done" : (ds ? "chip-" + ds : "")}" title="${c.follow_up_done ? "Follow-up zrobiony" : "Follow-up"}">${c.follow_up_done ? "✓" : "📅"} ${esc(fmtFollow(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>` : ""}
+      ${(c.follow_up && !c.follow_up_done) ? `<span class="chip ${ds ? "chip-" + ds : ""}" title="Follow-up">📅 ${esc(fmtFollow(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>` : ""}
       ${cnt ? `<span class="chip">💬 ${cnt}</span>` : ""}
       ${(c.demo_url && String(c.demo_url).trim())
         ? `<span class="chip chip-demo-done" title="Demo gotowe — link w karcie">✅ demo</span>`
@@ -638,8 +699,7 @@ async function openModal(id) {
       </div>
 
       <aside class="cm-right">
-        <div class="cm-right-head">Aktywność <span class="cm-cc" id="comment-count">${comments.length} ${comments.length === 1 ? "komentarz" : "komentarzy"}</span></div>
-        <div class="comments-wrap" id="comments-wrap">${renderFeed(c, comments)}</div>
+        <div class="comments-wrap" id="comments-wrap">${renderActivity(c, comments)}</div>
         <div class="composer">
           ${editable ? `<div class="fu-setter" id="fu-setter" hidden>
             <div class="fu-setter-row">
@@ -778,15 +838,25 @@ async function saveField(id, key, value) {
 
 /* ---------- Feed aktywności: follow-up + demo jako wpisy „jak komentarz" ---------- */
 const FU_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`;
-const DEMO_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`;
+const EDIT_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
+const TRASH_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>`;
+const CHECK_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
 
-// Wpis statusowy w feedzie (follow-up / demo) — ten sam układ co komentarz, z ikoną i (opcjonalnie) ptaszkiem
-function statusItemHTML({ icon, tag, time, body, cls, tick }) {
-  return `<div class="comment feed-item ${cls || ""}">
-      <span class="avatar feed-ic">${icon}</span>
+// Pojedyncze przypomnienie (aktywny follow-up) — układ jak komentarz, z akcjami: edytuj / usuń / zrobione
+function reminderHTML(c, editable) {
+  const ds = dueState(c.follow_up);                  // "" | "today" | "overdue"
+  const badge = ds === "overdue" ? `<span class="rm-badge rm-overdue">zaległe</span>`
+              : ds === "today"   ? `<span class="rm-badge rm-today">dziś</span>` : "";
+  const actions = editable ? `<div class="reminder-actions">
+        <button type="button" class="rm-act rm-edit" title="Edytuj" aria-label="Edytuj przypomnienie">${EDIT_ICON}</button>
+        <button type="button" class="rm-act rm-del" title="Usuń" aria-label="Usuń przypomnienie">${TRASH_ICON}</button>
+        <button type="button" class="rm-act rm-done" title="Oznacz jako zrobione" aria-label="Zrobione">${CHECK_ICON}</button>
+      </div>` : "";
+  return `<div class="comment feed-item feed-followup reminder${ds ? " is-" + ds : ""}">
+      <span class="avatar feed-ic">${FU_ICON}</span>
       <div class="comment-main">
-        <div class="comment-head"><span class="c-author">${esc(tag)}</span>${time ? `<span class="c-time">${esc(time)}</span>` : ""}${tick || ""}</div>
-        <div class="comment-body">${body}</div>
+        <div class="comment-head"><span class="c-author">${esc(fmtFollow(c.follow_up))}</span>${badge}${actions}</div>
+        <div class="comment-body">${c.follow_up_note ? esc(c.follow_up_note) : `<span class="feed-muted">— bez treści —</span>`}</div>
       </div>
     </div>`;
 }
@@ -799,40 +869,30 @@ function commentHTML(c) {
       </div>
     </div>`;
 }
-// Feed = wpisy statusowe (follow-up, demo) NAD komentarzami; wszystko w jednym stylu
-function renderFeed(c, comments) {
+// Prawy panel = opcjonalna sekcja „Przypomnienia" (gdy jest aktywny follow-up) + zawsze „Komentarze"
+function renderActivity(c, comments) {
   const editable = canEdit(c);
-  let status = "";
-  if (c.follow_up) {
-    const done = !!c.follow_up_done;
-    status += statusItemHTML({
-      icon: FU_ICON, tag: "Follow-up", time: fmtFollow(c.follow_up), cls: `feed-followup${done ? " done" : ""}`,
-      body: c.follow_up_note ? esc(c.follow_up_note) : `<span class="feed-muted">— przypomnienie —</span>`,
-      tick: editable ? `<button type="button" class="feed-tick${done ? " on" : ""}" title="${done ? "Cofnij" : "Oznacz jako zrobione"}" aria-pressed="${done}">✓</button>` : (done ? `<span class="feed-done-badge">✓</span>` : ""),
-    });
+  let html = "";
+  if (c.follow_up && !c.follow_up_done) {            // aktywny follow-up → sekcja Przypomnienia
+    html += `<section class="feed-section">
+        <div class="feed-section-head">Przypomnienia</div>
+        ${reminderHTML(c, editable)}
+      </section>`;
   }
-  const demoSafe = c.demo_url ? safeUrl(c.demo_url) : "";
-  if (c.demo_url && String(c.demo_url).trim()) {
-    status += statusItemHTML({ icon: DEMO_ICON, tag: "Demo", cls: "feed-demo done",
-      body: demoSafe ? `Demo gotowe — <a href="${esc(demoSafe)}" target="_blank" rel="noopener">otwórz</a>` : "Demo gotowe" });
-  } else if (c.demo_building) {
-    status += statusItemHTML({ icon: DEMO_ICON, tag: "Demo", cls: "feed-demo", body: "Demo w budowie" });
-  } else if (c.demo_requested) {
-    status += statusItemHTML({ icon: DEMO_ICON, tag: "Demo", cls: "feed-demo", body: "Poproszono o demo" });
-  }
-  const cmts = comments.length ? comments.map(commentHTML).join("") : "";
-  if (!status && !cmts) return `<div class="no-comments">Brak aktywności — dodaj komentarz albo zaplanuj follow-up.</div>`;
-  return status + cmts;
+  const n = comments.length;
+  html += `<section class="feed-section">
+      <div class="feed-section-head">Komentarze${n ? ` <span class="cm-cc">${n}</span>` : ""}</div>
+      ${n ? comments.map(commentHTML).join("") : `<div class="no-comments">Brak komentarzy.</div>`}
+    </section>`;
+  return html;
 }
-// Przerysuj feed w otwartej (pełnej) karcie + popraw licznik
+// Przerysuj prawy panel w otwartej (pełnej) karcie
 function refreshFeed(id) {
   const wrap = $("#comments-wrap");
   if (!wrap || state.openCardId !== id) return;
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c || c.deleted_at) return;                 // Archiwum ma własny, prosty widok
-  wrap.innerHTML = renderFeed(c, state.commentsByClient[id] || []);
-  const cc = $("#comment-count"); const n = (state.commentsByClient[id] || []).length;
-  if (cc) cc.textContent = n + " " + (n === 1 ? "komentarz" : "komentarzy");
+  wrap.innerHTML = renderActivity(c, state.commentsByClient[id] || []);
 }
 async function setFollowDone(id, done) {
   const c = state.clients.find((x) => String(x.id) === String(id));
@@ -843,6 +903,37 @@ async function setFollowDone(id, done) {
   refreshFeed(id); updateCardInPlace(c); renderTabs();         // odśwież feed, chip na tablicy i licznik „zaległe"
   try { await api.updateClient(id, { follow_up_done: done }); flashSaved(); }
   catch (err) { console.error(err); c.follow_up_done = prev; refreshFeed(id); updateCardInPlace(c); renderTabs(); toast("Nie zapisano"); }
+}
+// „Zrobione": zapisuje w komentarzach trwały ślad „follow-up wykonany" (z terminem) i czyści follow-up
+// → przypomnienie znika z karty i z kafelka tablicy, ale w „Komentarzach" zostaje wpis kto i kiedy go zamknął.
+async function completeReminder(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c || !c.follow_up) return;
+  const term = fmtFollow(c.follow_up);
+  const note = (c.follow_up_note || "").trim();
+  const body = `✓ Follow-up wykonany — termin ${term}${note ? ` („${note}")` : ""}`;
+  try {                                             // wpis do komentarzy (utrwalany; w demo trzyma się w pamięci do przeładowania)
+    const arr = state.commentsByClient[id] = state.commentsByClient[id] || [];
+    const before = arr.length;
+    const row = await api.addComment(id, body);
+    if (arr.length === before && row) arr.push(row);   // live: addComment nie dopisuje lokalnie → dopisz zwrócony wiersz
+  } catch (err) { console.error(err); toast("Nie zapisano wpisu"); }
+  const wasDone = !!c.follow_up_done;
+  await saveField(id, "follow_up_note", "");         // → null
+  await saveField(id, "follow_up", "");              // → null (saveField odświeża tablicę; chip znika)
+  if (wasDone) { c.follow_up_done = false; try { await api.updateClient(id, { follow_up_done: false }); } catch (e) { console.error(e); } }
+  refreshFeed(id); updateCardInPlace(c); renderTabs();
+  toast("Follow-up wykonany");
+}
+// Usuń przypomnienie: kasuje termin + treść follow-upu (chip na tablicy też znika)
+async function deleteReminder(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  await saveField(id, "follow_up_note", "");        // → null
+  await saveField(id, "follow_up", "");             // → null (saveField odświeża tablicę)
+  if (c.follow_up_done) { c.follow_up_done = false; try { await api.updateClient(id, { follow_up_done: false }); } catch (e) { console.error(e); } }
+  refreshFeed(id);
+  toast("Usunięto przypomnienie");
 }
 function renderComments(list) {
   if (!list.length) return `<div class="no-comments">Brak komentarzy.</div>`;
@@ -913,10 +1004,21 @@ function wireComposer(clientId) {
     }
     inp.focus();
   }));
-  // ptaszek „zrobione" na wpisie follow-up (delegacja — feed się przerysowuje)
+  // akcje przypomnienia (delegacja — panel się przerysowuje): zrobione / edytuj / usuń (2 kliki)
   const wrap = $("#comments-wrap");
   if (wrap) wrap.addEventListener("click", (e) => {
-    if (e.target.closest(".feed-tick") && c) setFollowDone(clientId, !c.follow_up_done);
+    if (!c) return;
+    if (e.target.closest(".rm-done")) { completeReminder(clientId); return; }      // zrobione → wpis „wykonany" w komentarzach + czyści follow-up
+    if (e.target.closest(".rm-edit")) { setMode(true); return; }                   // edytuj → otwórz pole follow-upu z prefillem
+    if (e.target.closest(".rm-del-yes")) { deleteReminder(clientId); return; }
+    if (e.target.closest(".rm-del-no")) { refreshFeed(clientId); return; }
+    const del = e.target.closest(".rm-del");
+    if (del) {                                                                     // pierwszy klik kosza → potwierdzenie inline
+      const box = del.closest(".reminder-actions");
+      if (box) box.innerHTML = `<span class="rm-confirm">Usunąć?</span>
+        <button type="button" class="rm-act rm-del-yes" title="Tak, usuń">Tak</button>
+        <button type="button" class="rm-act rm-del-no" title="Anuluj">Nie</button>`;
+    }
   });
 
   inp.addEventListener("keydown", (e) => {
@@ -1323,7 +1425,7 @@ const DEMO_CLIENTS = [
   { id: "d2", name: "Marek Zieliński", company: "Auto-Serwis Zieliński", phone: "+48 600 100 202", email: "", google_maps: "", quality: "", status: "lead", follow_up: "2026-06-22", owner: "Krzysztof", notes: "", position: 1000 },
   { id: "d3", name: "Hydraulika Nowak", company: "Hydraulika Nowak", phone: "+48 600 100 204", email: "", google_maps: "", quality: "", status: "lead", follow_up: null, owner: "Marceli", notes: "", position: 2000 },
   { id: "d7", name: "Stolarnia Wiór", company: "Stolarnia Wiór", phone: "+48 600 100 203", email: "", google_maps: "", quality: "", status: "lead", follow_up: "2026-06-24", owner: "Krzysztof", notes: "", position: 3000 },
-  { id: "d4", name: "Salon Bella", company: "Salon Fryzjerski Bella", phone: "+48 600 100 206", email: "", google_maps: "", quality: "", status: "umowiony", follow_up: "2026-06-25", owner: "Szymon", notes: "Spotkanie czwartek 17:00.", position: 1000 },
+  { id: "d4", name: "Salon Bella", company: "Salon Fryzjerski Bella", phone: "+48 600 100 206", email: "", google_maps: "", quality: "", status: "umowiony", follow_up: "2026-06-25", owner: "Szymon", opiekun: "Krzysztof", notes: "Spotkanie czwartek 17:00.", position: 1000 },
   { id: "d5", name: "Kwiaciarnia Storczyk", company: "Kwiaciarnia Storczyk", phone: "+48 600 100 208", email: "", google_maps: "", quality: "", status: "oferta", follow_up: "2026-06-27", owner: "Piotr", notes: "Wysłana oferta.", position: 1000 },
   { id: "d6", name: "Fit Klub Active", company: "Fit Klub Active", phone: "+48 600 100 209", email: "", google_maps: "", quality: "", status: "konwersja", follow_up: null, owner: "Krzysztof", notes: "PODPISANE.", position: 1000 },
 ];
