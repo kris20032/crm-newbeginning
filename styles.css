@@ -113,6 +113,7 @@ body {
 .tab:hover { color: var(--ink); }
 .tab.active { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
 .tab .count { color: var(--ink-soft); font-weight: 500; margin-left: 5px; font-size: 12px; }
+.tab .tab-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 
 /* Przełącznik układu: Kanban / Tabela (po prawej, obok „Pokaż") */
 .view-switch { flex: 0 0 auto; display: inline-flex; gap: 2px; align-self: center; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 8px; padding: 2px; margin-bottom: 6px; }
@@ -141,7 +142,8 @@ body {
 .tb-nm { font-weight: 600; color: var(--ink); }
 .tb-co { font-size: 12px; color: var(--ink-soft); }
 .tb-empty { color: var(--ink-soft); }
-.tb-num, .tb-demo { white-space: nowrap; }
+.tb-num, .tb-demo, .tb-arch { white-space: nowrap; }
+.tb-arch { color: var(--ink-soft); }
 .tb-team-in { display: inline-flex; align-items: center; }
 .tb-fu { font-weight: 600; white-space: nowrap; }
 .tb-fu.fu-overdue { color: #c0392b; }
@@ -280,9 +282,11 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
   max-width: 100vw; width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0;
   padding: 0; display: flex; flex-direction: column; overflow: hidden;
 }
-.modal.modal-full #modal-body { flex: 1 1 auto; min-height: 0; display: flex; width: 100%; }
+.modal.modal-full #modal-body { flex: 1 1 auto; min-height: 0; display: flex; width: 100%; justify-content: center; }
 .modal.modal-full .modal-close { z-index: 5; }
-.cm { display: grid; grid-template-columns: minmax(0,1fr) clamp(380px, 34%, 540px); width: 100%; min-height: 0; }
+/* max-width + wyśrodkowanie: po oddaleniu (szeroki/zoom-out viewport) karta nie rozłazi się na całą szerokość,
+   tylko trzyma czytelną szerokość wyśrodkowaną (ramka pojawia się tylko gdy jest miejsce po bokach). */
+.cm { display: grid; grid-template-columns: minmax(0,1fr) clamp(380px, 34%, 540px); width: 100%; max-width: 1500px; min-height: 0; box-shadow: 0 0 0 1px var(--line); }
 /* lewa kolumna — przewijalna */
 .cm-left { min-width: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 22px 28px 18px; }
 .cm-name { font-size: 21px; font-weight: 700; margin: 0 0 1px; }
