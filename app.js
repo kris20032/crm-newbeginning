@@ -1,6 +1,11 @@
 /* ============================================================
-   CRM — New Beginning   (vanilla JS, bez budowania)   v26
+   CRM — New Beginning   (vanilla JS, bez budowania)   v36
    Realtime + auto-zapis + @oznaczenia + "Poproś o demo" + wyszukiwarka.
+   v36 (2026-06-25): widoki per-osoba — każdy domyślnie widzi TYLKO swoje karty;
+     • panel zespołu (👥 Pokaż) = wybór czyje karty widać: jedna / kilka / wszyscy (dla każdego);
+     • tryby widoku: Wszystkie (moje + gdzie jestem opiekunem) / Moje / Na dziś-zaległe / Archiwum;
+     • "Kosz" → "Archiwum" (chowanie z tablicy, odwracalne); "Usuń kartę" → "Przenieś do archiwum";
+     • etap 'archiwum' usunięty z lejka, stare karty zmigrowane do Archiwum.
    v26 (2026-06-22): ujednolicony przepływ demo —
      • demo_requests = ŹRÓDŁO PRAWDY (księga: kto/kiedy/karta/status),
        flaga demo_requested = tylko ZNACZNIK chipa na tablicy;
@@ -16,9 +21,10 @@ const STATUSES = [
   { key: "po_spotkaniu",  label: "Sprzedaż",               dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f", tint: "#fdf6f5" },
   { key: "oferta",        label: "Oferta/umowa",           dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a", tint: "#fdfbf2" },
   { key: "konwersja",     label: "Konwersja",              dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e", tint: "#f5faf4" },
-  { key: "archiwum",      label: "Archiwum",               dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f", tint: "#f8f8f7" },
 ];
 const statusOf = (k) => STATUSES.find((s) => s.key === k) || STATUSES[0];
+// status spoza lejka (np. dawny etap 'archiwum') traktuj jak 'lead' — żeby karta nigdy nie zniknęła z tablicy
+const normStatus = (c) => { const k = c && c.status; return STATUSES.some((s) => s.key === k) ? k : "lead"; };
 
 /* ---------- Zespół (dynamiczny) ---------- */
 const DEMO_OWNERS = ["Krzysztof", "Marceli", "Szymon", "Bartek", "Piotr"];
@@ -34,9 +40,50 @@ const initials = (name) => (name || "?").trim().charAt(0).toUpperCase();
 /* ---------- Stan ---------- */
 const state = {
   clients: [], commentsByClient: {}, team: [],
-  currentTab: "all", currentUser: "Krzysztof", search: "", live: false, openCardId: null, openCardWasTrashed: false, newCardIds: new Set(), skipFlipId: null, animateNextRender: false,
+  viewMode: "all",          // tryb widoku: "all" (Wszystkie: moje + gdzie jestem opiekunem) | "board" (Moje) | "due" | "archive"
+  layout: "kanban",         // układ tablicy/„na dziś": "kanban" (kolumny) | "table" (tabela)
+  owners: null,             // Set wybranych właścicieli (panel zespołu); null → traktuj jak [zalogowany]
+  ownersAll: false,         // sentinel „Wszyscy" — rozwija się dynamicznie do bieżącego zespołu (nie zamraża listy)
+  ownerPopOpen: false,      // czy rozwinięty panel zespołu (poza DOM, by przeżyć przebudowę #tabs przez realtime)
+  currentUser: "Krzysztof", search: "", live: false, openCardId: null, openCardWasArchived: false, newCardIds: new Set(), skipFlipId: null, animateNextRender: false,
   suppressUntil: 0, lastSnap: "",
 };
+
+/* ---------- Panel zespołu: czyje karty widać (domyślnie tylko moje) ---------- */
+// pełna lista właścicieli = zespół ∪ faktyczni właściciele kart (łapie „sieroty": owner spoza team_members)
+function allOwners() {
+  return Array.from(new Set([...(state.team || []), ...state.clients.map((c) => c.owner)].filter(Boolean)));
+}
+function selectedOwnersSet() {
+  if (state.ownersAll) { const all = allOwners(); return new Set(all.length ? all : [state.currentUser]); }
+  if (state.owners && state.owners.size) return state.owners;
+  return new Set([state.currentUser]);
+}
+function ownerSummary() {
+  if (state.ownersAll) return "wszyscy";
+  const names = [...selectedOwnersSet()];
+  if (names.length === 1) return names[0] === state.currentUser ? "tylko ja" : names[0];
+  if (names.length <= 2) return names.join(", ");
+  return names.length + " osób";
+}
+function ownersKey() { return "crm.owners." + (state.currentUser || "?"); }
+function persistOwners() {
+  try { localStorage.setItem(ownersKey(), JSON.stringify(state.ownersAll ? ["*"] : [...selectedOwnersSet()])); } catch {}
+}
+function loadOwners() {   // → { all: bool, owners: Set }
+  try {
+    const raw = localStorage.getItem(ownersKey());
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        if (arr.includes("*")) return { all: true, owners: new Set([state.currentUser]) };
+        const ok = arr.filter((n) => n === state.currentUser || (state.team || []).includes(n));
+        if (ok.length) return { all: false, owners: new Set(ok) };
+      }
+    }
+  } catch {}
+  return { all: false, owners: new Set([state.currentUser]) };
+}
 
 /* ============================================================
    WARSTWA DANYCH (demo ↔ Supabase)
@@ -71,10 +118,10 @@ const api = {
     if (error) throw error; holdRefresh(); return data;
   },
   async deleteClient(id) { if (!LIVE) return; holdRefresh(); const { error } = await sb.from("clients").delete().eq("id", id); if (error) throw error; holdRefresh(); },
-  // Kosz: „usunięcie" = oznaczenie znacznikiem (odwracalne); przywrócenie = wyczyszczenie znacznika
+  // Archiwum: „przeniesienie" = oznaczenie znacznikiem (odwracalne); przywrócenie = wyczyszczenie znacznika
   async softDeleteClient(id) { return api.updateClient(id, { deleted_at: new Date().toISOString() }); },
   async restoreClient(id) { return api.updateClient(id, { deleted_at: null }); },
-  // TRWAŁE usunięcie z Kosza — warunkowe: skasuje TYLKO jeśli karta nadal jest w Koszu (deleted_at != null).
+  // TRWAŁE usunięcie z Archiwum — warunkowe: skasuje TYLKO jeśli karta nadal jest w Archiwum (deleted_at != null).
   // Dzięki temu wyścig „ktoś inny przywrócił w międzyczasie" nie skasuje żywej karty. Zwraca true gdy faktycznie usunięto.
   async purgeClient(id) {
     if (!LIVE) { return true; }
@@ -138,7 +185,7 @@ const api = {
     const { error } = await sb.from("demo_requests")
       .update({ status: "done" }).eq("client_id", clientId).neq("status", "done");
     if (error) { console.error("markDemoDone (księga)", error); return; }
-    sb.from("clients").update({ demo_requested: false }).eq("id", clientId)
+    sb.from("clients").update({ demo_requested: false, demo_building: false }).eq("id", clientId)
       .then(({ error: e2 }) => { if (e2) console.error("markDemoDone (znacznik)", e2); }, (e) => console.error("markDemoDone (znacznik)", e));
     holdRefresh();
   },
@@ -199,7 +246,22 @@ const isDueSoon = (d) => { if (!d) return false; const dt = new Date(d); if (isN
 const dueState = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return ""; const t = new Date(); t.setHours(0,0,0,0); const day = new Date(dt); day.setHours(0,0,0,0); if (day < t) return "overdue"; if (day.getTime() === t.getTime()) return "today"; return ""; };
 const safeUrl = (u) => { try { const x = new URL(u); return (x.protocol === "http:" || x.protocol === "https:") ? u : ""; } catch { return ""; } };
 const debounce = (fn, ms) => { let h; return (...a) => { clearTimeout(h); h = setTimeout(() => fn(...a), ms); }; };
-const DEMO_FLAG_HTML = `<span class="demo-flag">📩 Poproszono o demo</span>`;
+const DEMO_FLAG_HTML = `<span class="demo-flag">Poproszono o demo</span>`;
+// Pole demo: gdy jest link → KLIKALNY link + odnośniki (otwórz/kopiuj); inaczej → przycisk „Poproś o demo"
+// (+ „🔗 link", który odsłania pole do wklejenia gotowego linku). Po wklejeniu zmienia się w link i odnośniki.
+function demoFieldHTML(c, editable) {
+  const demoSafe = safeUrl(c.demo_url);
+  if (demoSafe) {
+    return `<a class="maps-link demo-link" href="${esc(demoSafe)}" target="_blank" rel="noopener">otwórz demo</a>
+      <button type="button" class="maps-btn" id="demo-copy" title="Kopiuj link do dema">⧉</button>
+      ${editable ? `<button type="button" class="maps-btn" id="demo-edit" title="Zmień / usuń link">✎</button>
+      <input data-key="demo_url" id="demo-input" class="demo-input" value="${esc(c.demo_url || "")}" placeholder="link do dema" hidden />` : ""}`;
+  }
+  if (!editable) return `<span class="readonly">—</span>`;
+  return `<span class="demo-row">${c.demo_requested ? DEMO_FLAG_HTML : `<button type="button" class="ghost-btn demo-btn" id="ask-demo">Poproś o demo</button>`}</span>
+    <button type="button" class="maps-btn" id="demo-add" title="Wklej gotowy link do dema">link</button>
+    <input data-key="demo_url" id="demo-input" class="demo-input" value="" placeholder="wklej link do dema" hidden />`;
+}
 const reduceMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
 // FLIP: płynne przestawianie kart (rejestruj pozycje przed przerysowaniem, animuj po)
 function flipAnimate(board, prevRects) {
@@ -231,37 +293,111 @@ function flashCard(id) {
 /* ============================================================
    RENDER — zakładki
    ============================================================ */
+// Przełącznik układu (kanban / tabela) — w pasku tabów, po prawej obok „Pokaż"
+const KANBAN_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="16" rx="1.5"/><rect x="17" y="4" width="4" height="10" rx="1.5"/></svg>`;
+const TABLE_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 15h18M11 4v16"/></svg>`;
 function renderTabs() {
   const tabs = $("#tabs");
-  const active = activeClients();
-  const counts = {};
-  active.forEach((c) => { counts[c.owner] = (counts[c.owner] || 0) + 1; });
-  const dueCount = active.filter((c) => isDueSoon(c.follow_up)).length;
-  const trashCount = state.clients.length - active.length;
-  const items = [{ key: "all", label: "Wszyscy", count: active.length }]
-    .concat(state.team.map((o) => ({ key: o, label: o, count: counts[o] || 0 })))
-    .concat([{ key: "__due", label: "📅 Na dziś / zaległe", count: dueCount }])
-    .concat([{ key: "__trash", label: "🗑 Kosz", count: trashCount }]);
-  tabs.innerHTML = items.map((t) =>
-    `<button class="tab ${state.currentTab === t.key ? "active" : ""}" data-tab="${esc(t.key)}">${esc(t.label)}<span class="count">${t.count}</span></button>`).join("");
-  tabs.querySelectorAll(".tab").forEach((el) =>
-    el.addEventListener("click", () => { state.currentTab = el.dataset.tab; renderTabs(); renderBoard(); }));
+  const sel = selectedOwnersSet();
+  const mine = state.clients.filter((c) => sel.has(c.owner));      // tylko wybrani właściciele (domyślnie: ja)
+  const active = mine.filter((c) => !c.deleted_at);
+  const dueCount = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up)).length;
+  const archiveCount = mine.length - active.length;
+  const me = state.currentUser;
+  const allCount = state.clients.filter((c) => !c.deleted_at && (c.owner === me || c.opiekun === me)).length;   // moje + gdzie jestem opiekunem
+  const modes = [
+    { key: "all",     label: "Wszystkie",             count: allCount },
+    { key: "board",   label: "Moje",                  count: active.length },
+    { key: "due",     label: "📅 Na dziś / zaległe",  count: dueCount },
+    { key: "archive", label: "🗄 Archiwum",           count: archiveCount },
+  ];
+  const showSwitch = state.viewMode !== "archive";       // Archiwum ma własny widok-listę — przełącznik nie dotyczy
+  // „Wszystkie" jest z definicji o MNIE (mój owner / opiekun) — panel „Pokaż" tu nie ma sensu, więc go chowamy
+  const showOwnerPanel = state.viewMode !== "all";
+  const vsBtn = (key, icon, label) =>
+    `<button class="vs-btn ${state.layout === key ? "on" : ""}" data-layout="${key}" title="Widok: ${label}" aria-pressed="${state.layout === key}">${icon}<span>${label}</span></button>`;
+  tabs.innerHTML =
+    `<div class="tab-modes">${modes.map((m) =>
+      `<button class="tab ${state.viewMode === m.key ? "active" : ""}" data-mode="${m.key}">${esc(m.label)}<span class="count">${m.count}</span></button>`).join("")}</div>
+     ${showSwitch ? `<div class="view-switch" role="group" aria-label="Układ widoku">${vsBtn("kanban", KANBAN_ICON, "Kanban")}${vsBtn("table", TABLE_ICON, "Tabela")}</div>` : ""}
+     ${showOwnerPanel ? `<div class="owner-panel">
+       <button class="owner-toggle" id="owner-toggle" aria-haspopup="true" title="Wybierz, czyje karty widać">👥 Pokaż: <strong>${esc(ownerSummary())}</strong> <span class="caret">▾</span></button>
+       <div class="owner-pop" id="owner-pop" hidden></div>
+     </div>` : ""}`;
+  tabs.querySelectorAll(".tab[data-mode]").forEach((el) =>
+    el.addEventListener("click", () => { state.viewMode = el.dataset.mode; renderTabs(); renderBoard(); }));
+  tabs.querySelectorAll(".vs-btn[data-layout]").forEach((el) =>
+    el.addEventListener("click", () => { if (state.layout === el.dataset.layout) return; state.layout = el.dataset.layout; renderTabs(); renderBoard(); }));
+  wireOwnerPanel();
+}
+
+/* Panel zespołu (rozwijany): klik = dodaj/usuń osobę z widoku; „Wszyscy" = wszyscy naraz (dynamicznie). Dostępny dla każdego. */
+function wireOwnerPanel() {
+  const toggle = $("#owner-toggle"), pop = $("#owner-pop");
+  if (!toggle || !pop) return;
+  const sel = selectedOwnersSet();
+  const people = allOwners().length ? allOwners() : [state.currentUser];   // unia: zespół + faktyczni właściciele kart (nie gubimy „sierot")
+  const allOn = !!state.ownersAll;
+  pop.innerHTML =
+    `<button class="owner-opt owner-all ${allOn ? "on" : ""}" data-all="1"><span class="owner-check">${allOn ? "✓" : ""}</span> Wszyscy</button>
+     <div class="owner-sep"></div>
+     ${people.map((n) => {
+       const on = sel.has(n);
+       const me = n === state.currentUser ? ` <span class="owner-me">(ja)</span>` : "";
+       return `<button class="owner-opt ${on ? "on" : ""}" data-name="${esc(n)}"><span class="owner-check">${on ? "✓" : ""}</span><span class="avatar sm" style="background:${ownerColor(n)}">${initials(n)}</span> ${esc(n)}${me}</button>`;
+     }).join("")}`;
+  pop.hidden = !state.ownerPopOpen;                            // odtwórz stan otwarcia po przebudowie (#tabs przerysowuje realtime)
+  toggle.setAttribute("aria-expanded", String(!!state.ownerPopOpen));
+  toggle.onclick = (e) => {
+    e.stopPropagation();
+    const willOpen = pop.hidden;
+    pop.hidden = !willOpen; state.ownerPopOpen = willOpen;
+    toggle.setAttribute("aria-expanded", String(willOpen));
+  };
+  pop.querySelectorAll(".owner-opt").forEach((opt) => opt.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (opt.dataset.all) {
+      if (allOn) { state.ownersAll = false; state.owners = new Set([state.currentUser]); }   // „Wszyscy" wyłączone → wróć do mnie
+      else { state.ownersAll = true; }                                                        // „Wszyscy" = sentinel (rozwija się do bieżącego zespołu)
+    } else {
+      const cur = new Set(selectedOwnersSet());                // gdy było „wszyscy", rozwiń unię i odznacz jedną osobę
+      state.ownersAll = false;
+      const n = opt.dataset.name;
+      if (cur.has(n)) cur.delete(n); else cur.add(n);
+      if (!cur.size) cur.add(state.currentUser);               // nigdy pusto
+      state.owners = cur;
+    }
+    persistOwners();
+    state.ownerPopOpen = true;                                 // zostaw panel otwarty (wybór wielu naraz)
+    renderTabs(); renderBoard();
+  }));
+}
+function closeOwnerPanel() {
+  state.ownerPopOpen = false;
+  const pop = $("#owner-pop"); if (pop) pop.hidden = true;
+  const t = $("#owner-toggle"); if (t) t.setAttribute("aria-expanded", "false");
 }
 
 /* ============================================================
    RENDER — tablica
    ============================================================ */
-const activeClients = () => state.clients.filter((c) => !c.deleted_at);   // karty NIE w Koszu
+const activeClients = () => state.clients.filter((c) => !c.deleted_at);   // karty NIE w archiwum
 function visibleClients() {
   const q = state.search.trim().toLowerCase();
+  const sel = selectedOwnersSet();
+  const mine = state.clients.filter((c) => sel.has(c.owner));     // tylko wybrani właściciele (domyślnie: ja)
   let list;
-  if (state.currentTab === "__trash") list = state.clients.filter((c) => c.deleted_at);   // Kosz: tylko usunięte
+  // SZUKANIE jest GLOBALNE — po wszystkich właścicielach (łatwo wykryć, że kolega ma już danego klienta);
+  // filtr właścicieli z panelu działa tylko przy pustym polu szukania.
+  if (state.viewMode === "archive") list = (q ? state.clients : mine).filter((c) => c.deleted_at);   // Archiwum (szukasz → globalnie)
   else {
-    const active = activeClients();
-    if (q) list = active;                                         // szukaj GLOBALNIE (nie tylko w zakładce), ale bez Kosza
-    else if (state.currentTab === "__due") list = active.filter((c) => isDueSoon(c.follow_up));
-    else if (state.currentTab === "all") list = active;
-    else list = active.filter((c) => c.owner === state.currentTab);
+    const me = state.currentUser;
+    let active;
+    if (q) active = activeClients();                                              // szukasz → wszyscy
+    else if (state.viewMode === "all") active = activeClients().filter((c) => c.owner === me || c.opiekun === me);  // Wszystkie = moje + gdzie jestem opiekunem
+    else active = mine.filter((c) => !c.deleted_at);                             // Moje / Na dziś → wybrani właściciele (Pokaż)
+    if (state.viewMode === "due" && !q) list = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up));
+    else list = active;
   }
   if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
   // sort: RĘCZNA kolejność (position) decyduje; rezerwa = najbliższy follow-up, potem alfabetycznie (stabilnie)
@@ -275,19 +411,28 @@ function visibleClients() {
 
 function renderBoard() {
   const board = $("#board");
+  const tableMode = state.layout === "table" && state.viewMode !== "archive";
+  board.classList.toggle("board-table", tableMode);
   // FLIP (mierzenie pozycji + animacja) TYLKO gdy karty realnie się przestawiają (drag / zmiana etapu / nowa / usunięta).
   // Przy realtime i wyszukiwarce pomijamy — zero wymuszonych reflow = zero laga.
-  const animate = !reduceMotion() && (state.skipFlipId || state.animateNextRender);
+  const animate = !tableMode && !reduceMotion() && (state.skipFlipId || state.animateNextRender);
   const prevRects = new Map();
   if (animate) board.querySelectorAll(".card").forEach((el) => prevRects.set(el.dataset.id, el.getBoundingClientRect()));
 
-  if (state.currentTab === "__trash") {
-    // KOSZ — osobny, prosty widok: lista usuniętych (najświeższe na górze), bez kolumn lejka i bez „Nowej karty"
-    const del = [...visibleClients()].sort((a, b) => String(b.deleted_at || "").localeCompare(String(a.deleted_at || "")));
-    board.innerHTML = del.length
-      ? `<div class="trash-head">🗑 Kosz — usunięte karty. Kliknij kartę, aby ją przywrócić.</div>
-         <div class="trash-list">${del.map(renderCard).join("")}</div>`
-      : `<div class="empty-trash">🗑 Kosz jest pusty</div>`;
+  if (tableMode) {                                  // widok tabeli (Tablica / Na dziś) — zamiast kolumn kanban
+    renderTable(board, visibleClients());
+    state.skipFlipId = null; state.animateNextRender = false;
+    if (typeof renderBell === "function") renderBell();
+    return;
+  }
+
+  if (state.viewMode === "archive") {
+    // ARCHIWUM — osobny, prosty widok: lista zarchiwizowanych (najświeższe na górze), bez kolumn lejka i bez „Nowej karty"
+    const arch = [...visibleClients()].sort((a, b) => String(b.deleted_at || "").localeCompare(String(a.deleted_at || "")));
+    board.innerHTML = arch.length
+      ? `<div class="archive-head">🗄 Archiwum — karty schowane z tablicy. Kliknij kartę, aby ją przywrócić.</div>
+         <div class="archive-list">${arch.map(renderCard).join("")}</div>`
+      : `<div class="empty-archive">🗄 Archiwum jest puste</div>`;
     board.querySelectorAll(".card").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
     if (animate) flipAnimate(board, prevRects);
     state.skipFlipId = null; state.animateNextRender = false;
@@ -296,7 +441,7 @@ function renderBoard() {
 
   const list = visibleClients();
   board.innerHTML = STATUSES.map((s) => {
-    const cards = list.filter((c) => (c.status || "lead") === s.key);
+    const cards = list.filter((c) => normStatus(c) === s.key);
     return `<section class="column" data-status="${s.key}">
       <div class="col-inner" style="background:${s.tint}">
         <div class="column-head">
@@ -318,30 +463,64 @@ function renderBoard() {
   if (typeof renderBell === "function") renderBell();
 }
 
+// Widok tabeli — te same karty (z bieżącego trybu/właścicieli), wiersze zamiast kolumn. Klik w wiersz → karta.
+function renderTable(board, list) {
+  if (!list.length) { board.innerHTML = `<div class="table-empty">Brak kart do wyświetlenia.</div>`; return; }
+  const dash = `<span class="tb-empty">—</span>`;
+  const rows = list.map((c) => {
+    const s = statusOf(normStatus(c));
+    const cnt = (state.commentsByClient[c.id] || []).length;
+    const ds = c.follow_up_done ? "" : dueState(c.follow_up);
+    const fu = c.follow_up
+      ? `<span class="tb-fu ${c.follow_up_done ? "fu-done" : (ds ? "fu-" + ds : "")}">${c.follow_up_done ? "✓ " : ""}${esc(fmtFollow(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>`
+      : dash;
+    const demo = (c.demo_url && String(c.demo_url).trim()) ? `<span class="chip chip-demo-done" title="Demo gotowe">✅ demo</span>`
+      : c.demo_building ? `<span class="chip chip-building" title="Demo w budowie">🔨 w budowie</span>`
+      : c.demo_requested ? `<span class="chip chip-demo" title="Poproszono o demo">📩 demo</span>` : dash;
+    const team = `${c.opiekun ? `<span class="avatar avatar-sec" title="Opiekun: ${esc(c.opiekun)}" style="background:${ownerColor(c.opiekun)}">${initials(c.opiekun)}</span>` : ""}<span class="avatar" title="Handlowiec: ${esc(c.owner)}" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span>`;
+    return `<tr class="tb-row" data-id="${esc(String(c.id))}">
+        <td><div class="tb-name"><span class="tb-nm">${esc(c.name)}</span>${c.company ? `<span class="tb-co">${esc(c.company)}</span>` : ""}</div></td>
+        <td>${c.phone ? esc(c.phone) : dash}</td>
+        <td><span class="status-pill" style="background:${s.bg};color:${s.fg}"><span class="dot" style="background:${s.dot}"></span>${esc(s.label)}</span></td>
+        <td>${fu}</td>
+        <td class="tb-num">${cnt ? `💬 ${cnt}` : dash}</td>
+        <td class="tb-demo">${demo}</td>
+        <td class="tb-team"><div class="tb-team-in">${team}</div></td>
+      </tr>`;
+  }).join("");
+  board.innerHTML = `<div class="table-wrap"><table class="crm-table">
+      <thead><tr>
+        <th>Klient</th><th>Telefon</th><th>Status</th><th>Follow-up</th><th>Komentarze</th><th>Demo</th><th>Zespół</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  board.querySelectorAll(".tb-row").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
+}
+
 function renderCardInner(c) {
   const cnt = (state.commentsByClient[c.id] || []).length;
-  const ds = dueState(c.follow_up);
+  const ds = c.follow_up_done ? "" : dueState(c.follow_up);   // zrobiony follow-up nie świeci jako „dziś/zaległe"
   return `<div class="card-title"><span class="card-ic">👤</span>${esc(c.name)}</div>
     ${c.company ? `<div class="card-company">${esc(c.company)}</div>` : ""}
     <div class="card-meta">${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}</div>
     <div class="card-foot">
-      ${c.follow_up ? `<span class="chip ${ds ? "chip-" + ds : ""}">📅 ${esc(fmtFollow(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>` : ""}
+      ${(c.follow_up && !c.follow_up_done) ? `<span class="chip ${ds ? "chip-" + ds : ""}" title="Follow-up">📅 ${esc(fmtFollow(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>` : ""}
       ${cnt ? `<span class="chip">💬 ${cnt}</span>` : ""}
       ${(c.demo_url && String(c.demo_url).trim())
         ? `<span class="chip chip-demo-done" title="Demo gotowe — link w karcie">✅ demo</span>`
         : (c.demo_building
           ? `<span class="chip chip-building" title="Demo w budowie — sesja właśnie je robi">🔨 w budowie</span>`
           : (c.demo_requested ? `<span class="chip chip-demo" title="Poproszono o demo">📩 demo</span>` : ""))}
-      <span class="card-owner"><span class="avatar" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span></span>
+      <span class="card-owner">${c.opiekun ? `<span class="avatar avatar-sec" title="Opiekun: ${esc(c.opiekun)}" style="background:${ownerColor(c.opiekun)}">${initials(c.opiekun)}</span>` : ""}<span class="avatar" title="Handlowiec: ${esc(c.owner)}" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span></span>
     </div>`;
 }
 function renderCard(c) {
-  const inTrash = state.currentTab === "__trash";
-  const editable = canEdit(c) && !inTrash;       // w Koszu nic nie przeciągamy
-  // w widoku zbiorczym (Wszyscy / Na dziś / Kosz) obwódka w kolorze właściciela — łatwo odróżnić czyj lead
-  const ownerBorder = (state.currentTab === "all" || state.currentTab === "__due" || inTrash)
-    ? ` style="border:2px solid ${ownerColor(c.owner)}"` : "";
-  return `<article class="card${inTrash ? " trashed" : ""}" data-id="${esc(c.id)}" draggable="${editable}"${ownerBorder}>${renderCardInner(c)}</article>`;
+  const inArchive = state.viewMode === "archive";
+  const editable = canEdit(c) && !inArchive;       // w archiwum nic nie przeciągamy
+  // gdy widać karty kilku osób — obwódka w kolorze właściciela (łatwo odróżnić, czyj to lead)
+  const multiOwner = selectedOwnersSet().size > 1;
+  const ownerBorder = multiOwner ? ` style="border:2px solid ${ownerColor(c.owner)}"` : "";
+  return `<article class="card${inArchive ? " archived" : ""}" data-id="${esc(c.id)}" draggable="${editable}"${ownerBorder}>${renderCardInner(c)}</article>`;
 }
 // aktualizuj JEDNĄ kartę bez przerysowywania całej tablicy (zachowuje listenery klik/drag → zero laga, zero migania)
 function updateCardInPlace(c) {
@@ -420,18 +599,18 @@ async function openModal(id) {
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c) return;
   state.openCardId = id;
-  state.openCardWasTrashed = !!c.deleted_at;   // zapamiętaj, w jakim trybie otwarto (do wykrycia zmiany przez inną osobę)
+  state.openCardWasArchived = !!c.deleted_at;   // zapamiętaj, w jakim trybie otwarto (do wykrycia zmiany przez inną osobę)
   // komentarze z pamięci (są utrzymywane na bieżąco: start, dodanie, realtime) — bez osobnego zapytania,
   // dzięki temu modal nigdy się nie „wywala" przy chwilowym błędzie sieci i otwiera się natychmiast
   const comments = state.commentsByClient[id] || [];
   state.commentsByClient[id] = comments;
 
-  // KARTA W KOSZU → widok przywracania (read-only + Przywróć / Usuń trwale)
+  // KARTA W ARCHIWUM → widok przywracania (read-only + Przywróć / Usuń trwale)
   if (c.deleted_at) {
     const roRow = (label, val) => `<div class="prop-label">${label}</div><div class="prop-value readonly">${esc(val) || "—"}</div>`;
     $("#modal-body").innerHTML = `
       <h2>${esc(c.name)}</h2>
-      <div class="trash-banner">🗑 Ta karta jest w Koszu — usunięta ${esc(fmtDateTime(c.deleted_at))}. Możesz ją przywrócić.</div>
+      <div class="archive-banner">🗄 Ta karta jest w Archiwum — schowana ${esc(fmtDateTime(c.deleted_at))}. Możesz ją przywrócić.</div>
       <div class="props">
         ${roRow("🔥 Quality", c.quality)}
         ${roRow("🏢 Nazwa Firmy", c.company)}
@@ -445,11 +624,11 @@ async function openModal(id) {
       <hr class="section-divider" />
       <div class="notes-label">Komentarze</div>
       <div class="comments-wrap" id="comments-wrap">${renderComments(comments)}</div>
-      <div class="save-row trash-actions">
+      <div class="save-row archive-actions">
         <button class="primary-btn" id="restore-card">↩ Przywróć kartę</button>
         <button class="ghost-btn danger-btn" id="purge-card">Usuń trwale</button>
       </div>`;
-    $(".modal").classList.remove("modal-full");   // Kosz = mały modal
+    $(".modal").classList.remove("modal-full");   // Archiwum = mały modal
     $("#modal-overlay").hidden = false;
     $("#restore-card").addEventListener("click", () => doRestoreCard(c.id));
     $("#purge-card").addEventListener("click", (e) => askPurgeCard(c.id, e.target));
@@ -464,64 +643,48 @@ async function openModal(id) {
     return `<div class="prop-label">${icon} ${label}</div><div class="prop-value">${input}</div>`;
   };
   const statusSelect = editable
-    ? `<select data-key="status">${STATUSES.map((s) => `<option value="${s.key}" ${c.status === s.key ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select>`
-    : `<div class="prop-value readonly"><span class="status-pill" style="background:${statusOf(c.status).bg};color:${statusOf(c.status).fg}"><span class="dot" style="background:${statusOf(c.status).dot}"></span>${esc(statusOf(c.status).label)}</span></div>`;
+    ? `<select data-key="status">${STATUSES.map((s) => `<option value="${s.key}" ${normStatus(c) === s.key ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select>`
+    : `<div class="prop-value readonly"><span class="status-pill" style="background:${statusOf(normStatus(c)).bg};color:${statusOf(normStatus(c)).fg}"><span class="dot" style="background:${statusOf(normStatus(c)).dot}"></span>${esc(statusOf(normStatus(c)).label)}</span></div>`;
   const ownerOpts = Array.from(new Set([...state.team, c.owner].filter(Boolean)));
   const ownerSelect = editable
     ? `<select data-key="owner">${ownerOpts.map((o) => `<option value="${esc(o)}" ${c.owner === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
     : `<div class="prop-value readonly">${esc(c.owner)}</div>`;
+  const opiekunOpts = Array.from(new Set([...state.team, c.opiekun].filter(Boolean)));
+  const opiekunSelect = editable
+    ? `<select data-key="opiekun"><option value="">— brak —</option>${opiekunOpts.map((o) => `<option value="${esc(o)}" ${c.opiekun === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select>`
+    : `<div class="prop-value readonly">${esc(c.opiekun) || "—"}</div>`;
   const safe = safeUrl(c.google_maps);
-  const maps = safe ? `<a href="${esc(safe)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : "—";
-  const demoSafe = safeUrl(c.demo_url);
+  const stars = Math.max(0, Math.min(3, parseInt(c.quality, 10) || 0));   // ocena 1–3 (w kolumnie quality)
 
   $("#modal-body").innerHTML = `
     <div class="cm">
       <div class="cm-left">
-        <div class="cm-top">
-          ${editable ? `<input class="title-input cm-name" data-key="name" value="${esc(c.name)}" placeholder="Imię i nazwisko" />` : `<h2 class="cm-name">${esc(c.name)}</h2>`}
-          <div class="cm-keyfields">
-            <div class="cm-kf">
-              <span class="cm-kf-label">🏢 Nazwa firmy</span>
-              ${editable ? `<input data-key="company" value="${esc(c.company || "")}" placeholder="Nazwa firmy" />` : `<div class="prop-value readonly">${esc(c.company) || "—"}</div>`}
-            </div>
-            <div class="cm-kf">
-              <span class="cm-kf-label">📞 Telefon</span>
-              ${editable ? `<input data-key="phone" value="${esc(c.phone || "")}" placeholder="Telefon" />` : `<div class="prop-value readonly">${esc(c.phone) || "—"}</div>`}
-            </div>
-          </div>
-          <div class="modal-sub">${editable ? "zmiany zapisują się automatycznie" : "karta innej osoby — możesz komentować"}</div>
-          ${!editable ? `<div class="readonly-note">To karta: ${esc(c.owner)}. Pól nie edytujesz, ale możesz dodać komentarz (z @oznaczeniem).</div>` : ""}
-        </div>
+        ${editable ? `<input class="title-input cm-name" data-key="name" value="${esc(c.name)}" placeholder="Imię i nazwisko" />` : `<h2 class="cm-name">${esc(c.name)}</h2>`}
+        ${!editable ? `<div class="readonly-note">To karta: ${esc(c.owner)}. Pól nie edytujesz, ale możesz dodać komentarz (z @oznaczeniem).</div>` : ""}
 
-        <div class="props cm-props">
-          ${field("Quality", "🔥", "quality")}
-          <div class="prop-label">◎ Status</div><div class="prop-value">${statusSelect}</div>
-          <div class="prop-label">👤 Osoba</div><div class="prop-value">${ownerSelect}</div>
-          <div class="prop-label">📅 Follow-up</div>
-          <div class="prop-value">${editable ? `<span class="follow-edit" style="display:flex;gap:8px;align-items:center"><input type="date" id="fu-date" value="${toDateInput(c.follow_up)}" style="flex:1 1 auto" /><input type="time" id="fu-time" value="${toTimeInput(c.follow_up)}" title="Godzina (opcjonalnie)" style="flex:0 0 auto;width:118px" /></span>` : `<div class="prop-value readonly">${c.follow_up ? esc(fmtFollow(c.follow_up)) : "—"}</div>`}</div>
-          ${field("Email", "@", "email")}
-          <div class="prop-label">🔗 Google Maps</div>
-          <div class="prop-value maps-cell">
-            ${editable
-              ? `<input data-key="google_maps" id="maps-input" value="${esc(c.google_maps || "")}" placeholder="link" />`
-              : (safe ? `<a class="maps-link" href="${esc(safe)}" target="_blank" rel="noopener">otwórz w Mapach</a>` : `<span class="readonly">—</span>`)}
-            ${(c.google_maps || "").trim()
-              ? `${editable ? `<button type="button" class="maps-btn" id="maps-open" title="Otwórz wizytówkę Google">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="maps-copy" title="Kopiuj link">⧉ kopiuj</button>`
-              : ""}
+        <div class="cm-props">
+          <div class="cm-group">
+            <div class="cm-gh">Kontakt</div>
+            <div class="cm-row"><span class="k">Firma</span><div class="v">${editable ? `<input data-key="company" value="${esc(c.company || "")}" placeholder="—" />` : `<div class="prop-value readonly">${esc(c.company) || "—"}</div>`}</div></div>
+            <div class="cm-row"><span class="k">Telefon</span><div class="v">${editable ? `<input data-key="phone" value="${esc(c.phone || "")}" placeholder="—" />` : `<div class="prop-value readonly">${esc(c.phone) || "—"}</div>`}</div></div>
+            <div class="cm-row"><span class="k">Email</span><div class="v">${editable ? `<input data-key="email" value="${esc(c.email || "")}" placeholder="—" />` : `<div class="prop-value readonly">${esc(c.email) || "—"}</div>`}</div></div>
+            <div class="cm-row"><span class="k">Maps</span><div class="v maps-cell">${editable
+                  ? `<input data-key="google_maps" id="maps-input" value="${esc(c.google_maps || "")}" placeholder="link" />`
+                  : (safe ? `<a class="maps-link" href="${esc(safe)}" target="_blank" rel="noopener">otwórz</a>` : `<span class="readonly">—</span>`)}${(c.google_maps || "").trim()
+                  ? `${editable ? `<button type="button" class="maps-btn" id="maps-open" title="Otwórz wizytówkę Google">↗</button>` : ""}<button type="button" class="maps-btn" id="maps-copy" title="Kopiuj link">⧉</button>`
+                  : ""}</div></div>
           </div>
-          <div class="prop-label">🌐 Demo (link)</div>
-          <div class="prop-value maps-cell">
-            ${editable
-              ? `<input data-key="demo_url" id="demo-input" value="${esc(c.demo_url || "")}" placeholder="link do dema" />`
-              : (demoSafe ? `<a class="maps-link" href="${esc(demoSafe)}" target="_blank" rel="noopener">otwórz demo</a>` : `<span class="readonly">—</span>`)}
-            ${(c.demo_url || "").trim()
-              ? `${editable ? `<button type="button" class="maps-btn" id="demo-open" title="Otwórz demo">↗ otwórz</button>` : ""}<button type="button" class="maps-btn" id="demo-copy" title="Kopiuj link do dema">⧉ kopiuj</button>`
-              : ""}
-          </div>
-        </div>
 
-        <div class="demo-row">
-          ${c.demo_requested ? DEMO_FLAG_HTML : `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`}
+          <div class="cm-group">
+            <div class="cm-gh">Sprzedaż</div>
+            <div class="cm-row"><span class="k">Ocena</span><div class="v">${editable
+                ? `<div class="stars" id="stars">${[1,2,3].map((n) => `<button type="button" class="star${n <= stars ? " on" : ""}" data-val="${n}" title="${n}/3" aria-label="Ocena ${n} z 3">★</button>`).join("")}</div>`
+                : `<div class="stars readonly">${[1,2,3].map((n) => `<span class="star${n <= stars ? " on" : ""}">★</span>`).join("")}</div>`}</div></div>
+            <div class="cm-row"><span class="k">Status</span><div class="v">${statusSelect}</div></div>
+            <div class="cm-row"><span class="k">Handlowiec</span><div class="v">${ownerSelect}</div></div>
+            <div class="cm-row"><span class="k">Opiekun</span><div class="v">${opiekunSelect}</div></div>
+            <div class="cm-row"><span class="k">Demo</span><div class="v demo-cell maps-cell" id="demo-cell">${demoFieldHTML(c, editable)}</div></div>
+          </div>
         </div>
 
         <div class="cm-notes">
@@ -532,16 +695,30 @@ async function openModal(id) {
             : `<div class="notes-view readonly">${c.notes ? linkify(c.notes) : "—"}</div>`}
         </div>
 
-        ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Usuń kartę</button></div>` : ""}
+        ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Przenieś do archiwum</button></div>` : ""}
       </div>
 
       <aside class="cm-right">
-        <div class="cm-right-head">Komentarze <span class="cm-cc" id="comment-count">${comments.length} ${comments.length === 1 ? "komentarz" : "komentarzy"}</span></div>
-        <div class="comments-wrap" id="comments-wrap">${renderComments(comments)}</div>
-        <div class="add-comment">
-          <input id="new-comment" placeholder="Dodaj komentarz...  (@ aby oznaczyć osobę)" autocomplete="off" />
-          <button id="send-comment">Wyślij</button>
-          <div id="mention-pop" class="mention-pop" hidden></div>
+        <div class="comments-wrap" id="comments-wrap">${renderActivity(c, comments)}</div>
+        <div class="composer">
+          ${editable ? `<div class="fu-setter" id="fu-setter" hidden>
+            <div class="fu-setter-row">
+              <input type="date" id="fu-date" />
+              <input type="time" id="fu-time" title="Godzina (opcjonalnie)" />
+            </div>
+            <div class="fu-quick">
+              <button type="button" class="fu-chip" data-days="1">Jutro</button>
+              <button type="button" class="fu-chip" data-days="3">+3 dni</button>
+              <button type="button" class="fu-chip" data-days="7">+tydzień</button>
+              <button type="button" class="fu-chip fu-chip-clear" data-clear="1">Wyczyść</button>
+            </div>
+          </div>` : ""}
+          <div class="add-comment">
+            ${editable ? `<button type="button" class="fu-mode" id="fu-mode" title="Zaplanuj follow-up" aria-pressed="false">${FU_ICON}<span>Follow-up</span></button>` : ""}
+            <input id="new-comment" placeholder="Dodaj komentarz...  (@ aby oznaczyć osobę)" autocomplete="off" />
+            <button id="send-comment">Wyślij</button>
+            <div id="mention-pop" class="mention-pop" hidden></div>
+          </div>
         </div>
       </aside>
     </div>
@@ -573,28 +750,18 @@ async function openModal(id) {
     });
   };
   wireLink("maps-open", "maps-copy", "maps-input", c.google_maps);
-  wireLink("demo-open", "demo-copy", "demo-input", c.demo_url);
 
   if (editable) {
     const saveDeb = debounce((el) => saveField(c.id, el.dataset.key, el.value), 600);
     document.querySelectorAll("#modal-body [data-key]").forEach((el) => {
+      if (el.id === "demo-input") return;   // pole demo ma własne wiązanie (wireDemoCell) — bez podwójnego zapisu
       el.addEventListener("change", () => saveField(c.id, el.dataset.key, el.value));
       // auto-zapis NA BIEŻĄCO przy pisaniu (inaczej tekst ginie, gdy zamkniesz modal myszą)
       if (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.type !== "date" && el.type !== "datetime-local")) {
         el.addEventListener("input", () => saveDeb(el));
       }
     });
-    // Follow-up: data + OPCJONALNA godzina → jedno pole follow_up. Sama data zapisuje się od zera;
-    // dodanie godziny daje "YYYY-MM-DDTHH:MM"; wyczyszczenie daty czyści całość.
-    const fuDate = $("#fu-date"), fuTime = $("#fu-time");
-    if (fuDate && fuTime) {
-      const saveFollow = () => {
-        const d = fuDate.value, t = fuTime.value;
-        saveField(c.id, "follow_up", !d ? "" : (t ? `${d}T${t}` : d));
-      };
-      fuDate.addEventListener("change", saveFollow);
-      fuTime.addEventListener("change", saveFollow);
-    }
+    // (Follow-up i komentarze obsługuje feed po prawej — wiąże wireComposer.)
     // Notatka: widok z KLIKALNYMI linkami ↔ edycja. Klik w tekst → edytuj; klik w link → otwiera.
     const nView = $("#notes-view"), nEdit = $("#notes-edit");
     if (nView && nEdit) {
@@ -610,10 +777,19 @@ async function openModal(id) {
         nEdit.hidden = true; nView.hidden = false;
       });
     }
+    // Ocena gwiazdkowa (1–3, w kolumnie quality): klik ustawia ocenę; klik w aktualną najwyższą gwiazdkę → zeruje.
+    const starsEl = $("#stars");
+    if (starsEl) starsEl.querySelectorAll(".star").forEach((b) => b.addEventListener("click", () => {
+      const val = Number(b.dataset.val);
+      const cur = Math.max(0, Math.min(3, parseInt(c.quality, 10) || 0));
+      const next = (val === cur) ? 0 : val;
+      starsEl.querySelectorAll(".star").forEach((s) => s.classList.toggle("on", Number(s.dataset.val) <= next));
+      saveField(c.id, "quality", next ? String(next) : "");
+    }));
   }
-  const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askDeleteCard(c.id, delBtn));
-  const askBtn = $("#ask-demo"); if (askBtn) askBtn.addEventListener("click", () => doRequestDemo(c.id));
-  wireCommentBox(c.id);
+  const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askArchiveCard(c.id, delBtn));
+  wireDemoCell(c.id);
+  wireComposer(c.id);
 }
 
 async function saveField(id, key, value) {
@@ -626,15 +802,19 @@ async function saveField(id, key, value) {
   try {
     await api.updateClient(id, { [key]: v });
     flashSaved();
-    // Wklejono link do dema → prośba „załatwiona": zamknij ją w księdze (status=done) i zgaś chip.
-    if (key === "demo_url" && v) {
-      api.markDemoDone(id).then(() => {
-        c.demo_requested = false;                 // lokalnie zgaś znacznik (chip 📩 znika)
-        const row = $(".demo-row");
-        if (row && state.openCardId === id) row.innerHTML = `<button class="ghost-btn demo-btn" id="ask-demo">📩 Poproś o demo</button>`;
-        const askBtn = $("#ask-demo"); if (askBtn) askBtn.addEventListener("click", () => doRequestDemo(id));
-        updateCardInPlace(c);
-      }, (e) => console.error("markDemoDone", e));
+    // Zmiana linku do dema → odśwież wiersz demo: link gotowy → „✅ Demo gotowe"; wyczyszczony → wróć do prośby/przycisku.
+    if (key === "demo_url") {
+      if (v) {
+        api.markDemoDone(id).then(() => {
+          c.demo_requested = false;               // prośba załatwiona (księga: done), znacznik 📩 gaśnie
+          c.demo_building = false;                 // demo dostarczone → gaśnie też znacznik „🔨 w budowie"
+          refreshDemoCell(id);                     // pole demo → link + odnośniki
+          updateCardInPlace(c); refreshFeed(id);   // wpis „Demo gotowe" w feedzie
+        }, (e) => console.error("markDemoDone", e));
+      } else {
+        refreshDemoCell(id);                       // wyczyszczono link → wróć do prośby/przycisku
+        updateCardInPlace(c); refreshFeed(id);
+      }
     }
     if (key === "owner") {
       // przepisanie właściciela: bez przebudowy modala (chroni niezapisany tekst w innych polach)
@@ -643,7 +823,7 @@ async function saveField(id, key, value) {
       return;
     }
     if (key === "status" || key === "follow_up") { renderTabs(); state.animateNextRender = true; renderBoard(); return; }
-    if (key === "name" || key === "company" || key === "phone") { updateCardInPlace(c); return; }
+    if (key === "name" || key === "company" || key === "phone" || key === "opiekun") { updateCardInPlace(c); return; }
   } catch (err) {
     console.error(err);
     c[key] = prev;                   // cofnij — żeby ekran nie pokazywał „zapisanej" wartości, która nie poszła do bazy
@@ -656,25 +836,137 @@ async function saveField(id, key, value) {
   }
 }
 
-function renderComments(list) {
-  if (!list.length) return `<div class="no-comments">Brak komentarzy.</div>`;
-  return list.map((c) => `
-    <div class="comment">
+/* ---------- Feed aktywności: follow-up + demo jako wpisy „jak komentarz" ---------- */
+const FU_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`;
+const EDIT_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
+const TRASH_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>`;
+const CHECK_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
+
+// Pojedyncze przypomnienie (aktywny follow-up) — układ jak komentarz, z akcjami: edytuj / usuń / zrobione
+function reminderHTML(c, editable) {
+  const ds = dueState(c.follow_up);                  // "" | "today" | "overdue"
+  const badge = ds === "overdue" ? `<span class="rm-badge rm-overdue">zaległe</span>`
+              : ds === "today"   ? `<span class="rm-badge rm-today">dziś</span>` : "";
+  const actions = editable ? `<div class="reminder-actions">
+        <button type="button" class="rm-act rm-edit" title="Edytuj" aria-label="Edytuj przypomnienie">${EDIT_ICON}</button>
+        <button type="button" class="rm-act rm-del" title="Usuń" aria-label="Usuń przypomnienie">${TRASH_ICON}</button>
+        <button type="button" class="rm-act rm-done" title="Oznacz jako zrobione" aria-label="Zrobione">${CHECK_ICON}</button>
+      </div>` : "";
+  return `<div class="comment feed-item feed-followup reminder${ds ? " is-" + ds : ""}">
+      <span class="avatar feed-ic">${FU_ICON}</span>
+      <div class="comment-main">
+        <div class="comment-head"><span class="c-author">${esc(fmtFollow(c.follow_up))}</span>${badge}${actions}</div>
+        <div class="comment-body">${c.follow_up_note ? esc(c.follow_up_note) : `<span class="feed-muted">— bez treści —</span>`}</div>
+      </div>
+    </div>`;
+}
+function commentHTML(c) {
+  return `<div class="comment">
       <span class="avatar" style="background:${ownerColor(c.author)}">${initials(c.author)}</span>
       <div class="comment-main">
         <div class="comment-head"><span class="c-author">${esc(c.author)}</span><span class="c-time">${esc(fmtDateTime(c.created_at))}</span></div>
         <div class="comment-body">${highlightMentions(c.body)}</div>
       </div>
-    </div>`).join("");
+    </div>`;
+}
+// Prawy panel = opcjonalna sekcja „Przypomnienia" (gdy jest aktywny follow-up) + zawsze „Komentarze"
+function renderActivity(c, comments) {
+  const editable = canEdit(c);
+  let html = "";
+  if (c.follow_up && !c.follow_up_done) {            // aktywny follow-up → sekcja Przypomnienia
+    html += `<section class="feed-section">
+        <div class="feed-section-head">Przypomnienia</div>
+        ${reminderHTML(c, editable)}
+      </section>`;
+  }
+  const n = comments.length;
+  html += `<section class="feed-section">
+      <div class="feed-section-head">Komentarze${n ? ` <span class="cm-cc">${n}</span>` : ""}</div>
+      ${n ? comments.map(commentHTML).join("") : `<div class="no-comments">Brak komentarzy.</div>`}
+    </section>`;
+  return html;
+}
+// Przerysuj prawy panel w otwartej (pełnej) karcie
+function refreshFeed(id) {
+  const wrap = $("#comments-wrap");
+  if (!wrap || state.openCardId !== id) return;
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c || c.deleted_at) return;                 // Archiwum ma własny, prosty widok
+  wrap.innerHTML = renderActivity(c, state.commentsByClient[id] || []);
+}
+async function setFollowDone(id, done) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  const prev = !!c.follow_up_done;
+  if (prev === done) return;
+  c.follow_up_done = done;
+  refreshFeed(id); updateCardInPlace(c); renderTabs();         // odśwież feed, chip na tablicy i licznik „zaległe"
+  try { await api.updateClient(id, { follow_up_done: done }); flashSaved(); }
+  catch (err) { console.error(err); c.follow_up_done = prev; refreshFeed(id); updateCardInPlace(c); renderTabs(); toast("Nie zapisano"); }
+}
+// „Zrobione": zapisuje w komentarzach trwały ślad „follow-up wykonany" (z terminem) i czyści follow-up
+// → przypomnienie znika z karty i z kafelka tablicy, ale w „Komentarzach" zostaje wpis kto i kiedy go zamknął.
+async function completeReminder(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c || !c.follow_up) return;
+  const term = fmtFollow(c.follow_up);
+  const note = (c.follow_up_note || "").trim();
+  const body = `✓ Follow-up wykonany — termin ${term}${note ? ` („${note}")` : ""}`;
+  try {                                             // wpis do komentarzy (utrwalany; w demo trzyma się w pamięci do przeładowania)
+    const arr = state.commentsByClient[id] = state.commentsByClient[id] || [];
+    const before = arr.length;
+    const row = await api.addComment(id, body);
+    if (arr.length === before && row) arr.push(row);   // live: addComment nie dopisuje lokalnie → dopisz zwrócony wiersz
+  } catch (err) { console.error(err); toast("Nie zapisano wpisu"); }
+  const wasDone = !!c.follow_up_done;
+  await saveField(id, "follow_up_note", "");         // → null
+  await saveField(id, "follow_up", "");              // → null (saveField odświeża tablicę; chip znika)
+  if (wasDone) { c.follow_up_done = false; try { await api.updateClient(id, { follow_up_done: false }); } catch (e) { console.error(e); } }
+  refreshFeed(id); updateCardInPlace(c); renderTabs();
+  toast("Follow-up wykonany");
+}
+// Usuń przypomnienie: kasuje termin + treść follow-upu (chip na tablicy też znika)
+async function deleteReminder(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  await saveField(id, "follow_up_note", "");        // → null
+  await saveField(id, "follow_up", "");             // → null (saveField odświeża tablicę)
+  if (c.follow_up_done) { c.follow_up_done = false; try { await api.updateClient(id, { follow_up_done: false }); } catch (e) { console.error(e); } }
+  refreshFeed(id);
+  toast("Usunięto przypomnienie");
+}
+function renderComments(list) {
+  if (!list.length) return `<div class="no-comments">Brak komentarzy.</div>`;
+  return list.map(commentHTML).join("");
 }
 function highlightMentions(text) {
   return esc(text).replace(/@([A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż][\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)/g, '<span class="mention">@$1</span>');
 }
 
-/* ---------- Komentarz + @mention ---------- */
-function wireCommentBox(clientId) {
+/* ---------- Pole pod feedem: komentarz + tryb „Follow-up" + @mention ---------- */
+function wireComposer(clientId) {
+  const c = state.clients.find((x) => String(x.id) === String(clientId));
   const inp = $("#new-comment"), pop = $("#mention-pop");
-  const send = async () => {
+  const modeBtn = $("#fu-mode"), setter = $("#fu-setter"), sendBtn = $("#send-comment");
+  const fuDate = $("#fu-date"), fuTime = $("#fu-time");
+  const PH_COMMENT = "Dodaj komentarz...  (@ aby oznaczyć osobę)";
+  let fuMode = false;
+
+  const setMode = (on) => {                                    // przełącz pole między „komentarz" a „follow-up"
+    fuMode = on && !!modeBtn;
+    if (modeBtn) { modeBtn.classList.toggle("on", fuMode); modeBtn.setAttribute("aria-pressed", fuMode ? "true" : "false"); }
+    if (setter) setter.hidden = !fuMode;
+    inp.placeholder = fuMode ? "Treść follow-upu (opcjonalnie)…" : PH_COMMENT;
+    if (sendBtn) sendBtn.textContent = fuMode ? "Zaplanuj" : "Wyślij";
+    if (fuMode && c) {                                          // wejście w tryb → prefill bieżącym follow-upem
+      if (fuDate) fuDate.value = toDateInput(c.follow_up);
+      if (fuTime) fuTime.value = toTimeInput(c.follow_up);
+      inp.value = c.follow_up_note || "";
+    }
+    inp.focus();
+  };
+
+  const sendComment = async () => {
     const body = inp.value.trim();
     if (!body) return;
     inp.value = ""; pop.hidden = true;
@@ -682,12 +974,53 @@ function wireCommentBox(clientId) {
       await api.addComment(clientId, body);
       const fresh = await api.getComments(clientId);
       state.commentsByClient[clientId] = fresh;
-      $("#comments-wrap").innerHTML = renderComments(fresh);
-      const cc = $("#comment-count"); if (cc) cc.textContent = fresh.length + " " + (fresh.length === 1 ? "komentarz" : "komentarzy");
-      updateCardInPlace(state.clients.find((x) => String(x.id) === String(clientId)));  // tylko chip 💬, bez przebudowy tablicy
+      refreshFeed(clientId);
+      updateCardInPlace(c);                                     // tylko chip 💬, bez przebudowy tablicy
     } catch (err) { console.error(err); toast("Nie udało się dodać komentarza"); }
   };
-  $("#send-comment").addEventListener("click", send);
+
+  const saveFollowUp = () => {                                  // „Zaplanuj": data(+godz) + treść → follow_up na karcie, pojawia się w feedzie
+    const d = fuDate ? fuDate.value : "", t = fuTime ? fuTime.value : "";
+    if (!d) { toast("Ustaw datę follow-upu"); return; }
+    saveField(clientId, "follow_up_note", inp.value.trim());
+    saveField(clientId, "follow_up", t ? `${d}T${t}` : d);
+    if (c && c.follow_up_done) setFollowDone(clientId, false);  // nowy termin → znów „do zrobienia"
+    inp.value = "";
+    setMode(false);
+    refreshFeed(clientId);
+  };
+
+  const submit = () => { if (fuMode) saveFollowUp(); else sendComment(); };
+
+  if (modeBtn) modeBtn.addEventListener("click", () => setMode(!fuMode));
+  if (sendBtn) sendBtn.addEventListener("click", submit);
+  // szybkie terminy w setterze (Jutro / +3 dni / +tydzień / Wyczyść)
+  if (setter) setter.querySelectorAll(".fu-chip").forEach((ch) => ch.addEventListener("click", () => {
+    if (ch.dataset.clear) { if (fuDate) fuDate.value = ""; if (fuTime) fuTime.value = ""; }
+    else {
+      const dt = new Date(); dt.setHours(0, 0, 0, 0); dt.setDate(dt.getDate() + (Number(ch.dataset.days) || 0));
+      const y = dt.getFullYear(), m = String(dt.getMonth() + 1).padStart(2, "0"), dd = String(dt.getDate()).padStart(2, "0");
+      if (fuDate) fuDate.value = `${y}-${m}-${dd}`;
+    }
+    inp.focus();
+  }));
+  // akcje przypomnienia (delegacja — panel się przerysowuje): zrobione / edytuj / usuń (2 kliki)
+  const wrap = $("#comments-wrap");
+  if (wrap) wrap.addEventListener("click", (e) => {
+    if (!c) return;
+    if (e.target.closest(".rm-done")) { completeReminder(clientId); return; }      // zrobione → wpis „wykonany" w komentarzach + czyści follow-up
+    if (e.target.closest(".rm-edit")) { setMode(true); return; }                   // edytuj → otwórz pole follow-upu z prefillem
+    if (e.target.closest(".rm-del-yes")) { deleteReminder(clientId); return; }
+    if (e.target.closest(".rm-del-no")) { refreshFeed(clientId); return; }
+    const del = e.target.closest(".rm-del");
+    if (del) {                                                                     // pierwszy klik kosza → potwierdzenie inline
+      const box = del.closest(".reminder-actions");
+      if (box) box.innerHTML = `<span class="rm-confirm">Usunąć?</span>
+        <button type="button" class="rm-act rm-del-yes" title="Tak, usuń">Tak</button>
+        <button type="button" class="rm-act rm-del-no" title="Anuluj">Nie</button>`;
+    }
+  });
+
   inp.addEventListener("keydown", (e) => {
     if (!pop.hidden) {
       const items = [...pop.querySelectorAll(".mention-item")];
@@ -700,7 +1033,7 @@ function wireCommentBox(clientId) {
       }
       if (e.key === "Escape") { pop.hidden = true; return; }
     }
-    if (e.key === "Enter") send();
+    if (e.key === "Enter") submit();
   });
   inp.addEventListener("input", () => {
     const m = inp.value.slice(0, inp.selectionStart).match(/@([\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)$/);
@@ -718,34 +1051,60 @@ function wireCommentBox(clientId) {
   });
 }
 
+// podłącz przyciski pola demo (kopiuj / otwórz-edycję / poproś o demo / wklejenie linku)
+function wireDemoCell(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  const copyBtn = $("#demo-copy");
+  if (copyBtn) copyBtn.addEventListener("click", async () => {
+    const url = (c.demo_url || "").trim(); if (!url) return;
+    try { await navigator.clipboard.writeText(url); } catch {}
+    const old = copyBtn.textContent; copyBtn.textContent = "✓ skopiowano"; copyBtn.classList.add("ok");
+    setTimeout(() => { copyBtn.textContent = old; copyBtn.classList.remove("ok"); }, 1300);
+  });
+  const reveal = () => { const inp = $("#demo-input"); if (inp) { inp.hidden = false; inp.focus(); inp.select(); } };
+  const editBtn = $("#demo-edit"); if (editBtn) editBtn.addEventListener("click", reveal);
+  const addBtn = $("#demo-add"); if (addBtn) addBtn.addEventListener("click", reveal);
+  const askBtn = $("#ask-demo"); if (askBtn) askBtn.addEventListener("click", () => doRequestDemo(id));
+  const inp = $("#demo-input"); if (inp) inp.addEventListener("change", () => saveField(id, "demo_url", inp.value));
+}
+// przerysuj CAŁE pole demo wg aktualnego stanu karty (przycisk ↔ link + odnośniki) i podłącz na nowo
+function refreshDemoCell(id) {
+  const cell = $("#demo-cell");
+  if (!cell || state.openCardId !== id) return;
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  cell.innerHTML = demoFieldHTML(c, canEdit(c));
+  wireDemoCell(id);
+}
+
 async function doRequestDemo(id) {
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c) return;
   try {
     await api.requestDemo(id);
     c.demo_requested = true;          // ustaw flagę dopiero PO sukcesie (przy błędzie nic nie miga)
-    const row = $(".demo-row");
-    if (row) row.innerHTML = DEMO_FLAG_HTML;
-    updateCardInPlace(c); toast("Zgłoszono prośbę o demo");
+    refreshDemoCell(id);
+    updateCardInPlace(c); refreshFeed(id); toast("Zgłoszono prośbę o demo");   // wpis „Poproszono o demo" w feedzie
   } catch (err) { console.error(err); toast("Nie udało się zgłosić"); }
 }
 
-async function askDeleteCard(id, btn) {
+async function askArchiveCard(id, btn) {
   const row = btn.parentElement;
-  row.innerHTML = `<span class="confirm-del">Przenieść kartę do Kosza? (będzie można przywrócić)</span>
+  row.innerHTML = `<span class="confirm-del">Przenieść kartę do Archiwum? (będzie można przywrócić)</span>
      <button class="ghost-btn" id="del-no" style="margin-left:auto">Anuluj</button>
-     <button class="primary-btn danger-btn" id="del-yes">Tak, do Kosza</button>`;
+     <button class="primary-btn" id="del-yes">Tak, do Archiwum</button>`;
   $("#del-no").addEventListener("click", () => openModal(id));
   $("#del-yes").addEventListener("click", async () => {
     try {
-      await api.softDeleteClient(id);                 // do Kosza (odwracalne), NIE trwałe usunięcie
+      await api.softDeleteClient(id);                 // do Archiwum (odwracalne), NIE trwałe usunięcie
       const c = state.clients.find((x) => String(x.id) === String(id));
       if (c) c.deleted_at = new Date().toISOString();
       closeModal(); renderTabs();
       const el = document.querySelector(`#board .card[data-id="${CSS.escape(String(id))}"]`);
       if (el && !reduceMotion()) { el.style.transition = "opacity .18s ease, transform .18s ease"; el.style.opacity = "0"; el.style.transform = "scale(.94)"; }
       setTimeout(() => { state.animateNextRender = true; renderBoard(); }, reduceMotion() ? 0 : 170);
-      toast("Przeniesiono do Kosza");
+      toast("Przeniesiono do Archiwum");
     } catch (err) { console.error(err); $(".confirm-del").textContent = "Nie udało się przenieść"; }
   });
 }
@@ -770,13 +1129,13 @@ function askPurgeCard(id, btn) {
      <button class="primary-btn danger-btn" id="purge-yes">Tak, na zawsze</button>`;
   $("#purge-no").addEventListener("click", () => openModal(id));
   $("#purge-yes").addEventListener("click", async () => {
-    // BRAMKA: jeśli ktoś w międzyczasie przywrócił kartę z Kosza — NIE kasuj żywego leada
+    // BRAMKA: jeśli ktoś w międzyczasie przywrócił kartę z Archiwum — NIE kasuj żywego leada
     const cur = state.clients.find((x) => String(x.id) === String(id));
     if (!cur) { toast("Tej karty już nie ma"); closeModal(); renderTabs(); renderBoard(); return; }
-    if (!cur.deleted_at) { toast("Ta karta nie jest już w Koszu — odświeżam"); openModal(id); return; }
+    if (!cur.deleted_at) { toast("Ta karta nie jest już w Archiwum — odświeżam"); openModal(id); return; }
     try {
-      const purged = await api.purgeClient(id);        // warunkowy DELETE (tylko gdy nadal w Koszu)
-      if (!purged) { toast("Ta karta nie jest już w Koszu — odświeżam"); openModal(id); return; }
+      const purged = await api.purgeClient(id);        // warunkowy DELETE (tylko gdy nadal w Archiwum)
+      if (!purged) { toast("Ta karta nie jest już w Archiwum — odświeżam"); openModal(id); return; }
       state.clients = state.clients.filter((x) => String(x.id) !== String(id));
       delete state.commentsByClient[id];
       closeModal(); renderTabs(); state.animateNextRender = true; renderBoard();
@@ -805,7 +1164,7 @@ function cleanupEmptyNewCard(id) {
   if (!c || c.deleted_at) return;   // już w Koszu (np. ktoś ją „usunął") → nie kasuj trwale, zostaw w Koszu
   // „pusta" = ŻADNE pole nie wypełnione (w tym quality/maps/follow_up) — żeby nie skasować karty z samym linkiem/datą
   const empty = (c.name === "Nowy klient" || !c.name) && !c.company && !c.phone && !c.email && !c.notes
-    && !c.quality && !c.google_maps && !c.demo_url && !c.follow_up && !(state.commentsByClient[id] || []).length;
+    && !c.quality && !c.google_maps && !c.demo_url && !c.follow_up && !c.follow_up_note && !(state.commentsByClient[id] || []).length;
   if (!empty) return;
   // usuń z ekranu DOPIERO po potwierdzeniu z bazy — inaczej przy błędzie pusta karta „odrasta" przy odświeżeniu
   api.deleteClient(id).then(() => {
@@ -817,6 +1176,9 @@ function cleanupEmptyNewCard(id) {
 
 async function newCard(status) {
   const st = status || "lead";
+  // nowa karta jest MOJA — upewnij się, że widzę siebie i jestem na tablicy (inaczej zostałaby odfiltrowana)
+  if (!selectedOwnersSet().has(state.currentUser)) { const s = new Set(selectedOwnersSet()); s.add(state.currentUser); state.owners = s; persistOwners(); }
+  state.viewMode = "board";
   // nowa karta na GÓRZE swojej kolumny (pozycja mniejsza niż najmniejsza istniejąca)
   const mins = activeClients().filter((c) => (c.status || "lead") === st && c.position != null).map((c) => Number(c.position));
   const topPos = mins.length ? Math.min(...mins) - 1000 : 1000;
@@ -869,20 +1231,15 @@ async function refreshData() {
         // kartę TRWALE usunęła inna osoba — zamknij modal z komunikatem
         toast("Tę kartę usunął ktoś inny");
         closeModal();
-      } else if (!!fresh.deleted_at !== state.openCardWasTrashed) {
-        // inna osoba przeniosła kartę do Kosza / przywróciła ją, gdy mam ją otwartą →
+      } else if (!!fresh.deleted_at !== state.openCardWasArchived) {
+        // inna osoba przeniosła kartę do Archiwum / przywróciła ją, gdy mam ją otwartą →
         // przełącz modal na właściwy widok (zamiast trwać w starym, co groziło edycją/„Usuń trwale" na złym stanie)
-        toast(fresh.deleted_at ? "Tę kartę przeniesiono do Kosza" : "Tę kartę przywrócono z Kosza");
+        toast(fresh.deleted_at ? "Tę kartę przeniesiono do Archiwum" : "Tę kartę przywrócono z Archiwum");
         openModal(state.openCardId);
       } else {
         // NIGDY nie przebudowuj całego modala (gubi wpisywany komentarz, scroll, podpowiedź @) —
-        // odśwież tylko listę komentarzy i licznik
-        const wrap = $("#comments-wrap");
-        if (wrap) {
-          const list = state.commentsByClient[state.openCardId] || [];
-          wrap.innerHTML = renderComments(list);
-          const cc = $("#comment-count"); if (cc) cc.textContent = list.length + " " + (list.length === 1 ? "komentarz" : "komentarzy");
-        }
+        // odśwież tylko feed (komentarze + status follow-up/demo) i licznik
+        refreshFeed(state.openCardId);
       }
     }
   } catch (err) { console.error("refresh", err); }
@@ -906,12 +1263,25 @@ async function showApp() {
   $("#logout-btn").hidden = !state.live;
   state.clients = await api.getClients();
   state.commentsByClient = await api.getAllComments();
-  // DOMYŚLNIE pokaż MOJE karty (zakładka zalogowanej osoby), nie „Wszyscy" — przy każdym wejściu/odświeżeniu
-  if (state.currentTab === "all" && state.team.includes(state.currentUser)) state.currentTab = state.currentUser;
+  // DOMYŚLNIE: każdy widzi tylko SWOJE karty; przez panel zespołu może dobrać innych / wszystkich
+  const loaded = loadOwners(); state.ownersAll = loaded.all; state.owners = loaded.owners;
+  migrateArchiwumStatus();
   renderTabs(); renderBoard();
   wireNotif(); renderBell();
   api.subscribe(scheduleRefresh);
   startSafetyRefresh();
+}
+
+// Jednorazowa migracja: dawny etap 'archiwum' (usunięty z lejka) → nowe Archiwum (schowek poza tablicą).
+// Karty z status='archiwum' chowamy (deleted_at) i normalizujemy status na 'lead' (po przywróceniu wrócą do Leadów).
+function migrateArchiwumStatus() {
+  const old = state.clients.filter((c) => c.status === "archiwum" && !c.deleted_at);
+  if (!old.length) return;
+  const stamp = new Date().toISOString();
+  old.forEach((c) => {
+    c.deleted_at = stamp; c.status = "lead";
+    if (state.live) api.updateClient(c.id, { deleted_at: stamp, status: "lead" }).catch((e) => console.error("migrate archiwum", e));
+  });
 }
 
 const KNOWN_NAMES = { "krzychu.brzezi@gmail.com": "Krzysztof", "kozakiewicz.marceli@gmail.com": "Marceli", "kluchobiznes@gmail.com": "Szymon" };
@@ -932,12 +1302,21 @@ function wireChrome() {
   $("#modal-overlay").addEventListener("mousedown", (e) => { overlayMouseDownSelf = (e.target.id === "modal-overlay"); });
   $("#modal-overlay").addEventListener("click", (e) => { if (e.target.id === "modal-overlay" && overlayMouseDownSelf) closeModal(); overlayMouseDownSelf = false; });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !$("#modal-overlay").hidden) closeModal();
+    if (e.key === "Escape") {
+      if (!$("#modal-overlay").hidden) { closeModal(); return; }
+      const pop = $("#owner-pop");
+      if (pop && !pop.hidden) { closeOwnerPanel(); const t = $("#owner-toggle"); if (t) t.focus(); return; }
+    }
     if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); const s = $("#search"); if (s) { s.focus(); s.select(); } }
   });
   const renderBoardDeb = debounce(renderBoard, 140);
   const s = $("#search"); if (s) s.addEventListener("input", () => { state.search = s.value; renderBoardDeb(); });
   const nb = $("#new-card-btn"); if (nb) nb.addEventListener("click", () => newCard("lead"));
+  // klik poza panelem zespołu zamyka jego rozwijaną listę
+  document.addEventListener("click", (e) => {
+    const pop = $("#owner-pop");
+    if (pop && !pop.hidden && !e.target.closest(".owner-panel")) closeOwnerPanel();
+  });
 }
 
 /* ============================================================
@@ -946,7 +1325,7 @@ function wireChrome() {
    ============================================================ */
 function parseMentions(body) {
   const out = new Set(); const team = state.team || [];
-  const re = /@([A-Za-zÀ-ÿĄąĆćĘꣳŃńÓ󌜏źŻż]+)/g; let m;
+  const re = /@([A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż]+)/g; let m;
   while ((m = re.exec(body || ""))) {
     const nick = m[1].toLowerCase();
     const hit = team.find((t) => String(t).toLowerCase() === nick);
@@ -964,6 +1343,7 @@ function buildNotifications() {
   const me = state.currentUser; const list = []; const byId = state.commentsByClient || {};
   for (const cid in byId) {
     const cl = state.clients.find((x) => String(x.id) === String(cid));
+    if (!cl || cl.deleted_at) continue; // pomiń karty z Archiwum / usunięte — nie powiadamiaj o schowanych
     for (const cm of (byId[cid] || [])) {
       if (cm.author === me) continue;
       if (parseMentions(cm.body).has(me)) {
@@ -1045,7 +1425,7 @@ const DEMO_CLIENTS = [
   { id: "d2", name: "Marek Zieliński", company: "Auto-Serwis Zieliński", phone: "+48 600 100 202", email: "", google_maps: "", quality: "", status: "lead", follow_up: "2026-06-22", owner: "Krzysztof", notes: "", position: 1000 },
   { id: "d3", name: "Hydraulika Nowak", company: "Hydraulika Nowak", phone: "+48 600 100 204", email: "", google_maps: "", quality: "", status: "lead", follow_up: null, owner: "Marceli", notes: "", position: 2000 },
   { id: "d7", name: "Stolarnia Wiór", company: "Stolarnia Wiór", phone: "+48 600 100 203", email: "", google_maps: "", quality: "", status: "lead", follow_up: "2026-06-24", owner: "Krzysztof", notes: "", position: 3000 },
-  { id: "d4", name: "Salon Bella", company: "Salon Fryzjerski Bella", phone: "+48 600 100 206", email: "", google_maps: "", quality: "", status: "umowiony", follow_up: "2026-06-25", owner: "Szymon", notes: "Spotkanie czwartek 17:00.", position: 1000 },
+  { id: "d4", name: "Salon Bella", company: "Salon Fryzjerski Bella", phone: "+48 600 100 206", email: "", google_maps: "", quality: "", status: "umowiony", follow_up: "2026-06-25", owner: "Szymon", opiekun: "Krzysztof", notes: "Spotkanie czwartek 17:00.", position: 1000 },
   { id: "d5", name: "Kwiaciarnia Storczyk", company: "Kwiaciarnia Storczyk", phone: "+48 600 100 208", email: "", google_maps: "", quality: "", status: "oferta", follow_up: "2026-06-27", owner: "Piotr", notes: "Wysłana oferta.", position: 1000 },
   { id: "d6", name: "Fit Klub Active", company: "Fit Klub Active", phone: "+48 600 100 209", email: "", google_maps: "", quality: "", status: "konwersja", follow_up: null, owner: "Krzysztof", notes: "PODPISANE.", position: 1000 },
 ];

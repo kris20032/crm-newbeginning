@@ -13,8 +13,8 @@ create table if not exists clients (
   email       text,
   google_maps text,
   quality     text,
-  status      text not null default 'lead',   -- lead | zainteresowany | umowiony | po_spotkaniu | oferta | konwersja | archiwum
-  follow_up   date,
+  status      text not null default 'lead',   -- lead | zainteresowany | umowiony | po_spotkaniu | oferta | konwersja  (Archiwum = deleted_at, nie status)
+  follow_up   timestamptz,                    -- data LUB data+godzina follow-upu (modal zapisuje 'YYYY-MM-DD' albo 'YYYY-MM-DDTHH:MM')
   owner       text not null,                  -- imię właściciela: Krzysztof | Marceli | Szymon | Bartek | Piotr
   notes       text,
   created_at  timestamptz default now(),
@@ -79,9 +79,36 @@ alter publication supabase_realtime add table comments;
 alter publication supabase_realtime add table demo_requests;
 
 -- ============================================================
---  v3 (2026-06-21): KOSZ / soft-delete (usuwanie odwracalne)
---  deleted_at NULL = karta aktywna; data = karta w Koszu (do przywrócenia).
---  "Usuń kartę" w UI ustawia deleted_at; "Przywróć" zeruje; "Usuń trwale" robi DELETE.
+--  v3 (2026-06-21): ARCHIWUM / soft-delete (chowanie odwracalne)
+--  deleted_at NULL = karta aktywna; data = karta w Archiwum (schowana z tablicy, do przywrócenia).
+--  "Przenieś do archiwum" w UI ustawia deleted_at; "Przywróć" zeruje; "Usuń trwale" robi DELETE.
 -- ============================================================
 alter table clients add column if not exists deleted_at timestamptz default null;
 create index if not exists idx_clients_deleted_at on clients(deleted_at);
+
+-- ============================================================
+--  v4 (nowa wersja karty): ocena gwiazdkowa + wiadomość do follow-upu
+--  - kolumna 'quality' przechowuje teraz ocenę 1–3 (gwiazdki) zamiast tekstu;
+--  - 'follow_up_note' = krótka wiadomość/przypomnienie do follow-upu.
+-- ============================================================
+alter table clients add column if not exists follow_up_note text;
+
+-- ============================================================
+--  v5 (2026-06-26): domknięcie kolumn używanych przez aplikację
+--  - demo_url      = link do gotowego dema (chip „✅ demo");
+--  - demo_building = znacznik „🔨 w budowie" (ustawiany przez sesję/skrypt robiący demo);
+--  - position      = ręczna kolejność kart w kolumnie (drag&drop);
+--  - follow_up     = był 'date', a modal zapisuje też godzinę → zmiana na 'timestamptz'.
+-- ============================================================
+alter table clients add column if not exists demo_url      text;
+alter table clients add column if not exists demo_building  boolean default false;
+alter table clients add column if not exists position       double precision;
+alter table clients alter column follow_up type timestamptz using follow_up::timestamptz;
+
+-- ============================================================
+--  v6 (2026-06-26): opiekun + odhaczanie follow-upa
+--  - opiekun        = dodatkowy członek zespołu przypisany do karty (obok handlowca);
+--  - follow_up_done = czy follow-up został zrobiony (odhaczony na czacie).
+-- ============================================================
+alter table clients add column if not exists opiekun        text;
+alter table clients add column if not exists follow_up_done  boolean default false;

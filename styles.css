@@ -72,11 +72,40 @@ body {
 }
 .ghost-btn:hover { background: var(--bg); }
 
-/* ===== Zakładki (widoki per osoba) ===== */
+/* ===== Pasek widoków (Tablica / Na dziś / Archiwum) + panel zespołu ===== */
 .tabs {
-  display: flex; gap: 2px; padding: 8px 22px 0; background: var(--panel);
-  border-bottom: 1px solid var(--line); overflow-x: auto;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+  padding: 8px 22px 0; background: var(--panel); border-bottom: 1px solid var(--line);
 }
+/* min-width:0 jest KLUCZOWE — bez niego min-width:auto blokuje kurczenie i overflow-x nigdy się nie włącza (pasek rozpycha stronę na mobile) */
+.tab-modes { display: flex; gap: 2px; overflow-x: auto; min-width: 0; flex: 1 1 auto; }
+/* Panel zespołu — rozwijany wybór, czyje karty widać (dostępny dla każdego) */
+.owner-panel { position: relative; flex: 0 0 auto; padding-bottom: 6px; }
+.owner-toggle {
+  display: inline-flex; align-items: center; gap: 6px; background: var(--bg);
+  border: 1px solid var(--line-strong); border-radius: 8px; padding: 6px 11px;
+  font-size: 13px; font-family: inherit; color: var(--ink); cursor: pointer; white-space: nowrap;
+}
+.owner-toggle:hover { border-color: var(--ink-soft); }
+.owner-toggle strong { font-weight: 600; }
+.owner-toggle .caret { color: var(--ink-soft); font-size: 11px; }
+.owner-pop {
+  position: absolute; top: calc(100% + 6px); right: 0; min-width: 224px; z-index: 60;
+  background: #fff; border: 1px solid var(--line-strong); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 6px;
+}
+.owner-opt {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  background: transparent; border: none; border-radius: 7px; padding: 7px 9px;
+  font-size: 13.5px; font-family: inherit; color: var(--ink); cursor: pointer;
+}
+.owner-opt:hover { background: var(--bg); }
+.owner-opt.on { background: rgba(35,131,226,.08); font-weight: 600; }
+.owner-check { width: 14px; flex: 0 0 auto; color: var(--accent); font-weight: 700; text-align: center; }
+.owner-all { font-weight: 600; }
+.owner-sep { height: 1px; background: var(--line); margin: 5px 2px; }
+.owner-me { color: var(--ink-soft); font-weight: 400; }
+.avatar.sm { width: 18px; height: 18px; font-size: 10px; }
 .tab {
   border: none; background: transparent; padding: 8px 14px 11px; font-size: 13.5px; font-weight: 500;
   color: var(--ink-soft); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; font-family: inherit;
@@ -85,11 +114,40 @@ body {
 .tab.active { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
 .tab .count { color: var(--ink-soft); font-weight: 500; margin-left: 5px; font-size: 12px; }
 
+/* Przełącznik układu: Kanban / Tabela (po prawej, obok „Pokaż") */
+.view-switch { flex: 0 0 auto; display: inline-flex; gap: 2px; align-self: center; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 8px; padding: 2px; margin-bottom: 6px; }
+.vs-btn { display: inline-flex; align-items: center; gap: 5px; border: none; background: transparent; color: var(--ink-soft); font-family: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; border-radius: 6px; padding: 5px 9px; white-space: nowrap; transition: background .12s ease, color .12s ease; }
+.vs-btn svg { flex: 0 0 auto; }
+.vs-btn:hover { color: var(--ink); }
+.vs-btn.on { background: #fff; color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+@media (max-width: 640px) { .vs-btn span { display: none; } .vs-btn { padding: 5px 7px; } }
+
 /* ===== Tablica kanban ===== */
 .board {
   display: flex; gap: 14px; padding: 0 26px 28px; overflow: auto; align-items: stretch;
   height: calc(100vh - 112px);
 }
+
+/* ===== Widok tabeli ===== */
+.board.board-table { display: block; padding: 18px 26px 28px; }
+.table-wrap { background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); }
+.crm-table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 720px; }
+.crm-table thead th { text-align: left; font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); padding: 11px 16px; background: var(--bg); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.crm-table tbody td { padding: 11px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.crm-table tbody tr:last-child td { border-bottom: none; }
+.tb-row { cursor: pointer; transition: background .12s ease; }
+.tb-row:hover { background: var(--bg); }
+.tb-name { display: flex; flex-direction: column; gap: 1px; }
+.tb-nm { font-weight: 600; color: var(--ink); }
+.tb-co { font-size: 12px; color: var(--ink-soft); }
+.tb-empty { color: var(--ink-soft); }
+.tb-num, .tb-demo { white-space: nowrap; }
+.tb-team-in { display: inline-flex; align-items: center; }
+.tb-fu { font-weight: 600; white-space: nowrap; }
+.tb-fu.fu-overdue { color: #c0392b; }
+.tb-fu.fu-today { color: #b8860b; }
+.tb-fu.fu-done { color: #2e6b3e; }
+.table-empty { color: var(--ink-soft); font-size: 14px; padding: 40px 0; text-align: center; }
 .column { flex: 0 0 284px; display: flex; flex-direction: column; }
 /* col-inner wypełnia całą wysokość kolumny → strefa upuszczania = cały słupek (drop działa też w pustym
    dole kolumny), a tło/tint pokrywa pełną wysokość. align-items:stretch na .board wyrównuje kolumny do
@@ -204,46 +262,72 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .add-comment button { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 0 16px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
 
 .readonly-note { background: #fbf3e4; color: #7a5b14; font-size: 12px; padding: 7px 10px; border-radius: 7px; margin-bottom: 14px; }
-.save-row { margin-top: 18px; display: flex; justify-content: flex-end; gap: 8px; }
+.save-row { margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; }
 .primary-btn { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 9px 18px; font-size: 13.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
 .primary-btn:hover { filter: brightness(.96); }
-#delete-card { color: #d4493f; border-color: #f0c4c0; }
-#delete-card:hover { background: #fbe4e2; }
+/* „Przenieś do archiwum" — neutralne (to NIE jest usuwanie) */
+#delete-card { color: var(--ink-soft); border-color: var(--line-strong); }
+#delete-card:hover { background: var(--bg); color: var(--ink); }
 .danger-btn { background: #d4493f; }
 .danger-btn:hover { filter: brightness(.95); }
-.confirm-del { font-size: 13px; color: #d4493f; display: inline-flex; align-items: center; }
+.confirm-del { color: #a8362f; font-size: 13.5px; display: inline-flex; align-items: center; }
 
 /* ===== Karta klienta NA CAŁY EKRAN (dwukolumnowa: lewo=dane+notatka, prawo=komentarze) =====
    Włącza się TYLKO dla głównego widoku karty (klasa .modal-full dodawana w openModal);
    Kosz i proste dialogi zostają w małym modalu. */
-.modal-overlay:has(.modal-full) { align-items: center; padding: 24px 16px; }
+.modal-overlay:has(.modal-full) { align-items: stretch; padding: 0; }
 .modal.modal-full {
-  max-width: 1180px; width: 95vw; height: 88vh; max-height: 900px;
+  max-width: 100vw; width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0;
   padding: 0; display: flex; flex-direction: column; overflow: hidden;
 }
 .modal.modal-full #modal-body { flex: 1 1 auto; min-height: 0; display: flex; width: 100%; }
 .modal.modal-full .modal-close { z-index: 5; }
-.cm { display: grid; grid-template-columns: minmax(0,1fr) 340px; width: 100%; min-height: 0; }
+.cm { display: grid; grid-template-columns: minmax(0,1fr) clamp(380px, 34%, 540px); width: 100%; min-height: 0; }
 /* lewa kolumna — przewijalna */
-.cm-left { min-width: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 34px 34px 24px; }
-/* GÓRA: najważniejsze dane */
-.cm-top { padding-right: 30px; }
-.cm-name { font-size: 26px; font-weight: 700; margin: 0 0 2px; }
-.modal.modal-full input.title-input.cm-name { font-size: 26px; }
-.cm-keyfields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; margin: 14px 0 4px; }
-.cm-kf { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.cm-kf-label { font-size: 11.5px; color: var(--ink-soft); display: flex; align-items: center; gap: 5px; }
-.cm-kf input { font-size: 15px; font-weight: 500; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-family: inherit; background: var(--panel); color: var(--ink); width: 100%; box-sizing: border-box; }
-.cm-kf input:hover { background: var(--bg); }
-.cm-kf input:focus { outline: none; border-color: var(--accent); background: #fff; }
-.cm-kf .prop-value.readonly { padding: 8px 2px; font-size: 15px; }
-/* pola (poukładane, nie zwijane) */
-.cm-props { margin: 16px 0 4px; }
-/* DUŻE pole na notatkę */
-.cm-notes { display: flex; flex-direction: column; flex: 1 1 auto; margin-top: 14px; }
-.modal.modal-full textarea.notes { min-height: 300px; flex: 1 1 auto; }
+.cm-left { min-width: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 22px 28px 18px; }
+.cm-name { font-size: 21px; font-weight: 700; margin: 0 0 1px; }
+.modal.modal-full input.title-input.cm-name { font-size: 21px; width: 100%; border: 1px solid transparent; border-radius: 8px; padding: 3px 7px; margin-left: -7px; box-sizing: border-box; transition: background .12s ease, border-color .12s ease; }
+.modal.modal-full input.title-input.cm-name:hover { background: var(--bg); }
+.modal.modal-full input.title-input.cm-name:focus { background: var(--panel); border-color: var(--accent); }
+/* nagłówek sekcji „Notatki" — spójny z nagłówkami grup */
+.cm-left .cm-notes .notes-label { font-size: 11px; letter-spacing: .07em; padding-bottom: 7px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+/* ── Karta: właściwości w 2 grupach (Kontakt | Sprzedaż), pola „inline" jak w Notion ── */
+.cm-props { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 48px; align-items: start; margin: 18px 0 6px; max-width: 820px; }
+.cm-group { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cm-gh { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-soft); padding-bottom: 7px; margin-bottom: 5px; border-bottom: 1px solid var(--line); }
+.cm-row { display: grid; grid-template-columns: 92px minmax(0,1fr); align-items: center; gap: 8px; min-height: 32px; }
+.cm-row > .k { font-size: 12.5px; color: var(--ink-soft); }
+.cm-row > .v { min-width: 0; display: flex; align-items: center; }
+/* pola „bez ramki" — wyglądają jak tekst; ramka i tło dopiero przy najechaniu / edycji */
+.cm-row input, .cm-row select { width: 100%; font-size: 13.5px; font-family: inherit; color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 5px 7px; box-sizing: border-box; cursor: pointer; }
+.cm-row input { cursor: text; }
+.cm-row input:hover, .cm-row select:hover { background: var(--bg); }
+.cm-row input:focus, .cm-row select:focus { outline: none; background: var(--panel); border-color: var(--accent); cursor: text; }
+.cm-row input::placeholder { color: #c4c4c2; }
+.cm-row .prop-value.readonly { font-size: 13.5px; color: var(--ink); padding: 5px 7px; }
+.cm-row .v.maps-cell, .cm-row .v.demo-cell { gap: 4px; }
+.cm-row .v.maps-cell { flex-wrap: nowrap; }
+.cm-row .v.demo-cell { flex-wrap: wrap; }
+.cm-row .v.maps-cell > input, .cm-row .v.demo-cell > input { flex: 1 1 auto; min-width: 0; }
+.cm-row .v.demo-cell .demo-input { flex: 1 1 100%; }
+.cm-row .v.demo-cell .demo-row { margin-left: 0; }
+.cm-row .v .maps-btn { padding: 4px 7px; font-size: 12px; }
+.cm-row .follow-edit { display: flex; gap: 6px; width: 100%; }
+.cm-row .follow-edit input[type="date"] { flex: 1 1 auto; }
+.cm-row .follow-edit input[type="time"] { flex: 0 0 auto; width: 92px; }
+.demo-link { font-weight: 500; white-space: nowrap; }
+@media (max-width: 760px) { .cm-props { grid-template-columns: 1fr; gap: 16px 0; } }
+/* Ocena gwiazdkowa 1–3 (mniejsze, spokojniejsze) */
+.stars { display: inline-flex; gap: 4px; align-items: center; }
+.stars .star { background: transparent; border: none; padding: 0; cursor: pointer; font-size: 18px; line-height: 1; color: #dcdcd8; font-family: inherit; transition: color .12s ease, transform .1s ease; }
+.stars button.star:hover { transform: scale(1.12); }
+.stars .star.on { color: #e0a93c; }
+.stars.readonly .star { cursor: default; }
+/* Pole na notatkę — kompaktowe, rośnie z treścią (bez rozpychania na cały ekran) */
+.cm-notes { display: flex; flex-direction: column; flex: 1 1 auto; margin-top: 18px; max-width: 820px; }
+.modal.modal-full textarea.notes { min-height: 140px; flex: 1 1 auto; }
 /* Notatka: widok z KLIKALNYMI linkami (klik w tekst = edycja, klik w link = otwiera) */
-.notes-view { min-height: 300px; flex: 1 1 auto; border: 1px solid var(--line); border-radius: 8px; padding: 10px; font-size: 13.5px; line-height: 1.5; font-family: inherit; white-space: pre-wrap; word-break: break-word; cursor: text; box-sizing: border-box; overflow-y: auto; }
+.notes-view { min-height: 140px; flex: 1 1 auto; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font-size: 13.5px; line-height: 1.5; font-family: inherit; white-space: pre-wrap; word-break: break-word; cursor: text; box-sizing: border-box; overflow-y: auto; }
 .notes-view:hover { border-color: var(--line-strong); }
 .notes-view .note-link { color: var(--accent); text-decoration: underline; cursor: pointer; }
 .notes-view .note-link:hover { filter: brightness(.9); }
@@ -251,12 +335,10 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .notes-view.readonly { cursor: default; min-height: 0; }
 /* PRAWA kolumna — komentarze/czat */
 .cm-right { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); background: var(--bg); }
-.cm-right-head { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); padding: 20px 20px 10px; flex: 0 0 auto; }
-.cm-right-head .cm-cc { font-weight: 500; text-transform: none; letter-spacing: 0; }
-.cm-right .comments-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 20px; margin: 0; }
+.cm-right .comments-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 20px 4px; margin: 0; }
 .cm-right .add-comment { flex: 0 0 auto; padding: 12px 20px 16px; margin: 0; border-top: 1px solid var(--line); background: var(--panel); }
 @media (max-width: 860px) {
-  .modal.modal-full { height: 92vh; }
+  .modal.modal-full { height: 100vh; max-height: 100vh; }
   .cm { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
   .cm-right { border-left: none; border-top: 1px solid var(--line); max-height: 42vh; }
 }
@@ -272,6 +354,10 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
   .topbar-center { order: 3; flex-basis: 100%; padding: 0; }
   .board { scroll-snap-type: x mandatory; }
   .column { scroll-snap-align: start; }
+  /* pasek widoków + panel zespołu: na wąskim ekranie panel spada pod taby (zero poziomego scrolla strony) */
+  .tabs { flex-wrap: wrap; }
+  .owner-panel { width: 100%; padding-bottom: 8px; }
+  .owner-pop { left: 0; right: auto; }
 }
 
 /* ===== v2: wyszukiwarka, nowa karta, demo, @mention, toast ===== */
@@ -288,13 +374,65 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .chip-demo-done { color: #2e6b3e; background: #d7eede; padding: 1px 6px; border-radius: 10px; }
 .chip-building { color: #1d5fb5; background: #d8e8fb; padding: 1px 6px; border-radius: 10px; font-weight: 600; }
 
-.demo-row { margin: 16px 0 2px; }
+/* „Poproś o demo" / status demo — w jednej linii z polem „Demo (link)", dosunięte do prawej krawędzi */
+.maps-cell .demo-row { flex: 0 0 auto; margin-left: auto; display: inline-flex; align-items: center; }
 .demo-btn { color: #8a5a00; border-color: #e8d39a; }
 .demo-btn:hover { background: #fbf3e0; }
 .demo-flag { font-size: 13px; color: #8a5a00; background: #fbe7c9; padding: 6px 10px; border-radius: 8px; display: inline-block; }
 
 .no-comments { color: var(--ink-soft); font-size: 13px; padding: 6px 0; }
 .mention { color: var(--accent); font-weight: 600; }
+
+/* ===== Composer (pod feedem): komentarz + tryb „Follow-up" ===== */
+.composer { flex: 0 0 auto; border-top: 1px solid var(--line); background: var(--panel); padding: 10px 16px 14px; }
+.composer .add-comment { margin-top: 0; padding: 0; border-top: none; background: none; }
+/* przycisk-kwadracik „Follow-up" przy polu (wyższa specyficzność niż .add-comment button) */
+.composer .fu-mode { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--line-strong); background: #fff; color: var(--ink-soft); border-radius: 8px; padding: 7px 9px; transition: background .14s ease, border-color .14s ease, color .14s ease; }
+.composer .fu-mode svg { flex: 0 0 auto; }
+.composer .fu-mode:hover { background: var(--bg); color: var(--ink); }
+.composer .fu-mode.on { background: #fff7e6; border-color: #e7d3a0; color: #8a6d1a; }
+/* setter daty/godziny — pojawia się po włączeniu trybu */
+.fu-setter { background: #fffaf0; border: 1px solid #efe2c4; border-radius: 10px; padding: 10px 11px; margin-bottom: 10px; }
+.fu-setter-row { display: flex; gap: 7px; margin-bottom: 8px; }
+.fu-setter-row input[type="date"] { flex: 1 1 auto; min-width: 0; }
+.fu-setter-row input[type="time"] { flex: 0 0 auto; width: 98px; }
+.fu-setter input { font-size: 13px; font-family: inherit; color: var(--ink); background: #fff; border: 1px solid #e7dcc0; border-radius: 8px; padding: 7px 9px; box-sizing: border-box; transition: border-color .14s ease, box-shadow .14s ease; }
+.fu-setter input:hover { border-color: #d9c99e; }
+.fu-setter input:focus { outline: none; border-color: #c39a36; box-shadow: 0 0 0 3px rgba(195,154,54,.14); }
+/* szybkie terminy (Jutro / +3 dni / +tydzień / Wyczyść) */
+.fu-quick { display: flex; flex-wrap: wrap; gap: 5px; }
+.fu-chip { font-family: inherit; font-size: 12px; cursor: pointer; border: 1px solid #e7dcc0; background: #fff; color: #6b5a2e; border-radius: 999px; padding: 4px 9px; white-space: nowrap; transition: background .14s ease, border-color .14s ease, color .14s ease; }
+.fu-chip:hover { background: #fbf3df; border-color: #d9c99e; color: #4a3e1c; }
+.fu-chip-clear { margin-left: auto; color: var(--ink-soft); }
+.fu-chip-clear:hover { background: #f5efe2; color: #a8362f; border-color: #e3d9c2; }
+/* ===== Sekcje prawego panelu: „Przypomnienia" + „Komentarze" ===== */
+.feed-section + .feed-section { margin-top: 20px; }
+.feed-section-head { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); margin-bottom: 6px; }
+.feed-section-head .cm-cc { font-weight: 500; text-transform: none; letter-spacing: 0; margin-left: 4px; }
+.feed-item .comment-head { display: flex; align-items: center; }
+.feed-item .c-author { font-weight: 600; }
+.feed-ic { background: #eef0f2; color: #8a8f98; }
+.feed-followup .feed-ic { background: #fbf0d8; color: #b0852c; }
+.feed-muted { color: var(--ink-soft); }
+/* karta przypomnienia — wyróżniona, z akcjami edytuj/usuń/zrobione */
+.feed-section .reminder { border-top: none; border: 1px solid #efe2bf; background: #fffdf5; border-radius: 10px; padding: 10px 12px; align-items: flex-start; }
+.rm-badge { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 999px; margin-left: 8px; text-transform: uppercase; letter-spacing: .03em; }
+.rm-today { background: #fff3d6; color: #8a6d1a; }
+.rm-overdue { background: #fdecea; color: #c0392b; }
+.reminder-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.rm-act { cursor: pointer; width: 26px; height: 26px; border-radius: 7px; border: 1px solid transparent; background: none; color: var(--ink-soft); font-family: inherit; font-size: 12.5px; display: inline-flex; align-items: center; justify-content: center; transition: background .14s ease, color .14s ease, border-color .14s ease; }
+.rm-act:hover { background: var(--bg); color: var(--ink); }
+.rm-edit:hover { color: #3a6ea5; }
+.rm-del:hover { color: #c0392b; }
+.rm-done:hover { background: #1a7f37; border-color: #1a7f37; color: #fff; }
+.rm-confirm { font-size: 12px; font-weight: 600; color: #c0392b; align-self: center; margin-right: 2px; }
+.rm-del-yes, .rm-del-no { width: auto; padding: 0 9px; font-weight: 600; }
+.rm-del-yes { color: #c0392b; }
+/* awatar opiekuna na karcie tablicy (obok handlowca) */
+.card-owner { display: inline-flex; align-items: center; }
+.avatar.avatar-sec { margin-right: -5px; box-shadow: 0 0 0 1.5px var(--panel); }
+/* chip follow-upu „zrobiony" na tablicy */
+.chip-fu-done { color: #1a7f37; background: #eaf6ec; padding: 1px 6px; border-radius: 10px; }
 
 .mention-pop { position: absolute; bottom: calc(100% + 4px); left: 0; background: #fff; border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: var(--shadow); padding: 4px; min-width: 210px; z-index: 60; }
 .mention-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 13.5px; }
@@ -316,16 +454,15 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 @media (hover: none) { .add-card { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; } }
 
-/* ===== Kosz (soft-delete / przywracanie) ===== */
-.card.trashed { opacity: .62; }
-.card.trashed:hover { opacity: .85; }
-.trash-banner { background: #fbe4e2; color: #a8362f; padding: 9px 12px; border-radius: 8px; font-size: 13px; margin: 4px 0 16px; }
-.trash-actions { display: flex; gap: 8px; align-items: center; }
-.confirm-del { color: #a8362f; font-size: 13.5px; }
-.trash-head { padding: 4px 2px 16px; color: var(--ink-soft); font-size: 13.5px; }
-.trash-list { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
-.trash-list .card { width: 280px; cursor: pointer; }
-.empty-trash { padding: 70px 20px; text-align: center; color: var(--ink-soft); font-size: 15px; }
+/* ===== Archiwum (chowanie / przywracanie) ===== */
+.card.archived { opacity: .62; }
+.card.archived:hover { opacity: .85; }
+.archive-banner { background: #eef0f3; color: #4a4843; padding: 9px 12px; border-radius: 8px; font-size: 13px; margin: 4px 0 16px; }
+.archive-actions { display: flex; gap: 8px; align-items: center; }
+.archive-head { padding: 4px 2px 16px; color: var(--ink-soft); font-size: 13.5px; }
+.archive-list { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.archive-list .card { width: 280px; cursor: pointer; }
+.empty-archive { padding: 70px 20px; text-align: center; color: var(--ink-soft); font-size: 15px; }
 
 /* ===== POWIADOMIENIA (@oznaczenia) ===== */
 .notif-wrap{position:relative;display:inline-flex}
