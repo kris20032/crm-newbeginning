@@ -412,10 +412,11 @@ function visibleClients() {
 function renderBoard() {
   const board = $("#board");
   const tableMode = state.layout === "table" && state.viewMode !== "archive";
-  board.classList.toggle("board-table", tableMode);
+  const isArchive = state.viewMode === "archive";
+  board.classList.toggle("board-table", tableMode || isArchive);   // Archiwum też jako tabela
   // FLIP (mierzenie pozycji + animacja) TYLKO gdy karty realnie się przestawiają (drag / zmiana etapu / nowa / usunięta).
   // Przy realtime i wyszukiwarce pomijamy — zero wymuszonych reflow = zero laga.
-  const animate = !tableMode && !reduceMotion() && (state.skipFlipId || state.animateNextRender);
+  const animate = !tableMode && !isArchive && !reduceMotion() && (state.skipFlipId || state.animateNextRender);
   const prevRects = new Map();
   if (animate) board.querySelectorAll(".card").forEach((el) => prevRects.set(el.dataset.id, el.getBoundingClientRect()));
 
@@ -426,15 +427,10 @@ function renderBoard() {
     return;
   }
 
-  if (state.viewMode === "archive") {
-    // ARCHIWUM — osobny, prosty widok: lista zarchiwizowanych (najświeższe na górze), bez kolumn lejka i bez „Nowej karty"
+  if (isArchive) {
+    // ARCHIWUM — tabela zarchiwizowanych (najświeższe na górze), bez kolumn lejka i bez „Nowej karty"
     const arch = [...visibleClients()].sort((a, b) => String(b.deleted_at || "").localeCompare(String(a.deleted_at || "")));
-    board.innerHTML = arch.length
-      ? `<div class="archive-head">🗄 Archiwum — karty schowane z tablicy. Kliknij kartę, aby ją przywrócić.</div>
-         <div class="archive-list">${arch.map(renderCard).join("")}</div>`
-      : `<div class="empty-archive">🗄 Archiwum jest puste</div>`;
-    board.querySelectorAll(".card").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
-    if (animate) flipAnimate(board, prevRects);
+    renderTable(board, arch, { archive: true });
     state.skipFlipId = null; state.animateNextRender = false;
     return;
   }
@@ -464,12 +460,36 @@ function renderBoard() {
 }
 
 // Widok tabeli — te same karty (z bieżącego trybu/właścicieli), wiersze zamiast kolumn. Klik w wiersz → karta.
-function renderTable(board, list) {
-  if (!list.length) { board.innerHTML = `<div class="table-empty">Brak kart do wyświetlenia.</div>`; return; }
+// opts.archive = wariant Archiwum: zamiast Follow-up/Demo kolumna „Schowano" + podpowiedź o przywracaniu.
+function renderTable(board, list, opts = {}) {
+  const archive = !!opts.archive;
+  if (!list.length) {
+    board.innerHTML = archive ? `<div class="empty-archive">🗄 Archiwum jest puste</div>`
+                              : `<div class="table-empty">Brak kart do wyświetlenia.</div>`;
+    return;
+  }
   const dash = `<span class="tb-empty">—</span>`;
+  const nameCell = (c) => `<div class="tb-name"><span class="tb-nm">${esc(c.name)}</span>${c.company ? `<span class="tb-co">${esc(c.company)}</span>` : ""}</div>`;
+  const statusCell = (c) => { const s = statusOf(normStatus(c)); return `<span class="status-pill" style="background:${s.bg};color:${s.fg}"><span class="dot" style="background:${s.dot}"></span>${esc(s.label)}</span>`; };
+  const teamCell = (c) => `${c.opiekun ? `<span class="avatar avatar-sec" title="Opiekun: ${esc(c.opiekun)}" style="background:${ownerColor(c.opiekun)}">${initials(c.opiekun)}</span>` : ""}<span class="avatar" title="Handlowiec: ${esc(c.owner)}" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span>`;
+
+  const head = archive
+    ? `<th>Klient</th><th>Telefon</th><th>Status</th><th>Schowano</th><th>Komentarze</th><th>Zespół</th>`
+    : `<th>Klient</th><th>Telefon</th><th>Status</th><th>Follow-up</th><th>Komentarze</th><th>Demo</th><th>Zespół</th>`;
+
   const rows = list.map((c) => {
-    const s = statusOf(normStatus(c));
     const cnt = (state.commentsByClient[c.id] || []).length;
+    const numCell = `<td class="tb-num">${cnt ? `💬 ${cnt}` : dash}</td>`;
+    if (archive) {
+      return `<tr class="tb-row" data-id="${esc(String(c.id))}">
+        <td>${nameCell(c)}</td>
+        <td>${c.phone ? esc(c.phone) : dash}</td>
+        <td>${statusCell(c)}</td>
+        <td class="tb-arch">${c.deleted_at ? esc(fmtDateTime(c.deleted_at)) : dash}</td>
+        ${numCell}
+        <td class="tb-team"><div class="tb-team-in">${teamCell(c)}</div></td>
+      </tr>`;
+    }
     const ds = c.follow_up_done ? "" : dueState(c.follow_up);
     const fu = c.follow_up
       ? `<span class="tb-fu ${c.follow_up_done ? "fu-done" : (ds ? "fu-" + ds : "")}">${c.follow_up_done ? "✓ " : ""}${esc(fmtFollow(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>`
@@ -477,21 +497,20 @@ function renderTable(board, list) {
     const demo = (c.demo_url && String(c.demo_url).trim()) ? `<span class="chip chip-demo-done" title="Demo gotowe">✅ demo</span>`
       : c.demo_building ? `<span class="chip chip-building" title="Demo w budowie">🔨 w budowie</span>`
       : c.demo_requested ? `<span class="chip chip-demo" title="Poproszono o demo">📩 demo</span>` : dash;
-    const team = `${c.opiekun ? `<span class="avatar avatar-sec" title="Opiekun: ${esc(c.opiekun)}" style="background:${ownerColor(c.opiekun)}">${initials(c.opiekun)}</span>` : ""}<span class="avatar" title="Handlowiec: ${esc(c.owner)}" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span>`;
     return `<tr class="tb-row" data-id="${esc(String(c.id))}">
-        <td><div class="tb-name"><span class="tb-nm">${esc(c.name)}</span>${c.company ? `<span class="tb-co">${esc(c.company)}</span>` : ""}</div></td>
+        <td>${nameCell(c)}</td>
         <td>${c.phone ? esc(c.phone) : dash}</td>
-        <td><span class="status-pill" style="background:${s.bg};color:${s.fg}"><span class="dot" style="background:${s.dot}"></span>${esc(s.label)}</span></td>
+        <td>${statusCell(c)}</td>
         <td>${fu}</td>
-        <td class="tb-num">${cnt ? `💬 ${cnt}` : dash}</td>
+        ${numCell}
         <td class="tb-demo">${demo}</td>
-        <td class="tb-team"><div class="tb-team-in">${team}</div></td>
+        <td class="tb-team"><div class="tb-team-in">${teamCell(c)}</div></td>
       </tr>`;
   }).join("");
-  board.innerHTML = `<div class="table-wrap"><table class="crm-table">
-      <thead><tr>
-        <th>Klient</th><th>Telefon</th><th>Status</th><th>Follow-up</th><th>Komentarze</th><th>Demo</th><th>Zespół</th>
-      </tr></thead>
+
+  const hint = archive ? `<div class="archive-head">🗄 Archiwum — karty schowane z tablicy. Kliknij wiersz, aby przywrócić.</div>` : "";
+  board.innerHTML = `${hint}<div class="table-wrap"><table class="crm-table">
+      <thead><tr>${head}</tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
   board.querySelectorAll(".tb-row").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));

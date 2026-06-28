@@ -141,7 +141,8 @@ body {
 .tb-nm { font-weight: 600; color: var(--ink); }
 .tb-co { font-size: 12px; color: var(--ink-soft); }
 .tb-empty { color: var(--ink-soft); }
-.tb-num, .tb-demo { white-space: nowrap; }
+.tb-num, .tb-demo, .tb-arch { white-space: nowrap; }
+.tb-arch { color: var(--ink-soft); }
 .tb-team-in { display: inline-flex; align-items: center; }
 .tb-fu { font-weight: 600; white-space: nowrap; }
 .tb-fu.fu-overdue { color: #c0392b; }
