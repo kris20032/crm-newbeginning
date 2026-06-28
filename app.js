@@ -40,7 +40,7 @@ const initials = (name) => (name || "?").trim().charAt(0).toUpperCase();
 /* ---------- Stan ---------- */
 const state = {
   clients: [], commentsByClient: {}, team: [],
-  viewMode: "all",          // tryb widoku: "all" (Wszystkie: moje + gdzie jestem opiekunem) | "board" (Moje) | "due" | "archive"
+  viewMode: "all",          // tryb widoku: "all" (Wszystkie = zaznaczeni: owner|opiekun) | "owner:<imię>" (zakładka osoby) | "due" | "archive"
   layout: "kanban",         // układ tablicy/„na dziś": "kanban" (kolumny) | "table" (tabela)
   owners: null,             // Set wybranych właścicieli (panel zespołu); null → traktuj jak [zalogowany]
   ownersAll: false,         // sentinel „Wszyscy" — rozwija się dynamicznie do bieżącego zespołu (nie zamraża listy)
@@ -304,22 +304,22 @@ function renderTabs() {
   const active = mine.filter((c) => !c.deleted_at);
   const dueCount = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up)).length;
   const archiveCount = mine.length - active.length;
-  const allCount = state.clients.filter((c) => !c.deleted_at && (c.owner === me || c.opiekun === me)).length;   // moje + gdzie jestem opiekunem
+  // „Wszystkie" = suma po ZAZNACZONYCH: ich lidy + lidy, gdzie są opiekunem
+  const allCount = state.clients.filter((c) => !c.deleted_at && (sel.has(c.owner) || sel.has(c.opiekun))).length;
   const ownerCount = (n) => state.clients.filter((c) => !c.deleted_at && c.owner === n).length;
-  // zakładki per-osoba = zaznaczeni w „Pokaż" (poza mną — mnie reprezentuje „Moje"), w stałej kolejności zespołu
-  const personTabs = (allOwners().length ? allOwners() : [me]).filter((n) => n !== me && sel.has(n));
-  // jeśli stoisz na zakładce osoby, która właśnie zniknęła z zaznaczenia → wróć na „Moje"
-  if (state.viewMode.startsWith("owner:") && !personTabs.includes(state.viewMode.slice(6))) state.viewMode = "board";
+  // zakładki per-osoba = KAŻDY zaznaczony (ja pierwszy, potem reszta wg kolejności zespołu); moja zakładka = moje imię
+  const personTabs = [me, ...(allOwners().length ? allOwners() : [me]).filter((n) => n !== me)].filter((n) => sel.has(n));
+  // legacy/martwy viewMode → mapuj; gdy stoisz na zakładce osoby, która zniknęła z zaznaczenia → „Wszystkie"
+  if (state.viewMode === "board") state.viewMode = sel.has(me) ? "owner:" + me : "all";
+  if (state.viewMode.startsWith("owner:") && !personTabs.includes(state.viewMode.slice(6))) state.viewMode = "all";
   const modes = [
-    { key: "all",     label: "Wszystkie",             count: allCount },
-    { key: "board",   label: "Moje",                  count: ownerCount(me) },
+    { key: "all", label: "Wszystkie", count: allCount },
     ...personTabs.map((n) => ({ key: "owner:" + n, label: n, count: ownerCount(n), dot: ownerColor(n) })),
     { key: "due",     label: "📅 Na dziś / zaległe",  count: dueCount },
     { key: "archive", label: "🗄 Archiwum",           count: archiveCount },
   ];
   const showSwitch = state.viewMode !== "archive";       // Archiwum ma własny widok-listę — przełącznik nie dotyczy
-  // „Wszystkie" jest z definicji o MNIE (mój owner / opiekun) — panel „Pokaż" tu nie ma sensu, więc go chowamy
-  const showOwnerPanel = state.viewMode !== "all";
+  const showOwnerPanel = true;                           // „Pokaż" steruje teraz i „Wszystkie", i zakładkami osób — zawsze widoczny
   const vsBtn = (key, icon, label) =>
     `<button class="vs-btn ${state.layout === key ? "on" : ""}" data-layout="${key}" title="Widok: ${label}" aria-pressed="${state.layout === key}">${icon}<span>${label}</span></button>`;
   tabs.innerHTML =
@@ -397,12 +397,10 @@ function visibleClients() {
   // filtr właścicieli z panelu działa tylko przy pustym polu szukania.
   if (state.viewMode === "archive") list = (q ? state.clients : mine).filter((c) => c.deleted_at);   // Archiwum (szukasz → globalnie)
   else {
-    const me = state.currentUser;
     let active;
     if (q) active = activeClients();                                              // szukasz → wszyscy
-    else if (state.viewMode === "all") active = activeClients().filter((c) => c.owner === me || c.opiekun === me);  // Wszystkie = moje + gdzie jestem opiekunem
-    else if (state.viewMode === "board") active = activeClients().filter((c) => c.owner === me);                    // Moje = tylko ja
-    else if (state.viewMode.startsWith("owner:")) { const n = state.viewMode.slice(6); active = activeClients().filter((c) => c.owner === n); }  // zakładka osoby
+    else if (state.viewMode === "all") active = activeClients().filter((c) => sel.has(c.owner) || sel.has(c.opiekun));  // Wszystkie = zaznaczeni: ich lidy + gdzie są opiekunem
+    else if (state.viewMode.startsWith("owner:")) { const n = state.viewMode.slice(6); active = activeClients().filter((c) => c.owner === n); }  // zakładka osoby = jej lidy (owner)
     else active = mine.filter((c) => !c.deleted_at);                             // „Na dziś" → wybrani właściciele (Pokaż)
     if (state.viewMode === "due" && !q) list = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up));
     else list = active;
@@ -1205,7 +1203,7 @@ async function newCard(status) {
   const st = status || "lead";
   // nowa karta jest MOJA — upewnij się, że widzę siebie i jestem na tablicy (inaczej zostałaby odfiltrowana)
   if (!selectedOwnersSet().has(state.currentUser)) { const s = new Set(selectedOwnersSet()); s.add(state.currentUser); state.owners = s; persistOwners(); }
-  state.viewMode = "board";
+  state.viewMode = "owner:" + state.currentUser;   // pokaż nową kartę na MOJEJ zakładce
   // nowa karta na GÓRZE swojej kolumny (pozycja mniejsza niż najmniejsza istniejąca)
   const mins = activeClients().filter((c) => (c.status || "lead") === st && c.position != null).map((c) => Number(c.position));
   const topPos = mins.length ? Math.min(...mins) - 1000 : 1000;
