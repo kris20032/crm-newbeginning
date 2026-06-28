@@ -298,16 +298,22 @@ const KANBAN_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none"
 const TABLE_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M3 15h18M11 4v16"/></svg>`;
 function renderTabs() {
   const tabs = $("#tabs");
+  const me = state.currentUser;
   const sel = selectedOwnersSet();
-  const mine = state.clients.filter((c) => sel.has(c.owner));      // tylko wybrani właściciele (domyślnie: ja)
+  const mine = state.clients.filter((c) => sel.has(c.owner));      // wybrani w „Pokaż" — zakres „Na dziś"/„Archiwum"
   const active = mine.filter((c) => !c.deleted_at);
   const dueCount = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up)).length;
   const archiveCount = mine.length - active.length;
-  const me = state.currentUser;
   const allCount = state.clients.filter((c) => !c.deleted_at && (c.owner === me || c.opiekun === me)).length;   // moje + gdzie jestem opiekunem
+  const ownerCount = (n) => state.clients.filter((c) => !c.deleted_at && c.owner === n).length;
+  // zakładki per-osoba = zaznaczeni w „Pokaż" (poza mną — mnie reprezentuje „Moje"), w stałej kolejności zespołu
+  const personTabs = (allOwners().length ? allOwners() : [me]).filter((n) => n !== me && sel.has(n));
+  // jeśli stoisz na zakładce osoby, która właśnie zniknęła z zaznaczenia → wróć na „Moje"
+  if (state.viewMode.startsWith("owner:") && !personTabs.includes(state.viewMode.slice(6))) state.viewMode = "board";
   const modes = [
     { key: "all",     label: "Wszystkie",             count: allCount },
-    { key: "board",   label: "Moje",                  count: active.length },
+    { key: "board",   label: "Moje",                  count: ownerCount(me) },
+    ...personTabs.map((n) => ({ key: "owner:" + n, label: n, count: ownerCount(n), dot: ownerColor(n) })),
     { key: "due",     label: "📅 Na dziś / zaległe",  count: dueCount },
     { key: "archive", label: "🗄 Archiwum",           count: archiveCount },
   ];
@@ -318,7 +324,7 @@ function renderTabs() {
     `<button class="vs-btn ${state.layout === key ? "on" : ""}" data-layout="${key}" title="Widok: ${label}" aria-pressed="${state.layout === key}">${icon}<span>${label}</span></button>`;
   tabs.innerHTML =
     `<div class="tab-modes">${modes.map((m) =>
-      `<button class="tab ${state.viewMode === m.key ? "active" : ""}" data-mode="${m.key}">${esc(m.label)}<span class="count">${m.count}</span></button>`).join("")}</div>
+      `<button class="tab ${state.viewMode === m.key ? "active" : ""}" data-mode="${m.key}">${m.dot ? `<span class="tab-dot" style="background:${m.dot}"></span>` : ""}${esc(m.label)}<span class="count">${m.count}</span></button>`).join("")}</div>
      ${showSwitch ? `<div class="view-switch" role="group" aria-label="Układ widoku">${vsBtn("kanban", KANBAN_ICON, "Kanban")}${vsBtn("table", TABLE_ICON, "Tabela")}</div>` : ""}
      ${showOwnerPanel ? `<div class="owner-panel">
        <button class="owner-toggle" id="owner-toggle" aria-haspopup="true" title="Wybierz, czyje karty widać">👥 Pokaż: <strong>${esc(ownerSummary())}</strong> <span class="caret">▾</span></button>
@@ -395,7 +401,9 @@ function visibleClients() {
     let active;
     if (q) active = activeClients();                                              // szukasz → wszyscy
     else if (state.viewMode === "all") active = activeClients().filter((c) => c.owner === me || c.opiekun === me);  // Wszystkie = moje + gdzie jestem opiekunem
-    else active = mine.filter((c) => !c.deleted_at);                             // Moje / Na dziś → wybrani właściciele (Pokaż)
+    else if (state.viewMode === "board") active = activeClients().filter((c) => c.owner === me);                    // Moje = tylko ja
+    else if (state.viewMode.startsWith("owner:")) { const n = state.viewMode.slice(6); active = activeClients().filter((c) => c.owner === n); }  // zakładka osoby
+    else active = mine.filter((c) => !c.deleted_at);                             // „Na dziś" → wybrani właściciele (Pokaż)
     if (state.viewMode === "due" && !q) list = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up));
     else list = active;
   }
