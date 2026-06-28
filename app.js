@@ -740,7 +740,7 @@ async function openModal(id) {
           </div>` : ""}
           <div class="add-comment">
             ${editable ? `<button type="button" class="fu-mode" id="fu-mode" title="Zaplanuj follow-up" aria-pressed="false">${FU_ICON}<span>Follow-up</span></button>` : ""}
-            <input id="new-comment" placeholder="Dodaj komentarz...  (@ aby oznaczyć osobę)" autocomplete="off" />
+            <div class="hl-wrap"><div id="comment-hl" class="hl-backdrop" aria-hidden="true"></div><input id="new-comment" placeholder="Dodaj komentarz...  (@ aby oznaczyć osobę)" autocomplete="off" /></div>
             <button id="send-comment">Wyślij</button>
             <div id="mention-pop" class="mention-pop" hidden></div>
           </div>
@@ -978,6 +978,26 @@ function wireComposer(clientId) {
   const PH_COMMENT = "Dodaj komentarz...  (@ aby oznaczyć osobę)";
   let fuMode = false;
 
+  // podświetlanie @claude WPISYWANEGO w polu (nakładka: realny input nietknięty, pod spodem warstwa z pomarańczowym tłem)
+  const hl = $("#comment-hl");
+  if (hl) {                                                    // skopiuj metryki z inputu, by tło trafiało dokładnie pod glify
+    const cs = getComputedStyle(inp);
+    ["fontFamily", "fontSize", "fontWeight", "fontStyle", "letterSpacing", "lineHeight",
+     "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+     "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth"]
+      .forEach((p) => { hl.style[p] = cs[p]; });
+  }
+  const syncHL = () => {
+    if (!hl) return;
+    hl.innerHTML = esc(inp.value).replace(
+      /@([A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż][\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)/g,
+      (_m, name) => (/^claude$/i.test(name) ? `<span class="hl-claude">@${name}</span>` : `@${name}`)
+    );
+    hl.scrollLeft = inp.scrollLeft;                            // trzymaj tło zsynchronizowane przy przewijaniu długiego tekstu
+  };
+  inp.addEventListener("input", syncHL);
+  inp.addEventListener("scroll", syncHL);
+
   const setMode = (on) => {                                    // przełącz pole między „komentarz" a „follow-up"
     fuMode = on && !!modeBtn;
     if (modeBtn) { modeBtn.classList.toggle("on", fuMode); modeBtn.setAttribute("aria-pressed", fuMode ? "true" : "false"); }
@@ -989,13 +1009,14 @@ function wireComposer(clientId) {
       if (fuTime) fuTime.value = toTimeInput(c.follow_up);
       inp.value = c.follow_up_note || "";
     }
+    syncHL();
     inp.focus();
   };
 
   const sendComment = async () => {
     const body = inp.value.trim();
     if (!body) return;
-    inp.value = ""; pop.hidden = true;
+    inp.value = ""; pop.hidden = true; syncHL();
     try {
       await api.addComment(clientId, body);
       const fresh = await api.getComments(clientId);
@@ -1011,7 +1032,7 @@ function wireComposer(clientId) {
     saveField(clientId, "follow_up_note", inp.value.trim());
     saveField(clientId, "follow_up", t ? `${d}T${t}` : d);
     if (c && c.follow_up_done) setFollowDone(clientId, false);  // nowy termin → znów „do zrobienia"
-    inp.value = "";
+    inp.value = ""; syncHL();
     setMode(false);
     refreshFeed(clientId);
   };
@@ -1076,7 +1097,7 @@ function wireComposer(clientId) {
     pop.querySelectorAll(".mention-item").forEach((it) => it.addEventListener("click", () => {
       const pos = inp.selectionStart;
       inp.value = inp.value.slice(0, pos).replace(/@([\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)$/, "@" + it.dataset.name + " ") + inp.value.slice(pos);
-      pop.hidden = true; inp.focus();
+      pop.hidden = true; inp.focus(); syncHL();
     }));
   });
 }
