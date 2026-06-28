@@ -965,7 +965,8 @@ function renderComments(list) {
   return list.map(commentHTML).join("");
 }
 function highlightMentions(text) {
-  return esc(text).replace(/@([A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż][\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)/g, '<span class="mention">@$1</span>');
+  return esc(text).replace(/@([A-Za-zĄĆĘŁŃÓŚŹŻąćęłńóśźż][\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)/g,
+    (_m, name) => `<span class="mention${/^claude$/i.test(name) ? " mention-claude" : ""}">@${name}</span>`);
 }
 
 /* ---------- Pole pod feedem: komentarz + tryb „Follow-up" + @mention ---------- */
@@ -1064,9 +1065,13 @@ function wireComposer(clientId) {
     const m = inp.value.slice(0, inp.selectionStart).match(/@([\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)$/);
     if (!m) { pop.hidden = true; return; }
     const q = m[1].toLowerCase();
-    const matches = state.team.filter((n) => n.toLowerCase().includes(q)).slice(0, 6);
+    const pool = ["Claude", ...state.team];
+    const matches = pool.filter((n) => n.toLowerCase().includes(q)).slice(0, 6);
     if (!matches.length) { pop.hidden = true; return; }
-    pop.innerHTML = matches.map((n, i) => `<div class="mention-item ${i === 0 ? "active" : ""}" data-name="${esc(n)}"><span class="avatar" style="background:${ownerColor(n)}">${initials(n)}</span>${esc(n)}</div>`).join("");
+    pop.innerHTML = matches.map((n, i) => {
+      const cl = n.toLowerCase() === "claude";
+      return `<div class="mention-item ${i === 0 ? "active" : ""}${cl ? " mention-item-claude" : ""}" data-name="${esc(n)}"><span class="avatar" style="background:${cl ? "#FF6A00" : ownerColor(n)}">${cl ? "✦" : initials(n)}</span>${esc(n)}${cl ? ' <span class="mi-claude-tag">edytuje demo</span>' : ""}</div>`;
+    }).join("");
     pop.hidden = false;
     pop.querySelectorAll(".mention-item").forEach((it) => it.addEventListener("click", () => {
       const pos = inp.selectionStart;
