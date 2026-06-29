@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=61" />
+  <link rel="stylesheet" href="styles.css?v=64" />
 </head>
 <body>
   <!-- ===== Pasek trybu DEMO ===== -->
@@ -75,14 +75,18 @@
   <!-- ===== Modal karty klienta ===== -->
   <div id="modal-overlay" class="modal-overlay" hidden>
     <div class="modal" role="dialog" aria-modal="true">
-      <button id="modal-close" class="modal-close" aria-label="Zamknij">&times;</button>
+      <div class="modal-actions" id="modal-actions">
+        <button id="modal-prev" class="modal-nav-btn" type="button" aria-label="Poprzedni klient" title="Poprzedni klient (←)">&lsaquo;</button>
+        <button id="modal-next" class="modal-nav-btn" type="button" aria-label="Następny klient" title="Następny klient (→)">&rsaquo;</button>
+        <button id="modal-close" class="modal-close" type="button" aria-label="Zamknij" title="Zamknij (Esc)">&times;</button>
+      </div>
       <div id="modal-body"></div>
     </div>
   </div>
 
   <!-- Supabase JS (używane tylko gdy skonfigurowane) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=61"></script>
-  <script src="app.js?v=61"></script>
+  <script src="config.js?v=64"></script>
+  <script src="app.js?v=64"></script>
 </body>
 </html>

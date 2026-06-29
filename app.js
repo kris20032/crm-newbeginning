@@ -625,6 +625,12 @@ function wireDragAndDrop() {
 async function openModal(id) {
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c) return;
+  // ŚWIEŻE otwarcie karty (modal był zamknięty) → dołóż wpis do historii, żeby gest „wstecz" (dwa palce w bok
+  // na Macu) albo przycisk wstecz zamykał kartę zamiast wychodzić ze strony. Przy ‹ › nawigacji nie dokładamy.
+  if ($("#modal-overlay").hidden && !state.modalHistoryPushed) {
+    state.modalHistoryPushed = true;
+    try { history.pushState({ crmModal: true }, ""); } catch {}
+  }
   state.openCardId = id;
   state.openCardWasArchived = !!c.deleted_at;   // zapamiętaj, w jakim trybie otwarto (do wykrycia zmiany przez inną osobę)
   // komentarze z pamięci (są utrzymywane na bieżąco: start, dodanie, realtime) — bez osobnego zapytania,
@@ -659,6 +665,7 @@ async function openModal(id) {
     $("#modal-overlay").hidden = false;
     $("#restore-card").addEventListener("click", () => doRestoreCard(c.id));
     $("#purge-card").addEventListener("click", (e) => askPurgeCard(c.id, e.target));
+    updateNavButtons();
     return;
   }
 
@@ -817,6 +824,7 @@ async function openModal(id) {
   const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askArchiveCard(c.id, delBtn));
   wireDemoCell(c.id);
   wireComposer(c.id);
+  updateNavButtons();
 }
 
 async function saveField(id, key, value) {
@@ -1197,19 +1205,67 @@ function askPurgeCard(id, btn) {
   });
 }
 
-function closeModal() {
-  const id = state.openCardId;
-  // wymuś zapis pola, w którym jest kursor (auto-zapis 'change' nie odpala przy zamknięciu myszą)
+// wymuś zapis pola, w którym jest kursor (auto-zapis 'change' nie odpala przy zamknięciu/przewinięciu myszą)
+function flushActiveField(id) {
   const a = document.activeElement;
   if (id && a && a.dataset && a.dataset.key && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) {
     saveField(id, a.dataset.key, a.value);
   }
+}
+
+// kolejność kart do przewijania ‹ › — taka, jak na ekranie (Archiwum / tabela / kolumny kanban po kolei)
+function navOrderedClients() {
+  const list = visibleClients();
+  if (state.viewMode === "archive")
+    return [...list].sort((a, b) => String(b.deleted_at || "").localeCompare(String(a.deleted_at || "")));
+  if (state.layout === "table") return list;
+  const out = [];
+  STATUSES.forEach((s) => list.filter((c) => normStatus(c) === s.key).forEach((c) => out.push(c)));
+  return out;
+}
+// przejdź do poprzedniej/następnej karty (dir = -1 / +1) bez zamykania modala
+function navigateCard(dir) {
+  const id = state.openCardId;
+  if (id == null) return;
+  flushActiveField(id);
+  const list = navOrderedClients();
+  const idx = list.findIndex((c) => String(c.id) === String(id));
+  if (idx === -1) return;
+  const target = list[idx + dir];
+  if (target) openModal(target.id);
+}
+// włącz/wyłącz ‹ › zależnie od pozycji aktualnej karty na liście
+function updateNavButtons() {
+  const prev = $("#modal-prev"), next = $("#modal-next");
+  if (!prev || !next) return;
+  const id = state.openCardId;
+  const list = (id == null) ? [] : navOrderedClients();
+  const idx = list.findIndex((c) => String(c.id) === String(id));
+  prev.disabled = idx <= 0;
+  next.disabled = idx === -1 || idx >= list.length - 1;
+}
+
+// faktyczne zamknięcie karty (DOM + stan) — bez ruszania historii przeglądarki
+function teardownModal() {
+  const id = state.openCardId;
+  flushActiveField(id);
   state.openCardId = null;
+  state.modalHistoryPushed = false;
   $("#modal-overlay").hidden = true;
   $(".modal").classList.remove("modal-full");   // reset pełnego ekranu
   $("#modal-body").innerHTML = "";
   // sprzątnij porzuconą, pustą nową kartę (żeby nie zaśmiecać lejka „Nowymi klientami")
   if (id && state.newCardIds.has(String(id))) cleanupEmptyNewCard(id);
+}
+
+// zamknięcie wywołane przez UI (X / Esc / klik w tło / „do archiwum" itp.)
+function closeModal() {
+  if ($("#modal-overlay").hidden) return;        // już zamknięte
+  const hadHistory = state.modalHistoryPushed;
+  teardownModal();
+  // jeśli przy otwarciu dołożyliśmy wpis do historii — zdejmij go, żeby przycisk/gest „wstecz"
+  // nie cofał potem o jeden krok za dużo. popstate zignorujemy flagą (zamknięcie już zrobione).
+  if (hadHistory) { state.skipPopClose = true; history.back(); }
 }
 function cleanupEmptyNewCard(id) {
   state.newCardIds.delete(String(id));
@@ -1293,6 +1349,7 @@ async function refreshData() {
         // NIGDY nie przebudowuj całego modala (gubi wpisywany komentarz, scroll, podpowiedź @) —
         // odśwież tylko feed (komentarze + status follow-up/demo) i licznik
         refreshFeed(state.openCardId);
+        updateNavButtons();   // lista/kolejność mogła się zmienić → odśwież stan ‹ ›
       }
     }
   } catch (err) { console.error("refresh", err); }
@@ -1350,6 +1407,13 @@ async function loadTeamAndMe(user) {
 
 function wireChrome() {
   $("#modal-close").addEventListener("click", closeModal);
+  $("#modal-prev").addEventListener("click", () => navigateCard(-1));
+  $("#modal-next").addEventListener("click", () => navigateCard(1));
+  // gest „wstecz" (dwa palce w bok na Macu) / przycisk wstecz → zamknij otwartą kartę zamiast opuszczać stronę
+  window.addEventListener("popstate", () => {
+    if (state.skipPopClose) { state.skipPopClose = false; return; }   // to nasz history.back() po zamknięciu z UI
+    if (!$("#modal-overlay").hidden) { state.modalHistoryPushed = false; teardownModal(); }
+  });
   // zamknij klikiem w tło TYLKO gdy gest myszy zaczął się na tle (nie zamykaj, gdy ktoś zaznaczał tekst w karcie i puścił myszą poza nią)
   let overlayMouseDownSelf = false;
   $("#modal-overlay").addEventListener("mousedown", (e) => { overlayMouseDownSelf = (e.target.id === "modal-overlay"); });
@@ -1359,6 +1423,12 @@ function wireChrome() {
       if (!$("#modal-overlay").hidden) { closeModal(); return; }
       const pop = $("#owner-pop");
       if (pop && !pop.hidden) { closeOwnerPanel(); const t = $("#owner-toggle"); if (t) t.focus(); return; }
+    }
+    // ← / → przewijają karty po kolei — ale tylko gdy modal otwarty i NIE piszemy w polu (żeby nie ruszać kursora)
+    if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !$("#modal-overlay").hidden && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const a = document.activeElement, tag = a && a.tagName;
+      const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (a && a.isContentEditable);
+      if (!typing) { e.preventDefault(); navigateCard(e.key === "ArrowLeft" ? -1 : 1); return; }
     }
     if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); const s = $("#search"); if (s) { s.focus(); s.select(); } }
   });
