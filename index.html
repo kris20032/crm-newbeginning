@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=60" />
+  <link rel="stylesheet" href="styles.css?v=61" />
 </head>
 <body>
   <!-- ===== Pasek trybu DEMO ===== -->
@@ -23,7 +23,19 @@
       <input type="email" id="login-email" placeholder="e-mail" autocomplete="email" required />
       <input type="password" id="login-password" placeholder="hasło" autocomplete="current-password" required />
       <button type="submit" id="login-btn">Zaloguj</button>
+      <button type="button" id="forgot-link" class="link-btn">Nie pamiętasz hasła?</button>
       <div id="login-error" class="login-error"></div>
+    </form>
+  </div>
+
+  <!-- ===== Ekran ustawiania nowego hasła (po kliknięciu w link z maila) ===== -->
+  <div id="recovery-view" class="login-view" hidden>
+    <form id="recovery-form" class="login-card">
+      <h1>Ustaw nowe hasło</h1>
+      <p class="login-sub">Wpisz nowe hasło do swojego konta</p>
+      <input type="password" id="recovery-password" placeholder="nowe hasło (min. 6 znaków)" autocomplete="new-password" minlength="6" required />
+      <button type="submit" id="recovery-btn">Zapisz nowe hasło</button>
+      <div id="recovery-msg" class="login-error"></div>
     </form>
   </div>
 
@@ -66,7 +78,7 @@
 
   <!-- Supabase JS (używane tylko gdy skonfigurowane) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=60"></script>
-  <script src="app.js?v=60"></script>
+  <script src="config.js?v=61"></script>
+  <script src="app.js?v=61"></script>
 </body>
 </html>

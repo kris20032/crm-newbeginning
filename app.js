@@ -98,6 +98,8 @@ const api = {
   async getUser() { if (!LIVE) return { email: "demo@local" }; const { data } = await sb.auth.getUser(); return data.user; },
   async signIn(email, password) { const { error } = await sb.auth.signInWithPassword({ email, password }); if (error) throw error; },
   async signOut() { if (LIVE) await sb.auth.signOut(); },
+  async resetPassword(email) { const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }); if (error) throw error; },
+  async updatePassword(pw) { const { error } = await sb.auth.updateUser({ password: pw }); if (error) throw error; },
 
   async getClients() {
     if (!LIVE) return structuredClone(DEMO_CLIENTS);
@@ -1444,7 +1446,7 @@ function wireNotif() {
 }
 
 function showLoginForm() {
-  $("#login-view").hidden = false; $("#app-view").hidden = true;
+  $("#login-view").hidden = false; $("#app-view").hidden = true; $("#recovery-view").hidden = true;
   const f = $("#login-form");
   if (f && !f.dataset.wired) {
     f.dataset.wired = "1";
@@ -1453,12 +1455,47 @@ function showLoginForm() {
       try { await api.signIn($("#login-email").value.trim(), $("#login-password").value); const u = await api.getUser(); await loadTeamAndMe(u); await showApp(); }
       catch (err) { console.error(err); $("#login-error").textContent = "Błędny e-mail lub hasło."; }
     });
+    // „Nie pamiętasz hasła?" — wyślij mail z linkiem resetu
+    const forgot = $("#forgot-link");
+    if (forgot) forgot.addEventListener("click", async () => {
+      const email = $("#login-email").value.trim();
+      const box = $("#login-error");
+      if (!email) { box.textContent = "Wpisz najpierw swój e-mail w polu wyżej, potem kliknij ponownie."; return; }
+      forgot.disabled = true; box.textContent = "Wysyłam link...";
+      try { await api.resetPassword(email); box.style.color = "#16a34a"; box.textContent = "Sprawdź skrzynkę (" + email + ") - wysłaliśmy link do ustawienia nowego hasła. Sprawdź też SPAM."; }
+      catch (err) { console.error(err); box.style.color = ""; box.textContent = "Nie udało się wysłać linku. Spróbuj jeszcze raz za chwilę."; }
+      finally { forgot.disabled = false; }
+    });
+  }
+}
+
+// Ekran „Ustaw nowe hasło" — pokazywany po powrocie z linku resetu w mailu
+function showRecoveryForm() {
+  $("#login-view").hidden = true; $("#app-view").hidden = true; $("#recovery-view").hidden = false;
+  const f = $("#recovery-form");
+  if (f && !f.dataset.wired) {
+    f.dataset.wired = "1";
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const box = $("#recovery-msg"); box.style.color = ""; box.textContent = "";
+      const pw = $("#recovery-password").value;
+      if (!pw || pw.length < 6) { box.textContent = "Hasło musi mieć co najmniej 6 znaków."; return; }
+      const btn = $("#recovery-btn"); btn.disabled = true; box.textContent = "Zapisuję...";
+      try {
+        await api.updatePassword(pw);
+        history.replaceState(null, "", location.origin + location.pathname);
+        const u = await api.getUser(); await loadTeamAndMe(u); await showApp();
+      } catch (err) { console.error(err); box.textContent = "Nie udało się zapisać hasła. Link mógł wygasnąć - poproś o nowy."; btn.disabled = false; }
+    });
   }
 }
 async function init() {
   await api.init(); state.live = api.isLive(); wireChrome();
   if (!state.live) { $("#demo-banner").hidden = false; state.team = [...DEMO_OWNERS]; state.currentUser = "Krzysztof"; await showApp(); return; }
   $("#logout-btn").addEventListener("click", async () => { await api.signOut(); location.reload(); });
+  // POWRÓT Z LINKU RESETU HASŁA: pokaż ekran „ustaw nowe hasło", nie wpuszczaj od razu do appki
+  sb.auth.onAuthStateChange((event) => { if (event === "PASSWORD_RECOVERY") showRecoveryForm(); });
+  if (location.hash.includes("type=recovery")) { showRecoveryForm(); return; }
   try {
     const user = await api.getUser();
     if (user) { await loadTeamAndMe(user); await showApp(); }
