@@ -243,7 +243,8 @@ const linkify = (text) => {
   out += esc(text.slice(last));
   return out;
 };
-const canEdit = (client) => client.owner === state.currentUser;
+// edytować lead może handlowiec (owner) ORAZ opiekun — opiekun działa na karcie tak jak właściciel
+const canEdit = (client) => client.owner === state.currentUser || client.opiekun === state.currentUser;
 const isDueSoon = (d) => { if (!d) return false; const dt = new Date(d); if (isNaN(dt)) return false; const t = new Date(); t.setHours(23, 59, 59, 999); return dt <= t; };
 const dueState = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return ""; const t = new Date(); t.setHours(0,0,0,0); const day = new Date(dt); day.setHours(0,0,0,0); if (day < t) return "overdue"; if (day.getTime() === t.getTime()) return "today"; return ""; };
 const safeUrl = (u) => { try { const x = new URL(u); return (x.protocol === "http:" || x.protocol === "https:") ? u : ""; } catch { return ""; } };
@@ -390,6 +391,7 @@ function closeOwnerPanel() {
    RENDER — tablica
    ============================================================ */
 const activeClients = () => state.clients.filter((c) => !c.deleted_at);   // karty NIE w archiwum
+const qStars = (c) => Math.max(0, Math.min(3, parseInt(c.quality, 10) || 0));   // ocena 0–3 gwiazdek (kolumna quality)
 function visibleClients() {
   const q = state.search.trim().toLowerCase();
   const sel = selectedOwnersSet();
@@ -408,10 +410,12 @@ function visibleClients() {
     else list = active;
   }
   if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
-  // sort: RĘCZNA kolejność (position) decyduje; rezerwa = najbliższy follow-up, potem alfabetycznie (stabilnie)
+  // sort: najpierw OCENA (więcej gwiazdek = wyżej), potem ręczna kolejność (position),
+  // rezerwa = najbliższy follow-up, na końcu alfabetycznie (stabilnie)
   const ts = (v) => { if (!v) return Infinity; const t = Date.parse(v); return Number.isNaN(t) ? Infinity : t; };
   const pos = (c) => (c.position == null ? Number.POSITIVE_INFINITY : Number(c.position));
   return [...list].sort((a, b) =>
+    (qStars(b) - qStars(a)) ||
     (pos(a) - pos(b)) ||
     (ts(a.follow_up) - ts(b.follow_up)) ||
     String(a.name || "").localeCompare(String(b.name || ""), "pl"));
@@ -527,7 +531,9 @@ function renderTable(board, list, opts = {}) {
 function renderCardInner(c) {
   const cnt = (state.commentsByClient[c.id] || []).length;
   const ds = c.follow_up_done ? "" : dueState(c.follow_up);   // zrobiony follow-up nie świeci jako „dziś/zaległe"
-  return `<div class="card-title"><span class="card-ic">👤</span>${esc(c.name)}</div>
+  const stars = qStars(c);
+  const starsHtml = stars ? `<span class="card-stars" title="Ocena ${stars}/3">${"★".repeat(stars)}</span>` : "";
+  return `<div class="card-title"><span class="card-ic">👤</span>${esc(c.name)}${starsHtml}</div>
     ${c.company ? `<div class="card-company">${esc(c.company)}</div>` : ""}
     <div class="card-meta">${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}</div>
     <div class="card-foot">
@@ -819,6 +825,7 @@ async function openModal(id) {
       const next = (val === cur) ? 0 : val;
       starsEl.querySelectorAll(".star").forEach((s) => s.classList.toggle("on", Number(s.dataset.val) <= next));
       saveField(c.id, "quality", next ? String(next) : "");
+      state.animateNextRender = true; renderBoard();   // ocena wpływa na sort (więcej gwiazdek = wyżej) i na bloczek
     }));
   }
   const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askArchiveCard(c.id, delBtn));
