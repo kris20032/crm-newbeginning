@@ -218,8 +218,22 @@ const toDTLocal = (v) => { if (!v) return ""; let s = String(v).replace(" ", "T"
 // część dla pola <input type="date"> (YYYY-MM-DD) i opcjonalnego <input type="time"> (HH:MM; pusta gdy północ = brak godziny)
 const toDateInput = (v) => toDTLocal(v).slice(0, 10);
 const toTimeInput = (v) => { const t = toDTLocal(v).slice(11, 16); return (t && t !== "00:00") ? t : ""; };
-// chip follow-upu: pokaż godzinę gdy ustawiona (≠ północ), inaczej samą datę
-const fmtFollow = (v) => { if (!v) return ""; const s = String(v).replace(" ", "T"); const dt = new Date(s.length === 10 ? s + "T00:00" : s); if (isNaN(dt)) return fmtDate(v); return (dt.getHours() === 0 && dt.getMinutes() === 0) ? fmtDate(v) : dt.toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
+// chip/feed follow-upu: pokaż DOKŁADNIE ustawioną datę/godzinę (jak w polach daty/godziny — „ścianowy" zegar).
+// follow_up bywa naiwny ("YYYY-MM-DD"/"...THH:MM") albo timestamptz z bazy ("...T00:00:00+00:00") — w obu wypadkach
+// bierzemy string-slice (toDTLocal), żeby NIE doklejać godziny z przesunięcia strefy (stąd brało się błędne 02:00).
+const fmtFollow = (v) => {
+  const s = toDTLocal(v);                                  // "YYYY-MM-DDTHH:MM", spójnie z toDateInput/toTimeInput
+  if (!s) return "";
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+  const time = s.slice(11, 16);
+  const hasTime = !!time && time !== "00:00";
+  const [hh, mm] = hasTime ? time.split(":").map(Number) : [0, 0];
+  const dt = new Date(y, (m || 1) - 1, d || 1, hh, mm);    // konstruktor LOKALNY → zero konwersji strefy
+  if (isNaN(dt)) return s;
+  return hasTime
+    ? dt.toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+    : dt.toLocaleDateString("pl-PL", { day: "numeric", month: "short", year: "numeric" });
+};
 const esc = (s) => (s == null ? "" : String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])));
 // Notatka → zamień URL-e (http(s):// i www.) w treści na KLIKALNE hiperłącza, resztę zostaw jako bezpieczny tekst.
 // Nowe linie zachowane przez white-space:pre-wrap na widoku.
