@@ -38,11 +38,11 @@ Rozbudowujemy nasz CRM (repo `kris20032/crm-newbeginning`, live na GitHub Pages 
 
 **Krok 6 (2026-07-03) — KATALOG USŁUG (zakładka „Oferta" w panelu admina).** Jedno źródło prawdy o usługach: tabela **`service_catalog`** (`schema-uslugi.sql` — bezpieczny, addytywny; wymaga wcześniej części A RBAC).
 - **Panel admina → „Oferta":** lista usług, „+ Dodaj usługę", edycja, **Ukryj/Pokaż** (ukryta = handlowiec nie zaznaczy jej nowo, ale karty z już zaznaczoną dalej ją pokazują z dopiskiem „wycofana z oferty"). **Celowo bez usuwania** — stare karty trzymają klucze w `clients.services`. Zarządzanie = uprawnienie `services.manage` (admin niejawnie).
-- **Ustawienia usługi:** rozliczenie (jednorazowo / miesięcznie × okres 6 mies./1 rok/2 lata), tryb ceny: **stała** (np. hosting) albo **wpisywana przez handlowca** z opcjonalnym **minimum** (appka przycina wpis poniżej + toast) i **rekomendowaną** (podpowiedź `min. X · rek. Y zł` + prefill przy zaznaczeniu).
+- **Ustawienia usługi:** rozliczenie (jednorazowo / miesięcznie × okres 6 mies./1 rok/2 lata), tryb ceny: **stała** (np. hosting) albo **wpisywana przez handlowca** z opcjonalnym **minimum** (nigdzie nie widać; wpis poniżej świeci pole na czerwono z limitem „minimalnie X zł" i NIE zapisuje się) i **rekomendowaną** (szary placeholder w polu kwoty).
 - **Karta klienta** (zakładka Usługi) renderuje katalog dynamicznie — wygląd/zapis bez zmian (`clients.services` jsonb, klucze `strona`/`obsluga` kompatybilne wstecz). Bez tabeli w bazie: tryb zgodności = wbudowane strona+obsluga jak dotąd, a „Oferta" pokazuje baner-instrukcję.
 - ⚠️ Kruczek: cena **stała** liczy się z katalogu w momencie wyświetlenia — zmiana ceny stałej w Ofercie zmieni „Razem" także na starych/zamrożonych kartach (tak działało i dotąd z ceną 49 zł w kodzie). Jeśli kiedyś ma być inaczej → snapshot ceny do `clients.services` przy zamrożeniu (roadmap).
 
-Aktualna wersja cache: **v88** (w `index.html` przy `styles.css`/`config.js`/`app.js` — **przy każdej zmianie front podbij numer**, żeby zespół nie miał starej wersji z cache).
+Aktualna wersja cache: **v89** (w `index.html` przy `styles.css`/`config.js`/`app.js` — **przy każdej zmianie front podbij numer**, żeby zespół nie miał starej wersji z cache).
 
 ## ⚠️ BACKEND — kolejność wdrażania (gdy idziemy na żywo)
 1. **`schema-rbac.sql` (część A)** — bezpieczne w KAŻDEJ chwili, także przed merge do main: tylko dodaje (m.in. kolumnę `clients.services` dla zakładki Usługi — dawny pkt z tego handovera — oraz tabele ról + strażnika). Wkleić całość w Supabase → SQL Editor. Idempotentne (można wielokrotnie). **Najpierw świeży backup** (auto-backup u Krzysztofa — potwierdzić).

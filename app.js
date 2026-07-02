@@ -964,18 +964,7 @@ async function openModal(id) {
     const svcRow = (k) => { c.services = c.services || {}; return (c.services[k] = c.services[k] || {}); };
     document.querySelectorAll("#pane-services .svc-cb").forEach((cb) => cb.addEventListener("change", () => {
       const k = cb.dataset.svc;
-      const row = svcRow(k);
-      row.on = cb.checked;
-      // zaznaczenie usługi z wpisywaną ceną i pustą kwotą → prefill ceną rekomendowaną z katalogu (jeśli jest)
-      const cat = state.catalog.find((s) => s.key === k);
-      if (cb.checked && cat && cat.price_mode === "custom" && !(row.price === 0 || row.price)) {
-        const rec = svcRec(cat);
-        if (rec != null) {
-          row.price = rec;
-          const inp = document.querySelector(`#pane-services .svc-price-input[data-svc="${CSS.escape(k)}"]`);
-          if (inp) inp.value = String(rec);
-        }
-      }
+      svcRow(k).on = cb.checked;   // rekomendowaną cenę podpowiada placeholder pola — kwotę handlowiec wpisuje sam
       const item = cb.closest(".svc-item"); if (item) item.classList.toggle("on", cb.checked);
       updateSvcTotal(c);
       saveServices(c.id);
@@ -984,9 +973,14 @@ async function openModal(id) {
       const k = inp.dataset.svc;
       const savePrice = () => {
         const raw = inp.value.trim();
-        let val = raw === "" ? null : Number(raw);
-        const clamped = clampSvcPrice(state.catalog.find((s) => s.key === k), val);   // poniżej minimum → przytnij + toast
-        if (clamped !== val) { val = clamped; inp.value = String(clamped); }
+        const val = raw === "" ? null : Number(raw);
+        // poniżej minimum: pole na czerwono + limit obok, wartości NIE zapisujemy (zostaje ostatnia poprawna)
+        const min = svcMin(state.catalog.find((s) => s.key === k));
+        const bad = val != null && !Number.isNaN(val) && min != null && val < min;
+        const warn = document.querySelector(`#pane-services .svc-min-warn[data-svc="${CSS.escape(k)}"]`);
+        inp.classList.toggle("bad", bad);
+        if (warn) { warn.hidden = !bad; if (bad) warn.textContent = `minimalnie ${min} zł`; }
+        if (bad) return;
         svcRow(k).price = val;
         updateSvcTotal(c);
         saveServices(c.id);
@@ -1074,14 +1068,6 @@ function servicesForClient(sv) {
 const svcMin = (s) => (s && (s.price_min === 0 || s.price_min) ? Number(s.price_min) : null);
 const svcRec = (s) => (s && (s.price_rec === 0 || s.price_rec) ? Number(s.price_rec) : null);
 // Wpisana cena poniżej minimum z katalogu → przytnij do minimum (toast informuje handlowca).
-function clampSvcPrice(cat, val) {
-  const min = svcMin(cat);
-  if (val != null && !Number.isNaN(val) && min != null && val < min) {
-    toast(`Minimalna cena „${cat.label}" to ${min} zł`);
-    return min;
-  }
-  return val;
-}
 // Suma kwot ZAZNACZONYCH usług wg katalogu (fixed → cena z katalogu; custom → kwota od handlowca;
 // monthly → × miesiące wybranego okresu). Sygnatura bez zmian — używane też w Bazie partnerów (renderKlienciRows).
 function svcTotal(sv) {
@@ -1121,9 +1107,9 @@ function servicesHTML(c, editable) {
     } else {
       const price = (row.price === 0 || row.price) ? row.price : "";
       const min = svcMin(s), rec = svcRec(s);
-      const hintTxt = [min != null ? `min. ${min}` : "", rec != null ? `rek. ${rec}` : ""].filter(Boolean).join(" · ");
-      const hint = hintTxt ? `<span class="svc-hint">${esc(hintTxt)} zł</span>` : "";
-      priceHtml = `${hint}<input type="number" class="svc-price-input" data-svc="${k}" min="${min != null ? min : 0}" step="10" inputmode="numeric" value="${esc(String(price))}" placeholder="kwota" ${dis} />
+      // rekomendowana = szary placeholder w polu; minimum NIGDZIE nie widać — dopiero wpis poniżej
+      // świeci pole na czerwono i odsłania limit (.svc-min-warn, wiązanie w openModal)
+      priceHtml = `<span class="svc-min-warn" data-svc="${k}" hidden></span><input type="number" class="svc-price-input" data-svc="${k}" min="${min != null ? min : 0}" step="10" inputmode="numeric" value="${esc(String(price))}" placeholder="${rec != null ? esc(String(rec)) : "kwota"}" ${dis} />
         <span class="svc-cur">${cur(s)}</span>`;
     }
     return `<div class="svc-item${row.on ? " on" : ""}" data-svc="${k}">
@@ -2137,7 +2123,7 @@ async function renderAdminOferta() {
     else {
       const min = svcMin(s), rec = svcRec(s);   // pokazuj tylko ustawione granice
       const sub = [min != null ? `min. ${min} zł` : "", rec != null ? `rek. ${rec} zł` : ""].filter(Boolean).join(" · ");
-      priceCell = `<div class="tb-name"><span>wpisywana</span>${sub ? `<span class="tb-co">${esc(sub)}</span>` : ""}</div>`;
+      priceCell = `<div class="tb-name"><span>wpisz</span>${sub ? `<span class="tb-co">${esc(sub)}</span>` : ""}</div>`;
     }
     // celowo BEZ usuwania: stare karty trzymają klucz usługi w clients.services — ukrycie wystarcza
     const actions = manage ? `<div class="admin-actions" data-key="${esc(s.key)}">
