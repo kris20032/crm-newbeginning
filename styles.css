@@ -370,19 +370,30 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .notes-pane { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 /* Widok „Usługi" — lista usług z checkboxem i kwotą */
 .services-pane { gap: 8px; }
-.svc-intro { font-size: 12.5px; color: var(--ink-soft); margin-bottom: 4px; }
 .svc-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; transition: border-color .12s, background .12s; }
-.svc-item.on { border-color: #e8843c; background: #fff7ef; }
+.svc-item.on { border-color: var(--accent); background: #eef5fd; }
 .svc-check { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px; }
 .svc-cb { width: 18px; height: 18px; cursor: pointer; accent-color: #cfceca; flex: none; }
-.svc-cb:checked { accent-color: #e8843c; }
-.svc-item.on .svc-cb { box-shadow: 0 0 0 3px rgba(232,132,60,.22); border-radius: 4px; }
+.svc-cb:checked { accent-color: var(--accent); }
+.svc-item.on .svc-cb { box-shadow: 0 0 0 3px rgba(35,131,226,.20); border-radius: 4px; }
 .svc-name { font-weight: 500; }
-.svc-req { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: #b5651d; background: #fbe9d6; padding: 1px 6px; border-radius: 5px; margin-left: 4px; }
 .svc-price { display: flex; align-items: center; gap: 5px; font-size: 13.5px; color: var(--ink); white-space: nowrap; }
-.svc-price-input { width: 78px; text-align: right; border: 1px solid var(--line-strong); border-radius: 7px; padding: 6px 8px; font-size: 13.5px; font-family: inherit; }
-.svc-price-input:focus { outline: none; border-color: #e8843c; }
+.svc-price-input { width: 78px; text-align: right; border: 1px solid var(--line-strong); border-radius: 7px; padding: 6px 8px; font-size: 13.5px; font-family: inherit; -moz-appearance: textfield; appearance: textfield; }
+.svc-price-input::-webkit-outer-spin-button, .svc-price-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.svc-price-input:focus { outline: none; border-color: var(--accent); }
+.svc-period { border: 1px solid var(--line-strong); border-radius: 7px; padding: 5px 7px; font-size: 13px; font-family: inherit; background: #fff; color: var(--ink); cursor: pointer; }
+.svc-period:focus { outline: none; border-color: var(--accent); }
 .svc-fixed { font-weight: 600; }
+.svc-total { display: flex; align-items: center; justify-content: space-between; margin-top: 2px; padding: 11px 13px; border-top: 1px solid var(--line); font-size: 14px; }
+.svc-total-lbl { color: var(--ink-soft); font-weight: 500; }
+.svc-total-amt { font-weight: 700; font-size: 15px; color: var(--ink); }
+/* Etap „Umowa podpisana"+ : usługi zamrożone (zielone, tylko podgląd — bez edycji i bez odklikania) */
+.services-pane.locked .svc-item.on { border-color: #6aa84f; background: #eef6ea; }
+.services-pane.locked .svc-cb:checked { accent-color: #6aa84f; }
+.services-pane.locked .svc-item.on .svc-cb { box-shadow: 0 0 0 3px rgba(106,168,79,.22); }
+.services-pane.locked .svc-total-amt { color: #3d6b2e; }
+.services-pane.locked .svc-price-input:disabled, .services-pane.locked .svc-period:disabled { background: #f6f6f4; color: var(--ink); -webkit-text-fill-color: var(--ink); opacity: 1; cursor: default; }
+.checklist-pane { background: #fff; }
 .svc-cur { color: var(--ink-soft); }
 /* PRAWA kolumna — komentarze/czat */
 .cm-right { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); background: var(--bg); }

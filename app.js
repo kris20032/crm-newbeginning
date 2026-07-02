@@ -16,10 +16,10 @@
 /* ---------- Etapy lejka (1:1 z Notion) ---------- */
 const STATUSES = [
   { key: "lead",          label: "Lead",                  dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f", tint: "#f8f8f7" },
-  { key: "zainteresowany",label: "Wysłane demo",           dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f", tint: "#f4f9fc" },
+  { key: "zainteresowany",label: "Demo wysłane",           dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f", tint: "#f4f9fc" },
   { key: "umowiony",      label: "Zainteresowany",        dot: "#9a6dd7", bg: "#ede1f7", fg: "#6940a5", tint: "#faf7fd" },
   { key: "po_spotkaniu",  label: "Sprzedaż",               dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f", tint: "#fdf6f5" },
-  { key: "oferta",        label: "Oferta/umowa",           dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a", tint: "#fdfbf2" },
+  { key: "oferta",        label: "Umowa wysłana",          dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a", tint: "#fdfbf2" },
   { key: "konwersja",     label: "Umowa podpisana",        dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e", tint: "#f5faf4" },
   { key: "checklista",    label: "Checklista gotowa",      dot: "#4ba39a", bg: "#d9efec", fg: "#2b6b63", tint: "#f3faf9" },
   { key: "w_realizacji",  label: "W trakcie realizacji",   dot: "#d98c3f", bg: "#f8e6d3", fg: "#8a561a", tint: "#fdf8f2" },
@@ -715,6 +715,12 @@ async function openModal(id) {
   // Zakładka „Usługi" pojawia się od etapu „Sprzedaż" (po_spotkaniu) w górę — wtedy handlowiec wybiera, co sprzedaje.
   const stageIdx = STATUSES.findIndex((s) => s.key === normStatus(c));
   const showServices = stageIdx >= STATUSES.findIndex((s) => s.key === "po_spotkaniu");
+  // Usługi zamrożone (zielone, bez edycji) już od „Umowa wysłana" (oferta) w górę.
+  // Zakładka Checklista pojawia się dopiero od „Umowa podpisana" (konwersja) w górę.
+  const lockedIdx = STATUSES.findIndex((s) => s.key === "oferta");
+  const signedIdx = STATUSES.findIndex((s) => s.key === "konwersja");
+  const svcLocked = stageIdx >= lockedIdx;
+  const showChecklist = stageIdx >= signedIdx;
 
   $("#modal-body").innerHTML = `
     <div class="cm">
@@ -751,6 +757,7 @@ async function openModal(id) {
           <div class="notes-tabs">
             <button type="button" class="notes-tab on" id="tab-notes">Notatki</button>
             ${showServices ? `<button type="button" class="notes-tab" id="tab-services">Usługi</button>` : ""}
+            ${showChecklist ? `<button type="button" class="notes-tab" id="tab-checklist">Checklista</button>` : ""}
           </div>
           <div class="notes-pane" id="pane-notes">
             ${editable
@@ -758,7 +765,8 @@ async function openModal(id) {
                  <textarea class="notes" data-key="notes" id="notes-edit" hidden>${esc(c.notes || "")}</textarea>`
               : `<div class="notes-view readonly">${c.notes ? linkify(c.notes) : "—"}</div>`}
           </div>
-          ${showServices ? `<div class="notes-pane services-pane" id="pane-services" hidden>${servicesHTML(c, editable)}</div>` : ""}
+          ${showServices ? `<div class="notes-pane services-pane${svcLocked ? " locked" : ""}" id="pane-services" hidden>${servicesHTML(c, editable && !svcLocked)}</div>` : ""}
+          ${showChecklist ? `<div class="notes-pane checklist-pane" id="pane-checklist" hidden></div>` : ""}
         </div>
 
         ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Przenieś do archiwum</button></div>` : ""}
@@ -817,15 +825,18 @@ async function openModal(id) {
   };
   wireLink("maps-open", "maps-copy", "maps-input", c.google_maps);
 
-  // Przełącznik Notatki ↔ Usługi (zakładka Usługi istnieje od etapu „Sprzedaż")
-  const tabN = $("#tab-notes"), tabS = $("#tab-services"), paneN = $("#pane-notes"), paneS = $("#pane-services");
-  if (tabS && paneS) {
-    const show = (svc) => {
-      tabS.classList.toggle("on", svc); tabN.classList.toggle("on", !svc);
-      paneS.hidden = !svc; paneN.hidden = svc;
-    };
-    tabN.addEventListener("click", () => show(false));
-    tabS.addEventListener("click", () => show(true));
+  // Przełącznik zakładek: Notatki | Usługi | Checklista (dwie ostatnie zależnie od etapu)
+  const noteTabs = [
+    { btn: "#tab-notes", pane: "#pane-notes" },
+    { btn: "#tab-services", pane: "#pane-services" },
+    { btn: "#tab-checklist", pane: "#pane-checklist" },
+  ].filter((t) => $(t.btn) && $(t.pane));
+  if (noteTabs.length > 1) {
+    const showTab = (active) => noteTabs.forEach((t) => {
+      $(t.btn).classList.toggle("on", t.btn === active.btn);
+      $(t.pane).hidden = t.btn !== active.btn;
+    });
+    noteTabs.forEach((t) => $(t.btn).addEventListener("click", () => showTab(t)));
   }
 
   if (editable) {
@@ -835,6 +846,7 @@ async function openModal(id) {
       c.services = c.services || {}; c.services[k] = c.services[k] || {};
       c.services[k].on = cb.checked;
       const item = cb.closest(".svc-item"); if (item) item.classList.toggle("on", cb.checked);
+      updateSvcTotal(c);
       saveServices(c.id);
     }));
     const priceInp = document.querySelector("#pane-services .svc-price-input[data-svc='strona']");
@@ -843,11 +855,19 @@ async function openModal(id) {
         c.services = c.services || {}; c.services.strona = c.services.strona || {};
         const raw = priceInp.value.trim();
         c.services.strona.price = raw === "" ? null : Number(raw);
+        updateSvcTotal(c);
         saveServices(c.id);
       };
       priceInp.addEventListener("input", debounce(savePrice, 600));
       priceInp.addEventListener("change", savePrice);
     }
+    const periodSel = document.querySelector("#pane-services .svc-period[data-svc='obsluga']");
+    if (periodSel) periodSel.addEventListener("change", () => {
+      c.services = c.services || {}; c.services.obsluga = c.services.obsluga || {};
+      c.services.obsluga.period = periodSel.value;
+      updateSvcTotal(c);
+      saveServices(c.id);
+    });
     const saveDeb = debounce((el) => saveField(c.id, el.dataset.key, el.value), 600);
     document.querySelectorAll("#modal-body [data-key]").forEach((el) => {
       if (el.id === "demo-input") return;   // pole demo ma własne wiązanie (wireDemoCell) — bez podwójnego zapisu
@@ -892,7 +912,22 @@ async function openModal(id) {
 
 // Usługi sprzedawane klientowi (widok w karcie od etapu „Sprzedaż"). Zapisywane w kolumnie clients.services (jsonb).
 // Na start: strona internetowa (kwota wpisywana przez handlowca) + obsługa techniczna (wymagana, 49 zł).
-const OBSLUGA_CENA = 49;
+const OBSLUGA_CENA = 49;                         // zł / miesiąc
+const OKRESY = [{ key: "6m", label: "6 mies.", months: 6 }, { key: "1y", label: "1 rok", months: 12 }, { key: "2y", label: "2 lata", months: 24 }];
+const DEF_OKRES = "6m";
+const okresMonths = (k) => (OKRESY.find((o) => o.key === k) || OKRESY[0]).months;
+// Suma kwot ZAZNACZONYCH usług (strona: kwota od handlowca; obsługa: 49 zł/mies. × wybrany okres).
+function svcTotal(sv) {
+  sv = sv || {};
+  let t = 0;
+  if (sv.strona && sv.strona.on && (sv.strona.price === 0 || sv.strona.price)) t += Number(sv.strona.price) || 0;
+  if (sv.obsluga && sv.obsluga.on) t += OBSLUGA_CENA * okresMonths(sv.obsluga.period);
+  return t;
+}
+function updateSvcTotal(c) {
+  const el = document.getElementById("svc-total-val");
+  if (el) el.textContent = svcTotal(c.services);
+}
 function servicesHTML(c, editable) {
   const sv = c.services || {};
   const strona = sv.strona || {};
@@ -900,7 +935,6 @@ function servicesHTML(c, editable) {
   const price = (strona.price === 0 || strona.price) ? strona.price : "";
   const dis = editable ? "" : "disabled";
   return `
-    <div class="svc-intro">Zaznacz usługi, które sprzedajesz temu klientowi:</div>
     <div class="svc-item${strona.on ? " on" : ""}" data-svc="strona">
       <label class="svc-check">
         <input type="checkbox" class="svc-cb" data-svc="strona" ${strona.on ? "checked" : ""} ${dis} />
@@ -914,10 +948,16 @@ function servicesHTML(c, editable) {
     <div class="svc-item${obsluga.on ? " on" : ""}" data-svc="obsluga">
       <label class="svc-check">
         <input type="checkbox" class="svc-cb" data-svc="obsluga" ${obsluga.on ? "checked" : ""} ${dis} />
-        <span class="svc-name">Obsługa techniczna <span class="svc-req">wymagana</span></span>
+        <span class="svc-name">Obsługa techniczna</span>
       </label>
-      <div class="svc-price"><span class="svc-fixed">${OBSLUGA_CENA}</span> <span class="svc-cur">zł</span></div>
-    </div>`;
+      <div class="svc-price">
+        <select class="svc-period" data-svc="obsluga" ${dis}>
+          ${OKRESY.map((o) => `<option value="${o.key}" ${(obsluga.period || DEF_OKRES) === o.key ? "selected" : ""}>${o.label}</option>`).join("")}
+        </select>
+        <span class="svc-fixed">${OBSLUGA_CENA}</span> <span class="svc-cur">zł/mies.</span>
+      </div>
+    </div>
+    <div class="svc-total"><span class="svc-total-lbl">Razem</span><span class="svc-total-amt"><b id="svc-total-val">${svcTotal(sv)}</b> zł</span></div>`;
 }
 
 async function saveServices(id) {
@@ -957,7 +997,12 @@ async function saveField(id, key, value) {
       if (!canEdit(c) && state.openCardId === id) closeModal();   // karta przeszła do innej osoby → zamknij
       return;
     }
-    if (key === "status" || key === "follow_up") { renderTabs(); state.animateNextRender = true; renderBoard(); return; }
+    if (key === "status" || key === "follow_up") {
+      renderTabs(); state.animateNextRender = true; renderBoard();
+      // Zmiana etapu może zmienić stan usług (niebieskie → zielone/zamrożone) i zakładkę Checklista — przerysuj otwartą kartę.
+      if (key === "status" && state.openCardId === id) openModal(id);
+      return;
+    }
     if (key === "name" || key === "company" || key === "phone" || key === "opiekun") { updateCardInPlace(c); return; }
   } catch (err) {
     console.error(err);
