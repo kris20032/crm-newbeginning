@@ -2180,19 +2180,19 @@ function openServiceModal(svc) {
     <h2>${isEdit ? "Edytuj usługę" : "Dodaj usługę"}</h2>
     <p class="modal-sub">${isEdit ? `Klucz usługi jest stały — zapisane karty rozpoznają po nim swoje wybory.` : `Usługa pojawi się na kartach klientów w zakładce „Usługi".`}</p>
     <form id="sv-form" class="admin-form">
-      <label class="admin-field"><span>Nazwa (widoczna dla handlowców)</span><input id="sv-label" required maxlength="60" value="${esc(s.label || "")}" placeholder="np. Opinie Google" /></label>
-      ${isEdit ? `<label class="admin-field"><span>Klucz (niezmienny)</span><input id="sv-key" value="${esc(s.key)}" disabled /></label>` : ""}
+      <label class="admin-field"><span>Nazwa</span><input id="sv-label" required maxlength="60" value="${esc(s.label || "")}" /></label>
+      ${isEdit ? `<label class="admin-field"><span>Klucz</span><input id="sv-key" value="${esc(s.key)}" disabled /></label>` : ""}
       <label class="admin-field"><span>Rozliczenie</span><select id="sv-billing">
         <option value="one_time" ${s.billing !== "monthly" ? "selected" : ""}>jednorazowo</option>
         <option value="monthly" ${s.billing === "monthly" ? "selected" : ""}>miesięcznie (cena × wybrany okres)</option>
       </select></label>
       <label class="admin-field"><span>Tryb ceny</span><select id="sv-mode">
         <option value="fixed" ${s.price_mode !== "custom" ? "selected" : ""}>stała</option>
-        <option value="custom" ${s.price_mode === "custom" ? "selected" : ""}>wpisywana przez handlowca</option>
+        <option value="custom" ${s.price_mode === "custom" ? "selected" : ""}>wpisz</option>
       </select></label>
-      <label class="admin-field" id="sv-f-fixed"><span>Cena (zł)</span><input id="sv-fixed" type="number" min="0" step="1" inputmode="numeric" value="${num(s.price_fixed)}" placeholder="np. 49" /></label>
-      <label class="admin-field" id="sv-f-min" hidden><span>Cena minimalna (zł, opcjonalna)</span><input id="sv-min" type="number" min="0" step="1" inputmode="numeric" value="${num(s.price_min)}" placeholder="appka nie pozwoli zejść niżej" /></label>
-      <label class="admin-field" id="sv-f-rec" hidden><span>Cena rekomendowana (zł, opcjonalna)</span><input id="sv-rec" type="number" min="0" step="1" inputmode="numeric" value="${num(s.price_rec)}" placeholder="podpowiedź i prefill dla handlowca" /></label>
+      <label class="admin-field" id="sv-f-fixed"><span>Cena</span><input id="sv-fixed" type="number" min="0" step="1" inputmode="numeric" value="${num(s.price_fixed)}" /></label>
+      <label class="admin-field" id="sv-f-min" hidden><span>Cena minimalna</span><input id="sv-min" type="number" min="0" step="1" inputmode="numeric" value="${num(s.price_min)}" /></label>
+      <label class="admin-field" id="sv-f-rec" hidden><span>Cena rekomendowana</span><input id="sv-rec" type="number" min="0" step="1" inputmode="numeric" value="${num(s.price_rec)}" /></label>
       <label class="svc-check"><input type="checkbox" class="svc-cb" id="sv-visible" ${s.visible !== false ? "checked" : ""} /><span>Widoczna dla handlowców</span></label>
       <div class="save-row">
         <button type="button" class="ghost-btn" id="sv-cancel">Anuluj</button>

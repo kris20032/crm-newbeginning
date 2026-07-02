@@ -42,7 +42,7 @@ Rozbudowujemy nasz CRM (repo `kris20032/crm-newbeginning`, live na GitHub Pages 
 - **Karta klienta** (zakładka Usługi) renderuje katalog dynamicznie — wygląd/zapis bez zmian (`clients.services` jsonb, klucze `strona`/`obsluga` kompatybilne wstecz). Bez tabeli w bazie: tryb zgodności = wbudowane strona+obsluga jak dotąd, a „Oferta" pokazuje baner-instrukcję.
 - ⚠️ Kruczek: cena **stała** liczy się z katalogu w momencie wyświetlenia — zmiana ceny stałej w Ofercie zmieni „Razem" także na starych/zamrożonych kartach (tak działało i dotąd z ceną 49 zł w kodzie). Jeśli kiedyś ma być inaczej → snapshot ceny do `clients.services` przy zamrożeniu (roadmap).
 
-Aktualna wersja cache: **v87** (w `index.html` przy `styles.css`/`config.js`/`app.js` — **przy każdej zmianie front podbij numer**, żeby zespół nie miał starej wersji z cache).
+Aktualna wersja cache: **v88** (w `index.html` przy `styles.css`/`config.js`/`app.js` — **przy każdej zmianie front podbij numer**, żeby zespół nie miał starej wersji z cache).
 
 ## ⚠️ BACKEND — kolejność wdrażania (gdy idziemy na żywo)
 1. **`schema-rbac.sql` (część A)** — bezpieczne w KAŻDEJ chwili, także przed merge do main: tylko dodaje (m.in. kolumnę `clients.services` dla zakładki Usługi — dawny pkt z tego handovera — oraz tabele ról + strażnika). Wkleić całość w Supabase → SQL Editor. Idempotentne (można wielokrotnie). **Najpierw świeży backup** (auto-backup u Krzysztofa — potwierdzić).

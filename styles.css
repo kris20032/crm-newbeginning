@@ -591,3 +591,6 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .admin-field input, .admin-field select { border: 1px solid var(--line-strong); border-radius: 8px; padding: 9px 11px; font-size: 14px; font-family: inherit; color: var(--ink); background: #fff; width: 100%; }
 .admin-field input:focus, .admin-field select:focus { outline: none; border-color: var(--accent); }
 .admin-field input:disabled { background: #f6f6f4; color: var(--ink-soft); cursor: default; }   /* klucz usługi w edycji (niezmienny) — jak .admin-role:disabled */
+/* pola liczbowe bez strzałek — ten sam wzorzec co .svc-price-input na karcie */
+.admin-field input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.admin-field input[type="number"]::-webkit-outer-spin-button, .admin-field input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
