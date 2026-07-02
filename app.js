@@ -40,6 +40,27 @@ const ownerColor = (name) => {
 };
 const initials = (name) => (name || "?").trim().charAt(0).toUpperCase();
 
+/* ---------- RBAC: role i uprawnienia zalogowanego ---------- */
+// Admini awaryjni na czas, gdy backend RBAC (schema-rbac.sql) nie jest jeszcze wdrożony:
+// appka działa wtedy jak dotąd (wszyscy widzą wszystko), a ci dwaj dostają panel admina z instrukcją.
+const BOOTSTRAP_ADMIN_EMAILS = ["krzychu.brzezi@gmail.com", "kozakiewicz.marceli@gmail.com"];
+// Tryb zgodności (brak tabel RBAC w bazie) = zachowanie sprzed ról: każdy widzi wszystko jak dziś.
+const COMPAT_PERMS = ["clients.view_all", "clients.hard_delete", "section.klienci"];
+const EF_MISSING_MSG = "Funkcja admin-users nie jest jeszcze wdrożona — instrukcja w HANDOVER-lejek-realizacja.md";
+// Czy zalogowany ma uprawnienie: admin ma ZAWSZE wszystko, reszta wg role_permissions swojej roli.
+function can(perm) {
+  if (state.me && state.me.role === "admin") return true;
+  return state.perms instanceof Set && state.perms.has(perm);
+}
+// CENTRALNY filtr widoczności kart: bez 'clients.view_all' widzisz WYŁĄCZNIE karty, gdzie jesteś
+// handlowcem (owner) lub opiekunem. Wpięty w oba źródła list: visibleClients (tablica/tabela/Na dziś/
+// Archiwum/szukajka), renderTabs (liczniki) i signedClients (sekcja Klienci).
+function rbacVisible(list) {
+  if (can("clients.view_all")) return list;
+  const me = (state.me && state.me.name) || state.currentUser;
+  return (list || []).filter((c) => c.owner === me || c.opiekun === me);
+}
+
 /* ---------- Stan ---------- */
 const state = {
   clients: [], commentsByClient: {}, team: [],
@@ -50,8 +71,15 @@ const state = {
   ownerPopOpen: false,      // czy rozwinięty panel zespołu (poza DOM, by przeżyć przebudowę #tabs przez realtime)
   currentUser: "Krzysztof", search: "", live: false, openCardId: null, openCardWasArchived: false, newCardIds: new Set(), skipFlipId: null, animateNextRender: false,
   suppressUntil: 0, lastSnap: "",
-  section: "sprzedaz",      // aktywna sekcja z menu: "sprzedaz" (lejek) | "klienci" (tabela podpisanych)
+  section: "sprzedaz",      // aktywna sekcja z menu: "sprzedaz" (lejek) | "klienci" (tabela podpisanych) | "admin" (panel admina)
   klienciSearch: "",        // pole szukania w sekcji Klienci (osobne od głównej wyszukiwarki)
+  me: null,                 // mój wiersz zespołu: { email, name, role, user_id, active }
+  perms: new Set(),         // klucze uprawnień mojej roli (dla admina nieistotne — can() zwraca zawsze true)
+  rbacReady: false,         // czy backend RBAC (tabele roles/permissions/role_permissions) jest wdrożony
+  rbacAt: 0,                // kiedy ostatnio odświeżono uprawnienia (throttle w refreshData)
+  roles: [],                // lista ról do selectów panelu admina
+  teamRows: [],             // pełne wiersze team_members (panel admina)
+  adminTab: "users",        // pod-zakładka panelu admina: "users" | "roles"
 };
 
 /* ---------- Panel zespołu: czyje karty widać (domyślnie tylko moje) ---------- */
@@ -103,7 +131,7 @@ const api = {
   async getUser() { if (!LIVE) return { email: "demo@local" }; const { data } = await sb.auth.getUser(); return data.user; },
   async signIn(email, password) { const { error } = await sb.auth.signInWithPassword({ email, password }); if (error) throw error; },
   async signOut() { if (LIVE) await sb.auth.signOut(); },
-  async resetPassword(email) { const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }); if (error) throw error; },
+  async resetPassword(email) { if (!LIVE) return; const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }); if (error) throw error; },
   async updatePassword(pw) { const { error } = await sb.auth.updateUser({ password: pw }); if (error) throw error; },
 
   async getClients() {
@@ -157,7 +185,7 @@ const api = {
   },
 
   async getTeam() {
-    if (!LIVE) return DEMO_OWNERS.map((name) => ({ email: name.toLowerCase() + "@demo", name }));
+    if (!LIVE) return structuredClone(DEMO_TEAM);
     const { data, error } = await sb.from("team_members").select("*").order("created_at", { ascending: true });
     if (error) throw error; return data || [];
   },
@@ -165,6 +193,58 @@ const api = {
     if (!LIVE) return { email, name };
     const { data, error } = await sb.from("team_members").upsert({ email, name }, { onConflict: "email" }).select().single();
     if (error) throw error; return data;
+  },
+
+  /* ---- RBAC + panel admina ---- */
+  async getRoles() {
+    if (!LIVE) return structuredClone(DEMO_ROLES);
+    const { data, error } = await sb.from("roles").select("*");
+    if (error) throw error; return data || [];
+  },
+  async getPermissions() {
+    if (!LIVE) return structuredClone(DEMO_PERMISSIONS);
+    const { data, error } = await sb.from("permissions").select("*").order("ord", { ascending: true });
+    if (error) throw error; return data || [];
+  },
+  async getRolePerms() {
+    if (!LIVE) return structuredClone(DEMO_ROLE_PERMS);
+    const { data, error } = await sb.from("role_permissions").select("*");
+    if (error) throw error; return data || [];
+  },
+  // włącz/wyłącz uprawnienie roli (matryca w panelu admina); LIVE pisze wprost do role_permissions (RLS przepuszcza tylko admina)
+  async setRolePerm(role, perm, on) {
+    if (!LIVE) {
+      const i = DEMO_ROLE_PERMS.findIndex((r) => r.role_key === role && r.perm_key === perm);
+      if (on && i < 0) DEMO_ROLE_PERMS.push({ role_key: role, perm_key: perm });
+      if (!on && i >= 0) DEMO_ROLE_PERMS.splice(i, 1);
+      return;
+    }
+    if (on) { const { error } = await sb.from("role_permissions").upsert({ role_key: role, perm_key: perm }); if (error) throw error; }
+    else { const { error } = await sb.from("role_permissions").delete().eq("role_key", role).eq("perm_key", perm); if (error) throw error; }
+  },
+  // Operacje na kontach (utworzenie / blokada / usunięcie / zmiana roli) — Edge Function 'admin-users'
+  // (wymagają klucza service-role, dlatego NIE idą z klienta). W DEMO działają na mockach w pamięci.
+  // Błędy zamieniamy na Error z czytelnym po polsku message — callery robią toast(err.message).
+  async adminUsers(action, payload = {}) {
+    if (!LIVE) return demoAdminUsers(action, payload);
+    const { data: { session } } = await sb.auth.getSession();
+    let res;
+    try {
+      res = await fetch(`${cfg.SUPABASE_URL}/functions/v1/admin-users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session ? session.access_token : ""}`, apikey: cfg.SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action, ...payload }),
+      });
+    } catch (e) { console.error("admin-users fetch", e); throw new Error("Brak połączenia z funkcją admin-users — spróbuj ponownie"); }
+    let body = null;
+    try { body = await res.json(); } catch {}                       // 404 z HTML-em itp. → body zostaje null
+    if (!res.ok) {
+      if (body && body.error) throw new Error(body.error);          // kontrakt: błędy 4xx jako {error: "..."}
+      if (res.status === 404) throw new Error(EF_MISSING_MSG);      // funkcja nie wdrożona
+      throw new Error((body && body.message) || `Funkcja admin-users: błąd ${res.status}`);
+    }
+    if (body && body.error) throw new Error(body.error);
+    return body;
   },
 
   async requestDemo(clientId, note) {
@@ -262,8 +342,9 @@ const linkify = (text) => {
   out += esc(text.slice(last));
   return out;
 };
-// edytować lead może handlowiec (owner) ORAZ opiekun — opiekun działa na karcie tak jak właściciel
-const canEdit = (client) => client.owner === state.currentUser || client.opiekun === state.currentUser;
+// edytować lead może handlowiec (owner) ORAZ opiekun — opiekun działa na karcie tak jak właściciel;
+// uprawnienie 'clients.edit_all' (np. admin) pozwala edytować karty wszystkich
+const canEdit = (client) => client.owner === state.currentUser || client.opiekun === state.currentUser || can("clients.edit_all");
 const isDueSoon = (d) => { if (!d) return false; const dt = new Date(d); if (isNaN(dt)) return false; const t = new Date(); t.setHours(23, 59, 59, 999); return dt <= t; };
 const dueState = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return ""; const t = new Date(); t.setHours(0,0,0,0); const day = new Date(dt); day.setHours(0,0,0,0); if (day < t) return "overdue"; if (day.getTime() === t.getTime()) return "today"; return ""; };
 const safeUrl = (u) => { try { const x = new URL(u); return (x.protocol === "http:" || x.protocol === "https:") ? u : ""; } catch { return ""; } };
@@ -322,13 +403,14 @@ function renderTabs() {
   const tabs = $("#tabs");
   const me = state.currentUser;
   const sel = selectedOwnersSet();
-  const mine = state.clients.filter((c) => sel.has(c.owner));      // wybrani w „Pokaż" — zakres „Na dziś"/„Archiwum"
+  const pool = rbacVisible(state.clients);                         // RBAC: liczniki tylko z kart, które wolno mi widzieć
+  const mine = pool.filter((c) => sel.has(c.owner));               // wybrani w „Pokaż" — zakres „Na dziś"/„Archiwum"
   const active = mine.filter((c) => !c.deleted_at);
   const dueCount = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up)).length;
   const archiveCount = mine.length - active.length;
   // „Wszystkie" = suma po ZAZNACZONYCH: ich lidy + lidy, gdzie są opiekunem
-  const allCount = state.clients.filter((c) => !c.deleted_at && (sel.has(c.owner) || sel.has(c.opiekun))).length;
-  const ownerCount = (n) => state.clients.filter((c) => !c.deleted_at && c.owner === n).length;
+  const allCount = pool.filter((c) => !c.deleted_at && (sel.has(c.owner) || sel.has(c.opiekun))).length;
+  const ownerCount = (n) => pool.filter((c) => !c.deleted_at && c.owner === n).length;
   // zakładki per-osoba = KAŻDY zaznaczony (ja pierwszy, potem reszta wg kolejności zespołu); moja zakładka = moje imię
   const personTabs = [me, ...(allOwners().length ? allOwners() : [me]).filter((n) => n !== me)].filter((n) => sel.has(n));
   // legacy/martwy viewMode → mapuj; gdy stoisz na zakładce osoby, która zniknęła z zaznaczenia → „Wszystkie"
@@ -341,7 +423,7 @@ function renderTabs() {
     { key: "archive", label: "🗄 Archiwum",           count: archiveCount },
   ];
   const showSwitch = state.viewMode !== "archive";       // Archiwum ma własny widok-listę — przełącznik nie dotyczy
-  const showOwnerPanel = true;                           // „Pokaż" steruje teraz i „Wszystkie", i zakładkami osób — zawsze widoczny
+  const showOwnerPanel = can("clients.view_all");        // „Pokaż" tylko dla widzących cudze karty — sprzedawca nie ma wyboru
   const vsBtn = (key, icon, label) =>
     `<button class="vs-btn ${state.layout === key ? "on" : ""}" data-layout="${key}" title="Widok: ${label}" aria-pressed="${state.layout === key}">${icon}<span>${label}</span></button>`;
   tabs.innerHTML =
@@ -413,17 +495,19 @@ const activeClients = () => state.clients.filter((c) => !c.deleted_at);   // kar
 const qStars = (c) => Math.max(0, Math.min(3, parseInt(c.quality, 10) || 0));   // ocena 0–3 gwiazdek (kolumna quality)
 function visibleClients() {
   const q = state.search.trim().toLowerCase();
+  const pool = rbacVisible(state.clients);                        // RBAC: bez 'clients.view_all' tylko karty, gdzie jestem ownerem/opiekunem
   const sel = selectedOwnersSet();
-  const mine = state.clients.filter((c) => sel.has(c.owner));     // tylko wybrani właściciele (domyślnie: ja)
+  const mine = pool.filter((c) => sel.has(c.owner));              // tylko wybrani właściciele (domyślnie: ja)
   let list;
-  // SZUKANIE jest GLOBALNE — po wszystkich właścicielach (łatwo wykryć, że kolega ma już danego klienta);
-  // filtr właścicieli z panelu działa tylko przy pustym polu szukania.
-  if (state.viewMode === "archive") list = (q ? state.clients : mine).filter((c) => c.deleted_at);   // Archiwum (szukasz → globalnie)
+  // SZUKANIE jest GLOBALNE w obrębie widocznych kart — po wszystkich właścicielach, których wolno mi widzieć
+  // (łatwo wykryć, że kolega ma już danego klienta); filtr właścicieli z panelu działa tylko przy pustym polu szukania.
+  if (state.viewMode === "archive") list = (q ? pool : mine).filter((c) => c.deleted_at);   // Archiwum (szukasz → globalnie)
   else {
+    const activePool = pool.filter((c) => !c.deleted_at);
     let active;
-    if (q) active = activeClients();                                              // szukasz → wszyscy
-    else if (state.viewMode === "all") active = activeClients().filter((c) => sel.has(c.owner) || sel.has(c.opiekun));  // Wszystkie = zaznaczeni: ich lidy + gdzie są opiekunem
-    else if (state.viewMode.startsWith("owner:")) { const n = state.viewMode.slice(6); active = activeClients().filter((c) => c.owner === n); }  // zakładka osoby = jej lidy (owner)
+    if (q) active = activePool;                                                  // szukasz → wszyscy widoczni
+    else if (state.viewMode === "all") active = activePool.filter((c) => sel.has(c.owner) || sel.has(c.opiekun));  // Wszystkie = zaznaczeni: ich lidy + gdzie są opiekunem
+    else if (state.viewMode.startsWith("owner:")) { const n = state.viewMode.slice(6); active = activePool.filter((c) => c.owner === n); }  // zakładka osoby = jej lidy (owner)
     else active = mine.filter((c) => !c.deleted_at);                             // „Na dziś" → wybrani właściciele (Pokaż)
     if (state.viewMode === "due" && !q) list = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up));
     else list = active;
@@ -684,12 +768,13 @@ async function openModal(id) {
       <div class="comments-wrap" id="comments-wrap">${renderComments(comments)}</div>
       <div class="save-row archive-actions">
         <button class="primary-btn" id="restore-card">↩ Przywróć kartę</button>
-        <button class="ghost-btn danger-btn" id="purge-card">Usuń trwale</button>
+        ${can("clients.hard_delete") ? `<button class="ghost-btn danger-btn" id="purge-card">Usuń trwale</button>` : ""}
       </div>`;
     $(".modal").classList.remove("modal-full");   // Archiwum = mały modal
     $("#modal-overlay").hidden = false;
     $("#restore-card").addEventListener("click", () => doRestoreCard(c.id));
-    $("#purge-card").addEventListener("click", (e) => askPurgeCard(c.id, e.target));
+    const purgeBtn = $("#purge-card");            // przycisk tylko z uprawnieniem 'clients.hard_delete'
+    if (purgeBtn) purgeBtn.addEventListener("click", (e) => askPurgeCard(c.id, e.target));
     updateNavButtons();
     return;
   }
@@ -1330,6 +1415,7 @@ async function doRestoreCard(id) {
 }
 
 function askPurgeCard(id, btn) {
+  if (!can("clients.hard_delete")) return;        // pas bezpieczeństwa — bez uprawnienia nie ma trwałego usuwania
   const c = state.clients.find((x) => String(x.id) === String(id));
   const nazwa = c && c.name ? `„${esc(c.name)}" ` : "";
   const row = btn.parentElement;
@@ -1401,6 +1487,7 @@ function teardownModal() {
   state.modalHistoryPushed = false;
   $("#modal-overlay").hidden = true;
   $(".modal").classList.remove("modal-full");   // reset pełnego ekranu
+  $("#modal-prev").hidden = false; $("#modal-next").hidden = false;   // przywróć ‹ › (małe modale panelu admina je chowają)
   $("#modal-body").innerHTML = "";
   // sprzątnij porzuconą, pustą nową kartę (żeby nie zaśmiecać lejka „Nowymi klientami")
   if (id && state.newCardIds.has(String(id))) cleanupEmptyNewCard(id);
@@ -1473,7 +1560,29 @@ async function refreshData() {
     // oba niezależne pobrania równolegle (jeden round-trip mniej na każde odświeżenie)
     const [clients, comments] = await Promise.all([api.getClients(), api.getAllComments()]);
     let team = state.team;
-    if (state.live) { try { team = (await api.getTeam()).map((t) => t.name); } catch {} }
+    if (state.live) {
+      try {
+        const rows = await api.getTeam();
+        team = rows.map((t) => t.name);
+        // moja rola/aktywność mogła się zmienić w panelu admina u kogoś innego — trzymaj state.me świeże
+        const meRow = state.me ? rows.find((t) => t.email === state.me.email) : null;
+        if (meRow) {
+          if (meRow.role != null) state.me.role = meRow.role;
+          state.me.active = meRow.active !== false;
+          if (meRow.user_id) state.me.user_id = meRow.user_id;
+        }
+      } catch {}
+      // uprawnienia roli odświeżaj rzadko (tabele RBAC nie mają realtime; backstop refreshData co 60 s wystarcza)
+      if (Date.now() - (state.rbacAt || 0) > 60000) {
+        state.rbacAt = Date.now();
+        const before = rbacFingerprint();
+        await loadMyPerms();
+        if (rbacFingerprint() !== before) {
+          applyRbacGating(); renderTabs(); renderBoard();
+          if (state.section === "klienci") renderKlienciRows();
+        }
+      }
+    }
     state.clients = clients; state.commentsByClient = comments; state.team = team;
     // nie przerysowuj, jeśli nic WIDOCZNEGO się nie zmieniło (koniec migania) — tani odcisk bez serializacji notatek
     const snap = clients.map((c) => c.id + ":" + c.updated_at).join("|") + "#" +
@@ -1524,6 +1633,7 @@ async function showApp() {
   state.commentsByClient = await api.getAllComments();
   // DOMYŚLNIE: każdy widzi tylko SWOJE karty; przez panel zespołu może dobrać innych / wszystkich
   const loaded = loadOwners(); state.ownersAll = loaded.all; state.owners = loaded.owners;
+  applyRbacGating();   // pozycje menu Sekcje wg uprawnień + przycięcie „Pokaż" do siebie, gdy brak podglądu cudzych
   migrateArchiwumStatus();
   renderTabs(); renderBoard();
   wireNotif(); renderBell();
@@ -1552,6 +1662,56 @@ async function loadTeamAndMe(user) {
   if (!me) { me = await api.upsertMe(user.email, desired); team = await api.getTeam(); }
   else if (me.name !== desired && KNOWN_NAMES[user.email]) { me = await api.upsertMe(user.email, desired); team = await api.getTeam(); }
   state.team = team.map((t) => t.name); state.currentUser = me.name;
+  // RBAC: mój wiersz zespołu (rola/aktywność) + uprawnienia mojej roli
+  state.me = { email: me.email, name: me.name, role: me.role, user_id: me.user_id, active: me.active !== false };
+  await loadMyPerms();
+  state.rbacAt = Date.now();
+}
+
+/* ---------- RBAC: wczytanie roli i uprawnień zalogowanego ---------- */
+// DEMO: rola z mocków zespołu (Krzysztof/Marceli = admin), uprawnienia z DEMO_ROLE_PERMS.
+function loadDemoRbac() {
+  const row = DEMO_TEAM.find((t) => t.name === state.currentUser) || DEMO_TEAM[0];
+  state.me = { email: row.email, name: row.name, role: row.role, user_id: row.user_id, active: row.active !== false };
+  state.perms = new Set(DEMO_ROLE_PERMS.filter((rp) => rp.role_key === row.role).map((rp) => rp.perm_key));
+  state.rbacReady = true;
+  state.rbacAt = Date.now();
+}
+// LIVE: uprawnienia mojej roli z role_permissions. ODPORNE na brak backendu RBAC (SQL nie wykonany):
+// błąd (brak tabel/kolumn) NIE wywala appki → tryb zgodności = wszyscy widzą wszystko jak dotąd,
+// a admini awaryjni (BOOTSTRAP_ADMIN_EMAILS) dostają panel admina z banerem-instrukcją.
+async function loadMyPerms() {
+  const me = state.me;
+  if (!LIVE || !me) return;
+  try {
+    if (me.role == null) throw new Error("team_members bez kolumny role — schema-rbac.sql nie wykonany");
+    const { data, error } = await sb.from("role_permissions").select("perm_key").eq("role_key", me.role);
+    if (error) throw error;
+    state.perms = new Set((data || []).map((r) => r.perm_key));
+    state.rbacReady = true;
+  } catch (e) {
+    console.warn("RBAC niedostępny — tryb zgodności (wszyscy widzą wszystko)", e);
+    state.rbacReady = false;
+    if (me.role == null) me.role = BOOTSTRAP_ADMIN_EMAILS.includes(me.email) ? "admin" : "sprzedawca";
+    state.perms = new Set(COMPAT_PERMS);
+  }
+}
+// odcisk roli+uprawnień — do wykrycia zmiany przy okresowym odświeżaniu w refreshData
+function rbacFingerprint() {
+  return ((state.me && state.me.role) || "") + "|" + [...(state.perms || [])].sort().join(",") + "|" + (state.rbacReady ? "1" : "0");
+}
+// Zastosuj uprawnienia w „chrome" aplikacji: pozycje menu Sekcje + zakres panelu „Pokaż".
+function applyRbacGating() {
+  const nm = $("#nav-menu");
+  if (nm) {
+    const kl = nm.querySelector('[data-section="klienci"]'); if (kl) kl.hidden = !can("section.klienci");
+    const ad = nm.querySelector('[data-section="admin"]'); if (ad) ad.hidden = !can("section.admin");
+  }
+  // user stracił prawo do sekcji, w której właśnie jest → wróć do Sprzedaży
+  if ((state.section === "klienci" && !can("section.klienci")) || (state.section === "admin" && !can("section.admin"))) showSection("sprzedaz");
+  // bez podglądu cudzych kart nie ma wyboru „Pokaż" — przytnij zaznaczenie do siebie
+  // (celowo BEZ persistOwners: zapisany wybór wróci, gdyby odzyskał uprawnienie)
+  if (!can("clients.view_all")) { state.ownersAll = false; state.owners = new Set([state.currentUser]); }
 }
 
 /* ============================================================
@@ -1564,15 +1724,21 @@ function closeTopMenus() {
   ["#account-menu", "#nav-menu", "#notif-panel"].forEach((sel) => { const el = $(sel); if (el) el.hidden = true; });
 }
 function showSection(name) {
+  // wejście do sekcji bez uprawnienia (np. prawo odebrane w międzyczasie) → Sprzedaż
+  if (name === "klienci" && !can("section.klienci")) name = "sprzedaz";
+  if (name === "admin" && !can("section.admin")) name = "sprzedaz";
   state.section = name;
-  const other = name === "klienci";                                  // „klienci" = tabela klientów z podpisaną umową
-  $("#tabs").hidden = other;
-  $("#board").hidden = other;
-  $("#klienci-view").hidden = !other;
-  const nb = $("#new-card-btn"); if (nb) nb.hidden = other;          // „+ Nowa karta" dotyczy lejka
-  const search = $("#search"); if (search) search.value = other ? (state.klienciSearch || "") : (state.search || "");   // ta sama szukajka w topbarze obsługuje obie sekcje
+  const sprzedaz = name === "sprzedaz";
+  $("#tabs").hidden = !sprzedaz;
+  $("#board").hidden = !sprzedaz;
+  $("#klienci-view").hidden = name !== "klienci";
+  $("#admin-view").hidden = name !== "admin";
+  const nb = $("#new-card-btn"); if (nb) nb.hidden = !sprzedaz;      // „+ Nowa karta" dotyczy lejka
+  // wspólna szukajka topbaru obsługuje Sprzedaż i Klientów; w panelu admina jest zbędna → schowana
+  const search = $("#search"); if (search) { search.hidden = name === "admin"; search.value = name === "klienci" ? (state.klienciSearch || "") : (state.search || ""); }
   document.querySelectorAll("#nav-menu .pop-menu-item").forEach((b) => b.classList.toggle("active", b.dataset.section === name));
-  if (other) renderKlienci();
+  if (name === "klienci") renderKlienci();
+  if (name === "admin") renderAdmin();
   closeTopMenus();
 }
 
@@ -1582,7 +1748,7 @@ const SIGNED_IDX = STATUSES.findIndex((s) => s.key === "konwersja");
 const isSigned = (c) => !c.deleted_at && STATUSES.findIndex((s) => s.key === normStatus(c)) >= SIGNED_IDX;
 function signedClients() {
   const q = (state.klienciSearch || "").trim().toLowerCase();
-  let list = state.clients.filter(isSigned);
+  let list = rbacVisible(state.clients).filter(isSigned);   // RBAC: bez 'clients.view_all' tylko swoi klienci (owner/opiekun)
   if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
   return list.sort((a, b) => String(a.company || a.name || "").localeCompare(String(b.company || b.name || ""), "pl"));
 }
@@ -1617,6 +1783,236 @@ function renderKlienciRows() {
   wrap.querySelectorAll(".tb-row").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
 }
 
+/* ============================================================
+   Sekcja „PANEL ADMINA" — użytkownicy (konta) + role i uprawnienia.
+   Wzorzec jak sekcja Klienci: showSection → renderAdmin → render do #admin-view.
+   Operacje na kontach idą przez Edge Function 'admin-users' (w DEMO: mocki).
+   ============================================================ */
+const sortRolesAdminFirst = (roles) => [...roles].sort((a, b) => (a.key === "admin" ? -1 : b.key === "admin" ? 1 : 0));
+
+function renderAdmin() {
+  const v = $("#admin-view"); if (!v) return;
+  const banner = state.rbacReady ? "" : `<div class="admin-banner">⚠️ Backend RBAC nie wdrożony — wykonaj <b>schema-rbac.sql</b> i wgraj funkcję <b>admin-users</b> (instrukcja w HANDOVER-lejek-realizacja.md). Do tego czasu appka działa po staremu: wszyscy widzą wszystko.</div>`;
+  v.innerHTML = `
+    <h2 class="admin-title">Panel admina</h2>
+    ${banner}
+    <div class="notes-tabs admin-tabs">
+      <button type="button" class="notes-tab ${state.adminTab === "users" ? "on" : ""}" data-atab="users">Użytkownicy</button>
+      <button type="button" class="notes-tab ${state.adminTab === "roles" ? "on" : ""}" data-atab="roles">Role i uprawnienia</button>
+    </div>
+    <div id="admin-body"></div>`;
+  v.querySelectorAll("[data-atab]").forEach((b) => b.addEventListener("click", () => {
+    if (state.adminTab === b.dataset.atab) return;
+    state.adminTab = b.dataset.atab; renderAdmin();
+  }));
+  if (state.adminTab === "roles") renderAdminRoles(); else renderAdminUsers();
+}
+
+/* ---------- Pod-zakładka „Użytkownicy": tabela kont + akcje ---------- */
+async function renderAdminUsers() {
+  const wrap = $("#admin-body"); if (!wrap) return;
+  wrap.innerHTML = `<div class="table-empty">Wczytuję zespół…</div>`;
+  let rows = [], roles = null;
+  try { [rows, roles] = await Promise.all([api.getTeam(), api.getRoles().catch(() => null)]); }
+  catch (e) { console.error("admin users", e); wrap.innerHTML = `<div class="table-empty">Nie udało się wczytać zespołu — spróbuj ponownie.</div>`; return; }
+  if (state.section !== "admin" || state.adminTab !== "users") return;   // user przełączył widok w trakcie wczytywania
+  state.teamRows = rows;
+  state.roles = sortRolesAdminFirst((roles && roles.length) ? roles : structuredClone(DEMO_ROLES));   // fallback: role z kontraktu
+  // skład zespołu mógł się zmienić (dodane/usunięte konto) → odśwież listę imion i taby lejka
+  const names = rows.map((t) => t.name);
+  if (names.join("|") !== state.team.join("|")) { state.team = names; renderTabs(); }
+
+  const dash = `<span class="tb-empty">—</span>`;
+  const roleName = (k) => { const r = state.roles.find((x) => x.key === k); return r ? (r.label || r.key) : (k || "—"); };
+  const bodyRows = rows.map((r) => {
+    const isSelf = state.me && r.email === state.me.email;
+    const active = r.active !== false;                      // brak kolumny (stara baza) = traktuj jak aktywnego
+    const role = r.role || "sprzedawca";
+    const roleSel = `<select class="admin-role" data-email="${esc(r.email)}" ${isSelf ? `disabled title="Własnej roli nie zmienisz samemu"` : ""}>
+        ${state.roles.map((ro) => `<option value="${esc(ro.key)}" ${role === ro.key ? "selected" : ""}>${esc(ro.label || ro.key)}</option>`).join("")}
+      </select>`;
+    const actions = isSelf
+      ? `<span class="tb-empty" title="Operacje na własnym koncie są zablokowane">—</span>`
+      : `<div class="admin-actions" data-email="${esc(r.email)}">
+          <button type="button" class="maps-btn" data-act="reset" title="Wyślij e-mail z linkiem do ustawienia nowego hasła">Reset hasła</button>
+          <button type="button" class="maps-btn" data-act="${active ? "deactivate" : "reactivate"}">${active ? "Zablokuj" : "Odblokuj"}</button>
+          <button type="button" class="maps-btn tb-danger" data-act="remove">Usuń trwale</button>
+        </div>`;
+    return `<tr>
+        <td><div class="admin-person"><span class="avatar" style="background:${ownerColor(r.name)}">${initials(r.name)}</span><span class="tb-nm">${esc(r.name)}</span>${isSelf ? `<span class="owner-me">(ja)</span>` : ""}</div></td>
+        <td>${r.email ? esc(r.email) : dash}</td>
+        <td>${roleSel}</td>
+        <td>${active ? `<span class="chip chip-demo-done">Aktywny</span>` : `<span class="chip chip-blocked">Zablokowany</span>`}</td>
+        <td>${actions}</td>
+      </tr>`;
+  }).join("");
+
+  wrap.innerHTML = `
+    <div class="admin-toolbar"><button type="button" class="primary-btn sm" id="admin-add-user">+ Dodaj użytkownika</button></div>
+    <div class="table-wrap"><table class="crm-table">
+      <thead><tr><th>Osoba</th><th>E-mail</th><th>Rola</th><th>Status</th><th>Akcje</th></tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table></div>`;
+
+  $("#admin-add-user").addEventListener("click", openAddUserModal);
+  // zmiana roli → EF set_role (w DEMO mock); przy błędzie select wraca do poprzedniej wartości
+  wrap.querySelectorAll(".admin-role").forEach((sel) => sel.addEventListener("change", async () => {
+    const row = state.teamRows.find((t) => t.email === sel.dataset.email); if (!row) return;
+    const prev = row.role || "sprzedawca";
+    sel.disabled = true;
+    try {
+      await api.adminUsers("set_role", { user_id: row.user_id, role: sel.value });
+      row.role = sel.value; flashSaved(); toast(`Zmieniono rolę: ${row.name} → ${roleName(sel.value)}`);
+    } catch (err) { console.error("set_role", err); sel.value = prev; toast(err.message || "Nie udało się zmienić roli"); }
+    finally { sel.disabled = false; }
+  }));
+  // akcje kont — delegacja, bo „Usuń trwale" podmienia zawartość komórki na potwierdzenie (wzorzec z przypomnień).
+  // Po każdej udanej operacji pełny renderAdmin() → świeże dane i zero podwójnych listenerów.
+  wrap.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-act]"); if (!btn) return;
+    const box = btn.closest(".admin-actions"); if (!box) return;
+    const row = state.teamRows.find((t) => t.email === box.dataset.email); if (!row) return;
+    const act = btn.dataset.act;
+    if (act === "remove") {
+      box.innerHTML = `<span class="confirm-del">Usunąć konto ${esc(row.name)} na zawsze?</span>
+        <button type="button" class="maps-btn" data-act="remove-no">Anuluj</button>
+        <button type="button" class="maps-btn tb-danger" data-act="remove-yes">Tak, usuń</button>`;
+      return;
+    }
+    if (act === "remove-no") { renderAdmin(); return; }
+    btn.disabled = true;
+    try {
+      if (act === "reset") { await api.resetPassword(row.email); toast(`Wysłano link do resetu hasła: ${row.email}`); btn.disabled = false; return; }
+      if (act === "deactivate") { await api.adminUsers("deactivate", { user_id: row.user_id }); toast(`Zablokowano: ${row.name}`); }
+      else if (act === "reactivate") { await api.adminUsers("reactivate", { user_id: row.user_id }); toast(`Odblokowano: ${row.name}`); }
+      else if (act === "remove-yes") { await api.adminUsers("remove", { user_id: row.user_id }); toast(`Usunięto konto: ${row.name}`); }
+      else { btn.disabled = false; return; }
+      renderAdmin();
+    } catch (err) { console.error("admin akcja", err); toast(err.message || "Nie udało się wykonać akcji"); btn.disabled = false; }
+  });
+}
+
+// Czytelne hasło startowe: 3 krótkie słowa + liczba (łatwo podyktować; bez polskich znaków)
+const PW_WORDS = ["sowa", "kawa", "lipa", "most", "wilk", "fala", "brzeg", "klon", "mewa", "step", "biwak", "orzel", "sosna", "malwa", "trawa", "ogien", "burza", "krab"];
+function genPassword() {
+  const parts = new Set();
+  while (parts.size < 3) parts.add(PW_WORDS[Math.floor(Math.random() * PW_WORDS.length)]);
+  return [...parts].join("-") + Math.floor(10 + Math.random() * 90);
+}
+
+// Mały modal wielokrotnego użytku (panel admina): bez trybu pełnoekranowego i bez nawigacji ‹ ›
+function openSmallModal(html) {
+  state.openCardId = null;
+  $("#modal-body").innerHTML = html;
+  $(".modal").classList.remove("modal-full");
+  $("#modal-prev").hidden = true; $("#modal-next").hidden = true;   // ‹ › dotyczą kart klientów
+  $("#modal-overlay").hidden = false;
+}
+
+// „+ Dodaj użytkownika": mały modal → EF create (konto od razu z hasłem startowym do przekazania)
+function openAddUserModal() {
+  const roles = state.roles.length ? state.roles : sortRolesAdminFirst(structuredClone(DEMO_ROLES));
+  openSmallModal(`
+    <h2>Dodaj użytkownika</h2>
+    <p class="modal-sub">Konto działa od razu — przekaż nowej osobie e-mail i hasło startowe.</p>
+    <form id="au-form" class="admin-form">
+      <label class="admin-field"><span>Imię (widoczne w CRM)</span><input id="au-name" required maxlength="40" placeholder="np. Ania" /></label>
+      <label class="admin-field"><span>E-mail (login)</span><input id="au-email" type="email" required placeholder="np. ania@firma.pl" /></label>
+      <label class="admin-field"><span>Rola</span><select id="au-role">${roles.map((r) => `<option value="${esc(r.key)}" ${r.key === "sprzedawca" ? "selected" : ""}>${esc(r.label || r.key)}</option>`).join("")}</select></label>
+      <label class="admin-field"><span>Hasło startowe (możesz nadpisać)</span>
+        <span class="maps-cell"><input id="au-pass" required minlength="6" value="${esc(genPassword())}" autocomplete="off" />
+        <button type="button" class="maps-btn" id="au-copy" title="Kopiuj hasło">⧉</button></span>
+      </label>
+      <div class="save-row">
+        <button type="button" class="ghost-btn" id="au-cancel">Anuluj</button>
+        <button type="submit" class="primary-btn" id="au-submit">Dodaj użytkownika</button>
+      </div>
+    </form>`);
+  $("#au-cancel").addEventListener("click", closeModal);
+  const cp = $("#au-copy");                                          // wzorzec maps-copy (⧉ → „✓")
+  cp.addEventListener("click", async () => {
+    const inp = $("#au-pass");
+    try { await navigator.clipboard.writeText(inp.value); } catch { inp.focus(); inp.select(); }
+    const old = cp.textContent; cp.textContent = "✓"; cp.classList.add("ok");
+    setTimeout(() => { cp.textContent = old; cp.classList.remove("ok"); }, 1300);
+  });
+  $("#au-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("#au-name").value.trim();
+    const email = $("#au-email").value.trim().toLowerCase();
+    const role = $("#au-role").value;
+    const password = $("#au-pass").value;
+    if (!name || !email || password.length < 6) { toast("Uzupełnij imię, e-mail i hasło (min. 6 znaków)"); return; }
+    const btn = $("#au-submit"); btn.disabled = true; btn.textContent = "Dodaję…";
+    try {
+      await api.adminUsers("create", { email, name, password, role });
+      closeModal();
+      toast(`Dodano użytkownika: ${name}`);
+      renderAdmin();
+    } catch (err) {
+      console.error("create user", err);
+      btn.disabled = false; btn.textContent = "Dodaj użytkownika";
+      toast(err.message || "Nie udało się dodać użytkownika");
+    }
+  });
+}
+
+/* ---------- Pod-zakładka „Role i uprawnienia": matryca rola × uprawnienie ---------- */
+async function renderAdminRoles() {
+  const wrap = $("#admin-body"); if (!wrap) return;
+  wrap.innerHTML = `<div class="table-empty">Wczytuję role…</div>`;
+  let roles, perms, rolePerms;
+  try { [roles, perms, rolePerms] = await Promise.all([api.getRoles(), api.getPermissions(), api.getRolePerms()]); }
+  catch (e) {
+    console.error("admin roles", e);
+    wrap.innerHTML = `<div class="table-empty">Nie udało się wczytać ról i uprawnień${state.rbacReady ? " — spróbuj ponownie" : " — backend RBAC nie wdrożony (schema-rbac.sql)"}.</div>`;
+    return;
+  }
+  if (state.section !== "admin" || state.adminTab !== "roles") return;   // user przełączył widok w trakcie wczytywania
+  roles = sortRolesAdminFirst(roles);
+  state.roles = roles;
+  const on = new Set(rolePerms.map((r) => r.role_key + "|" + r.perm_key));
+  // uprawnienia pogrupowane po grp (w kolejności ord)
+  const groups = [];
+  [...perms].sort((a, b) => (a.ord || 0) - (b.ord || 0)).forEach((p) => {
+    const key = p.grp || "Inne";
+    let g = groups.find((x) => x.grp === key);
+    if (!g) { g = { grp: key, items: [] }; groups.push(g); }
+    g.items.push(p);
+  });
+  const head = `<th>Uprawnienie</th>` + roles.map((r) =>
+    `<th class="admin-th-role">${esc(r.label || r.key)}${r.key === "admin" ? `<span class="admin-note">ma zawsze wszystko</span>` : ""}</th>`).join("");
+  const rows = groups.map((g) =>
+    `<tr class="admin-grp-row"><td colspan="${roles.length + 1}">${esc(g.grp)}</td></tr>` +
+    g.items.map((p) => `<tr>
+        <td>${esc(p.label || p.key)}</td>
+        ${roles.map((r) => {
+          const isAdmin = r.key === "admin";                 // kolumna admin: zawsze ✓ i bez edycji
+          const checked = isAdmin || on.has(r.key + "|" + p.key);
+          return `<td class="admin-cb-cell"><input type="checkbox" class="svc-cb" data-role="${esc(r.key)}" data-perm="${esc(p.key)}" ${checked ? "checked" : ""} ${isAdmin ? "disabled" : ""} /></td>`;
+        }).join("")}
+      </tr>`).join("")).join("");
+  wrap.innerHTML = `
+    <p class="admin-desc">Zaznaczenie = rola ma dane uprawnienie. Zmiany działają od razu dla wszystkich zalogowanych. Administrator ma zawsze wszystkie uprawnienia — jego kolumny nie edytujesz.</p>
+    <div class="table-wrap"><table class="crm-table admin-matrix">
+      <thead><tr>${head}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  wrap.querySelectorAll(".admin-matrix .svc-cb:not(:disabled)").forEach((cb) => cb.addEventListener("change", async () => {
+    const role = cb.dataset.role, perm = cb.dataset.perm, want = cb.checked;
+    cb.disabled = true;
+    try {
+      await api.setRolePerm(role, perm, want);
+      flashSaved();
+      if (state.me && state.me.role === role) {              // zmieniono uprawnienia MOJEJ roli → przelicz gating od razu
+        if (want) state.perms.add(perm); else state.perms.delete(perm);
+        applyRbacGating(); renderTabs(); renderBoard();
+      }
+    } catch (err) { console.error("setRolePerm", err); cb.checked = !want; toast("Nie zapisano uprawnienia — spróbuj ponownie"); }
+    finally { cb.disabled = false; }
+  }));
+}
+
 function wireChrome() {
   $("#modal-close").addEventListener("click", closeModal);
   $("#modal-prev").addEventListener("click", () => navigateCard(-1));
@@ -1649,7 +2045,7 @@ function wireChrome() {
   const renderBoardDeb = debounce(renderBoard, 140);
   const s = $("#search"); if (s) s.addEventListener("input", () => {
     if (state.section === "klienci") { state.klienciSearch = s.value; renderKlienciRows(); }
-    else { state.search = s.value; renderBoardDeb(); }
+    else if (state.section === "sprzedaz") { state.search = s.value; renderBoardDeb(); }   // panel admina nie używa szukajki
   });
   const nb = $("#new-card-btn"); if (nb) nb.addEventListener("click", () => newCard("lead"));
   // Rozwijane menu w topbarze: Konto (ludzik) i Sekcje (hamburger)
@@ -1796,7 +2192,7 @@ function showRecoveryForm() {
 }
 async function init() {
   await api.init(); state.live = api.isLive(); wireChrome();
-  if (!state.live) { $("#demo-banner").hidden = false; state.team = [...DEMO_OWNERS]; state.currentUser = "Krzysztof"; await showApp(); return; }
+  if (!state.live) { $("#demo-banner").hidden = false; state.team = [...DEMO_OWNERS]; state.currentUser = "Krzysztof"; loadDemoRbac(); await showApp(); return; }
   // (Wyloguj wpięte w wireChrome jako pozycja menu konta — #logout-item.)
   // POWRÓT Z LINKU RESETU HASŁA: pokaż ekran „ustaw nowe hasło", nie wpuszczaj od razu do appki
   sb.auth.onAuthStateChange((event) => { if (event === "PASSWORD_RECOVERY") showRecoveryForm(); });
@@ -1828,5 +2224,53 @@ const DEMO_COMMENTS = {
     { author: "Krzysztof", body: "Spoko, biorę.", created_at: "2026-06-19T14:30:00" },
   ],
 };
+
+/* ---------- DANE DEMO: zespół + RBAC (spójne z kontraktem backendu) ---------- */
+const DEMO_TEAM = DEMO_OWNERS.map((name, i) => ({
+  id: "demo-tm-" + i, user_id: "demo-uid-" + i,
+  email: name.toLowerCase() + "@demo", name,
+  role: (name === "Krzysztof" || name === "Marceli") ? "admin" : "sprzedawca",
+  active: true, created_at: "2026-06-20T10:0" + i + ":00",
+}));
+const DEMO_ROLES = [
+  { key: "admin", label: "Administrator", editable: false },
+  { key: "sprzedawca", label: "Sprzedawca", editable: true },
+  { key: "developer", label: "Developer", editable: true },
+  { key: "retencja", label: "Retencja", editable: true },
+];
+// etykiety/grupy/seedy 1:1 ze schema-rbac.sql — DEMO pokazuje dokładnie to, co będzie na żywo
+const DEMO_PERMISSIONS = [
+  { key: "clients.view_all", label: "Widzi klientów całego zespołu", grp: "Klienci", ord: 10 },
+  { key: "clients.edit_all", label: "Edytuje cudze karty", grp: "Klienci", ord: 20 },
+  { key: "clients.hard_delete", label: "Usuwa trwale z archiwum", grp: "Klienci", ord: 30 },
+  { key: "section.klienci", label: "Sekcja Klienci (podpisani)", grp: "Sekcje", ord: 10 },
+  { key: "section.admin", label: "Panel admina", grp: "Sekcje", ord: 20 },
+  { key: "stages.dev", label: "Widzi szczegóły etapów realizacji (dev)", grp: "Sekcje", ord: 30 },
+  { key: "team.manage", label: "Zarządza użytkownikami i rolami", grp: "Zespół", ord: 10 },
+];
+// admin celowo BEZ wpisów (ma wszystko z definicji — jak w kontrakcie backendu); retencja startuje bez uprawnień
+const DEMO_ROLE_PERMS = [
+  { role_key: "sprzedawca", perm_key: "section.klienci" },
+  { role_key: "developer", perm_key: "clients.view_all" },
+  { role_key: "developer", perm_key: "stages.dev" },
+  { role_key: "developer", perm_key: "section.klienci" },
+];
+// operacje panelu admina w DEMO — na mockach w pamięci (jak reszta appki; znikają po odświeżeniu strony)
+function demoAdminUsers(action, p) {
+  if (action === "create") {
+    if (DEMO_TEAM.some((t) => t.email === p.email)) throw new Error("Użytkownik z tym e-mailem już istnieje");
+    const row = { id: "demo-tm-" + Date.now(), user_id: "demo-uid-" + Date.now(), email: p.email, name: p.name, role: p.role || "sprzedawca", active: true, created_at: new Date().toISOString() };
+    DEMO_TEAM.push(row);
+    return { ok: true, user_id: row.user_id };
+  }
+  const i = DEMO_TEAM.findIndex((t) => t.user_id === p.user_id);
+  if (i < 0) throw new Error("Nie znaleziono użytkownika");
+  if (action === "deactivate") DEMO_TEAM[i].active = false;
+  else if (action === "reactivate") DEMO_TEAM[i].active = true;
+  else if (action === "remove") DEMO_TEAM.splice(i, 1);
+  else if (action === "set_role") DEMO_TEAM[i].role = p.role;
+  else throw new Error("Nieznana akcja: " + action);
+  return { ok: true };
+}
 
 init();

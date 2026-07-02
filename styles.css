@@ -563,3 +563,29 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .notif-it-body{font-size:13.5px;color:#222;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .notif-it-time{font-size:11.5px;color:#9aa3af;margin-top:4px}
 .notif-empty{padding:24px 18px;color:#7a838f;font-size:13.5px;line-height:1.5;text-align:center}
+
+/* ===== Panel admina (sekcja) — komponenty wzorowane 1:1 na istniejących ===== */
+.admin-title { font-size: 20px; font-weight: 700; }
+.admin-banner { background: #fbf3e4; color: #7a5b14; font-size: 13px; padding: 9px 12px; border-radius: 8px; margin-top: 12px; }   /* jak .readonly-note */
+.admin-tabs { margin: 16px 0 14px; }
+.admin-desc { color: var(--ink-soft); font-size: 13px; margin: 0 0 14px; }
+.admin-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.admin-person { display: flex; align-items: center; gap: 8px; }
+.admin-person .owner-me { font-size: 12px; }
+.admin-role { border: 1px solid var(--line-strong); border-radius: 7px; padding: 5px 7px; font-size: 13px; font-family: inherit; background: #fff; color: var(--ink); cursor: pointer; }   /* jak .svc-period */
+.admin-role:focus { outline: none; border-color: var(--accent); }
+.admin-role:disabled { background: #f6f6f4; color: var(--ink-soft); cursor: default; }
+.admin-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.maps-btn.tb-danger { color: #a8362f; }
+.maps-btn.tb-danger:hover { background: #fdecea; border-color: #e8b7b2; color: #a8362f; }
+.chip-blocked { color: #a8362f; background: #fdecea; padding: 1px 6px; border-radius: 10px; }   /* jak .chip-demo-done, w czerwieni */
+/* matryca ról: nagłówki grup jak nagłówek tabeli, checkboxy .svc-cb wyśrodkowane */
+.admin-matrix thead th:not(:first-child), .admin-cb-cell { text-align: center; }
+.admin-cb-cell .svc-cb { vertical-align: middle; }
+.admin-grp-row td { background: var(--bg); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); padding: 8px 16px; }
+.admin-note { display: block; font-weight: 500; text-transform: none; letter-spacing: 0; font-size: 10.5px; color: var(--ink-soft); margin-top: 1px; }
+/* mały modal „Dodaj użytkownika" — pola jak w karcie logowania */
+.admin-form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.admin-field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 500; color: var(--ink-soft); }
+.admin-field input, .admin-field select { border: 1px solid var(--line-strong); border-radius: 8px; padding: 9px 11px; font-size: 14px; font-family: inherit; color: var(--ink); background: #fff; width: 100%; }
+.admin-field input:focus, .admin-field select:focus { outline: none; border-color: var(--accent); }
