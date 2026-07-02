@@ -404,6 +404,8 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .services-pane.locked .svc-price-input:disabled, .services-pane.locked .svc-period:disabled { background: #f6f6f4; color: var(--ink); -webkit-text-fill-color: var(--ink); opacity: 1; cursor: default; }
 .checklist-pane { background: #fff; }
 .svc-cur { color: var(--ink-soft); }
+.svc-hint { color: var(--ink-soft); font-size: 12px; }                            /* podpowiedź „min. X · rek. Y zł" przy wpisywanej cenie — jak .svc-cur */
+.svc-retired { color: var(--ink-soft); font-weight: 400; font-size: 11.5px; }     /* dopisek przy usłudze ukrytej-a-zaznaczonej — jak .owner-me */
 /* PRAWA kolumna — komentarze/czat */
 .cm-right { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); background: var(--bg); }
 .cm-right .comments-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 20px 4px; margin: 0; }
@@ -588,3 +590,4 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .admin-field { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; font-weight: 500; color: var(--ink-soft); }
 .admin-field input, .admin-field select { border: 1px solid var(--line-strong); border-radius: 8px; padding: 9px 11px; font-size: 14px; font-family: inherit; color: var(--ink); background: #fff; width: 100%; }
 .admin-field input:focus, .admin-field select:focus { outline: none; border-color: var(--accent); }
+.admin-field input:disabled { background: #f6f6f4; color: var(--ink-soft); cursor: default; }   /* klucz usługi w edycji (niezmienny) — jak .admin-role:disabled */

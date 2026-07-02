@@ -79,7 +79,10 @@ const state = {
   rbacAt: 0,                // kiedy ostatnio odświeżono uprawnienia (throttle w refreshData)
   roles: [],                // lista ról do selectów panelu admina
   teamRows: [],             // pełne wiersze team_members (panel admina)
-  adminTab: "users",        // pod-zakładka panelu admina: "users" | "roles"
+  adminTab: "users",        // pod-zakładka panelu admina: "users" | "roles" | "oferta"
+  catalog: [],              // katalog usług (service_catalog) — jedyne źródło prawdy zakładki „Usługi" i panelu „Oferta"
+  catalogReady: false,      // czy backend katalogu (schema-uslugi.sql) jest wdrożony; false = tryb zgodności (wbudowane 2 usługi)
+  catalogAt: 0,             // kiedy ostatnio wczytano katalog (throttle w refreshData — jak RBAC)
 };
 
 /* ---------- Panel zespołu: czyje karty widać (domyślnie tylko moje) ---------- */
@@ -124,6 +127,10 @@ function loadOwners() {   // → { all: bool, owners: Set }
 let sb = null;
 const cfg = window.CRM_CONFIG || {};
 const LIVE = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY);
+
+// błąd zapisu katalogu usług odbity przez RLS (brak 'services.manage') → komunikat po polsku dla toasta
+const svcWriteError = (error) => (error && (error.code === "42501" || /row-level security/i.test(error.message || "")))
+  ? new Error("Brak uprawnień do zarządzania ofertą") : error;
 
 const api = {
   isLive: () => LIVE,
@@ -221,6 +228,32 @@ const api = {
     }
     if (on) { const { error } = await sb.from("role_permissions").upsert({ role_key: role, perm_key: perm }); if (error) throw error; }
     else { const { error } = await sb.from("role_permissions").delete().eq("role_key", role).eq("perm_key", perm); if (error) throw error; }
+  },
+
+  /* ---- Katalog usług (service_catalog) — zakładka „Usługi" na karcie + panel „Oferta" ---- */
+  async getServiceCatalog() {
+    if (!LIVE) return structuredClone(DEMO_SERVICE_CATALOG);
+    const { data, error } = await sb.from("service_catalog").select("*");
+    if (error) throw error; return data || [];
+  },
+  // dodanie / edycja usługi (upsert po key); RLS przepuszcza tylko 'services.manage' (admin niejawnie)
+  async upsertService(row) {
+    if (!LIVE) {
+      const i = DEMO_SERVICE_CATALOG.findIndex((s) => s.key === row.key);
+      if (i >= 0) DEMO_SERVICE_CATALOG[i] = { ...DEMO_SERVICE_CATALOG[i], ...row };
+      else DEMO_SERVICE_CATALOG.push({ ...row, created_at: new Date().toISOString() });
+      return;
+    }
+    const { error } = await sb.from("service_catalog").upsert(row, { onConflict: "key" });
+    if (error) throw svcWriteError(error);
+  },
+  // pokaż/ukryj usługę w ofercie (ukryta nie znika ze starych kart — patrz servicesForClient)
+  async setServiceVisible(key, visible) {
+    if (!LIVE) { const s = DEMO_SERVICE_CATALOG.find((x) => x.key === key); if (s) s.visible = visible; return; }
+    // .select() celowo: UPDATE odbity przez RLS wraca „cicho" z 0 wierszy — zamień to na czytelny błąd
+    const { data, error } = await sb.from("service_catalog").update({ visible }).eq("key", key).select();
+    if (error) throw svcWriteError(error);
+    if (!data || !data.length) throw new Error("Brak uprawnień do zarządzania ofertą");
   },
   // Operacje na kontach (utworzenie / blokada / usunięcie / zmiana roli) — Edge Function 'admin-users'
   // (wymagają klucza service-role, dlatego NIE idą z klienta). W DEMO działają na mockach w pamięci.
@@ -927,34 +960,45 @@ async function openModal(id) {
   }
 
   if (editable) {
-    // Usługi: checkbox (pomarańczowy gdy zaznaczony) + kwota za stronę (wpisuje handlowiec)
+    // Usługi (z katalogu): checkbox / kwota / okres per usługa — klucz w data-svc, zapis do clients.services[key]
+    const svcRow = (k) => { c.services = c.services || {}; return (c.services[k] = c.services[k] || {}); };
     document.querySelectorAll("#pane-services .svc-cb").forEach((cb) => cb.addEventListener("change", () => {
       const k = cb.dataset.svc;
-      c.services = c.services || {}; c.services[k] = c.services[k] || {};
-      c.services[k].on = cb.checked;
+      const row = svcRow(k);
+      row.on = cb.checked;
+      // zaznaczenie usługi z wpisywaną ceną i pustą kwotą → prefill ceną rekomendowaną z katalogu (jeśli jest)
+      const cat = state.catalog.find((s) => s.key === k);
+      if (cb.checked && cat && cat.price_mode === "custom" && !(row.price === 0 || row.price)) {
+        const rec = svcRec(cat);
+        if (rec != null) {
+          row.price = rec;
+          const inp = document.querySelector(`#pane-services .svc-price-input[data-svc="${CSS.escape(k)}"]`);
+          if (inp) inp.value = String(rec);
+        }
+      }
       const item = cb.closest(".svc-item"); if (item) item.classList.toggle("on", cb.checked);
       updateSvcTotal(c);
       saveServices(c.id);
     }));
-    const priceInp = document.querySelector("#pane-services .svc-price-input[data-svc='strona']");
-    if (priceInp) {
+    document.querySelectorAll("#pane-services .svc-price-input").forEach((inp) => {
+      const k = inp.dataset.svc;
       const savePrice = () => {
-        c.services = c.services || {}; c.services.strona = c.services.strona || {};
-        const raw = priceInp.value.trim();
-        c.services.strona.price = raw === "" ? null : Number(raw);
+        const raw = inp.value.trim();
+        let val = raw === "" ? null : Number(raw);
+        const clamped = clampSvcPrice(state.catalog.find((s) => s.key === k), val);   // poniżej minimum → przytnij + toast
+        if (clamped !== val) { val = clamped; inp.value = String(clamped); }
+        svcRow(k).price = val;
         updateSvcTotal(c);
         saveServices(c.id);
       };
-      priceInp.addEventListener("input", debounce(savePrice, 600));
-      priceInp.addEventListener("change", savePrice);
-    }
-    const periodSel = document.querySelector("#pane-services .svc-period[data-svc='obsluga']");
-    if (periodSel) periodSel.addEventListener("change", () => {
-      c.services = c.services || {}; c.services.obsluga = c.services.obsluga || {};
-      c.services.obsluga.period = periodSel.value;
+      inp.addEventListener("input", debounce(savePrice, 600));
+      inp.addEventListener("change", savePrice);
+    });
+    document.querySelectorAll("#pane-services .svc-period").forEach((sel) => sel.addEventListener("change", () => {
+      svcRow(sel.dataset.svc).period = sel.value;
       updateSvcTotal(c);
       saveServices(c.id);
-    });
+    }));
     const saveDeb = debounce((el) => saveField(c.id, el.dataset.key, el.value), 600);
     document.querySelectorAll("#modal-body [data-key]").forEach((el) => {
       if (el.id === "demo-input") return;   // pole demo ma własne wiązanie (wireDemoCell) — bez podwójnego zapisu
@@ -997,53 +1041,100 @@ async function openModal(id) {
   updateNavButtons();
 }
 
-// Usługi sprzedawane klientowi (widok w karcie od etapu „Sprzedaż"). Zapisywane w kolumnie clients.services (jsonb).
-// Na start: strona internetowa (kwota wpisywana przez handlowca) + obsługa techniczna (wymagana, 49 zł).
-const OBSLUGA_CENA = 49;                         // zł / miesiąc
+// Usługi sprzedawane klientowi (widok w karcie od etapu „Sprzedaż"). Wybory zapisywane w clients.services (jsonb):
+// { "<key>": { on, price?, period? } } — klucze z katalogu (service_catalog), format bez zmian (kompatybilny wstecz).
+// KATALOG = jedyne źródło prawdy o ofercie (etykiety, ceny, tryb rozliczenia); zarządzany w panelu admina → „Oferta".
 const OKRESY = [{ key: "6m", label: "6 mies.", months: 6 }, { key: "1y", label: "1 rok", months: 12 }, { key: "2y", label: "2 lata", months: 24 }];
 const DEF_OKRES = "6m";
 const okresMonths = (k) => (OKRESY.find((o) => o.key === k) || OKRESY[0]).months;
-// Suma kwot ZAZNACZONYCH usług (strona: kwota od handlowca; obsługa: 49 zł/mies. × wybrany okres).
+// Tryb zgodności (schema-uslugi.sql nie wykonany): wbudowany katalog = dokładnie seed SQL — appka działa jak dotąd.
+const DEFAULT_CATALOG = [
+  { key: "strona",  label: "Strona internetowa", visible: true, price_mode: "custom", price_fixed: null, price_min: null, price_rec: null, billing: "one_time", ord: 10 },
+  { key: "obsluga", label: "Obsługa techniczna", visible: true, price_mode: "fixed",  price_fixed: 49,   price_min: null, price_rec: null, billing: "monthly",  ord: 20 },
+];
+const sortCatalog = (rows) => [...rows].sort((a, b) => ((a.ord || 0) - (b.ord || 0)) || String(a.label || "").localeCompare(String(b.label || ""), "pl"));
+// Wczytaj katalog usług. ODPORNE na brak backendu (jak RBAC): błąd (brak tabeli) NIE wywala appki →
+// tryb zgodności = wbudowane strona+obsługa, a zakładka „Oferta" pokazuje baner-instrukcję.
+async function loadCatalog() {
+  state.catalogAt = Date.now();
+  try {
+    state.catalog = sortCatalog(await api.getServiceCatalog());
+    state.catalogReady = true;
+  } catch (e) {
+    console.warn("Katalog usług niedostępny — tryb zgodności (wbudowane: strona + obsługa)", e);
+    if (state.catalogReady) return;            // chwilowy błąd (np. sieć) — zostaw ostatnio wczytany katalog
+    state.catalog = structuredClone(DEFAULT_CATALOG);
+  }
+}
+// Usługi do pokazania na TEJ karcie: widoczne z katalogu + ukryte-a-już-zaznaczone (stare wybory nie znikają).
+function servicesForClient(sv) {
+  sv = sv || {};
+  return state.catalog.filter((s) => s.visible !== false || (sv[s.key] && sv[s.key].on));
+}
+const svcMin = (s) => (s && (s.price_min === 0 || s.price_min) ? Number(s.price_min) : null);
+const svcRec = (s) => (s && (s.price_rec === 0 || s.price_rec) ? Number(s.price_rec) : null);
+// Wpisana cena poniżej minimum z katalogu → przytnij do minimum (toast informuje handlowca).
+function clampSvcPrice(cat, val) {
+  const min = svcMin(cat);
+  if (val != null && !Number.isNaN(val) && min != null && val < min) {
+    toast(`Minimalna cena „${cat.label}" to ${min} zł`);
+    return min;
+  }
+  return val;
+}
+// Suma kwot ZAZNACZONYCH usług wg katalogu (fixed → cena z katalogu; custom → kwota od handlowca;
+// monthly → × miesiące wybranego okresu). Sygnatura bez zmian — używane też w Bazie partnerów (renderKlienciRows).
 function svcTotal(sv) {
   sv = sv || {};
   let t = 0;
-  if (sv.strona && sv.strona.on && (sv.strona.price === 0 || sv.strona.price)) t += Number(sv.strona.price) || 0;
-  if (sv.obsluga && sv.obsluga.on) t += OBSLUGA_CENA * okresMonths(sv.obsluga.period);
+  for (const s of state.catalog) {
+    const row = sv[s.key];
+    if (!row || !row.on) continue;
+    const price = s.price_mode === "fixed"
+      ? (Number(s.price_fixed) || 0)
+      : ((row.price === 0 || row.price) ? (Number(row.price) || 0) : null);   // custom bez kwoty → nie licz (jak dotąd)
+    if (price == null) continue;
+    t += s.billing === "monthly" ? price * okresMonths(row.period) : price;
+  }
   return t;
 }
 function updateSvcTotal(c) {
   const el = document.getElementById("svc-total-val");
   if (el) el.textContent = svcTotal(c.services);
 }
+// Jeden wiersz na usługę z katalogu: checkbox + (okres przy monthly) + cena (stała / input handlowca) — wygląd jak dotąd.
 function servicesHTML(c, editable) {
   const sv = c.services || {};
-  const strona = sv.strona || {};
-  const obsluga = sv.obsluga || {};
-  const price = (strona.price === 0 || strona.price) ? strona.price : "";
   const dis = editable ? "" : "disabled";
-  return `
-    <div class="svc-item${strona.on ? " on" : ""}" data-svc="strona">
+  const cur = (s) => s.billing === "monthly" ? "zł/mies." : "zł";
+  const items = servicesForClient(sv).map((s) => {
+    const row = sv[s.key] || {};
+    const k = esc(s.key);
+    // usługa wycofana z oferty (ukryta), ale na tej karcie zaznaczona — pokaż z dyskretnym dopiskiem
+    const retired = s.visible === false ? ` <span class="svc-retired">(wycofana z oferty)</span>` : "";
+    const period = s.billing === "monthly" ? `<select class="svc-period" data-svc="${k}" ${dis}>
+          ${OKRESY.map((o) => `<option value="${o.key}" ${(row.period || DEF_OKRES) === o.key ? "selected" : ""}>${o.label}</option>`).join("")}
+        </select>` : "";
+    let priceHtml;
+    if (s.price_mode === "fixed") {
+      priceHtml = `<span class="svc-fixed">${esc(String(Number(s.price_fixed) || 0))}</span> <span class="svc-cur">${cur(s)}</span>`;
+    } else {
+      const price = (row.price === 0 || row.price) ? row.price : "";
+      const min = svcMin(s), rec = svcRec(s);
+      const hintTxt = [min != null ? `min. ${min}` : "", rec != null ? `rek. ${rec}` : ""].filter(Boolean).join(" · ");
+      const hint = hintTxt ? `<span class="svc-hint">${esc(hintTxt)} zł</span>` : "";
+      priceHtml = `${hint}<input type="number" class="svc-price-input" data-svc="${k}" min="${min != null ? min : 0}" step="10" inputmode="numeric" value="${esc(String(price))}" placeholder="kwota" ${dis} />
+        <span class="svc-cur">${cur(s)}</span>`;
+    }
+    return `<div class="svc-item${row.on ? " on" : ""}" data-svc="${k}">
       <label class="svc-check">
-        <input type="checkbox" class="svc-cb" data-svc="strona" ${strona.on ? "checked" : ""} ${dis} />
-        <span class="svc-name">Strona internetowa</span>
+        <input type="checkbox" class="svc-cb" data-svc="${k}" ${row.on ? "checked" : ""} ${dis} />
+        <span class="svc-name">${esc(s.label)}${retired}</span>
       </label>
-      <div class="svc-price">
-        <input type="number" class="svc-price-input" data-svc="strona" min="0" step="10" inputmode="numeric" value="${esc(String(price))}" placeholder="kwota" ${dis} />
-        <span class="svc-cur">zł</span>
-      </div>
-    </div>
-    <div class="svc-item${obsluga.on ? " on" : ""}" data-svc="obsluga">
-      <label class="svc-check">
-        <input type="checkbox" class="svc-cb" data-svc="obsluga" ${obsluga.on ? "checked" : ""} ${dis} />
-        <span class="svc-name">Obsługa techniczna</span>
-      </label>
-      <div class="svc-price">
-        <select class="svc-period" data-svc="obsluga" ${dis}>
-          ${OKRESY.map((o) => `<option value="${o.key}" ${(obsluga.period || DEF_OKRES) === o.key ? "selected" : ""}>${o.label}</option>`).join("")}
-        </select>
-        <span class="svc-fixed">${OBSLUGA_CENA}</span> <span class="svc-cur">zł/mies.</span>
-      </div>
-    </div>
+      <div class="svc-price">${period}${priceHtml}</div>
+    </div>`;
+  }).join("");
+  return items + `
     <div class="svc-total"><span class="svc-total-lbl">Razem</span><span class="svc-total-amt"><b id="svc-total-val">${svcTotal(sv)}</b> zł</span></div>`;
 }
 
@@ -1572,6 +1663,8 @@ async function refreshData() {
           if (meRow.user_id) state.me.user_id = meRow.user_id;
         }
       } catch {}
+      // katalog usług odświeżaj tym samym rytmem co RBAC (zmiany oferty nie muszą być realtime)
+      if (Date.now() - (state.catalogAt || 0) > 60000) await loadCatalog();
       // uprawnienia roli odświeżaj rzadko (tabele RBAC nie mają realtime; backstop refreshData co 60 s wystarcza)
       if (Date.now() - (state.rbacAt || 0) > 60000) {
         state.rbacAt = Date.now();
@@ -1631,6 +1724,7 @@ async function showApp() {
   const li = $("#logout-item"); if (li) li.hidden = !state.live;
   state.clients = await api.getClients();
   state.commentsByClient = await api.getAllComments();
+  await loadCatalog();   // katalog usług — potrzebny karcie (zakładka „Usługi") i Bazie partnerów (kolumna Usługi)
   // DOMYŚLNIE: każdy widzi tylko SWOJE karty; przez panel zespołu może dobrać innych / wszystkich
   const loaded = loadOwners(); state.ownersAll = loaded.all; state.owners = loaded.owners;
   applyRbacGating();   // pozycje menu Sekcje wg uprawnień + przycięcie „Pokaż" do siebie, gdy brak podglądu cudzych
@@ -1799,13 +1893,16 @@ function renderAdmin() {
     <div class="notes-tabs admin-tabs">
       <button type="button" class="notes-tab ${state.adminTab === "users" ? "on" : ""}" data-atab="users">Użytkownicy</button>
       <button type="button" class="notes-tab ${state.adminTab === "roles" ? "on" : ""}" data-atab="roles">Role i uprawnienia</button>
+      <button type="button" class="notes-tab ${state.adminTab === "oferta" ? "on" : ""}" data-atab="oferta">Oferta</button>
     </div>
     <div id="admin-body"></div>`;
   v.querySelectorAll("[data-atab]").forEach((b) => b.addEventListener("click", () => {
     if (state.adminTab === b.dataset.atab) return;
     state.adminTab = b.dataset.atab; renderAdmin();
   }));
-  if (state.adminTab === "roles") renderAdminRoles(); else renderAdminUsers();
+  if (state.adminTab === "roles") renderAdminRoles();
+  else if (state.adminTab === "oferta") renderAdminOferta();
+  else renderAdminUsers();
 }
 
 /* ---------- Pod-zakładka „Użytkownicy": tabela kont + akcje ---------- */
@@ -2010,6 +2107,144 @@ async function renderAdminRoles() {
     } catch (err) { console.error("setRolePerm", err); cb.checked = !want; toast("Nie zapisano uprawnienia — spróbuj ponownie"); }
     finally { cb.disabled = false; }
   }));
+}
+
+/* ---------- Pod-zakładka „Oferta": katalog usług (dodawanie, edycja, ukrywanie) ---------- */
+// klucz-slug z nazwy: małe litery, bez diakrytyków (ł ręcznie — NFD go nie rozkłada), znaki → '_', unikalny w katalogu
+function slugifyKey(name) {
+  const s = String(name || "").toLowerCase().replace(/ł/g, "l")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "usluga";
+  let key = s, n = 2;
+  while (state.catalog.some((x) => x.key === key)) key = s + "_" + n++;
+  return key;
+}
+const nextCatalogOrd = () => state.catalog.reduce((m, s) => Math.max(m, Number(s.ord) || 0), 0) + 10;
+
+async function renderAdminOferta() {
+  const wrap = $("#admin-body"); if (!wrap) return;
+  wrap.innerHTML = `<div class="table-empty">Wczytuję ofertę…</div>`;
+  await loadCatalog();                                                   // świeży katalog przy każdym wejściu w zakładkę
+  if (state.section !== "admin" || state.adminTab !== "oferta") return;  // user przełączył widok w trakcie wczytywania
+  // edycja tylko z uprawnieniem (admin niejawnie) I wdrożonym backendem — inaczej tabela read-only
+  const manage = can("services.manage") && state.catalogReady;
+  const banner = state.catalogReady ? "" : `<div class="admin-banner">⚠️ Backend katalogu nie wdrożony — wykonaj <b>schema-uslugi.sql</b> (instrukcja w HANDOVER-lejek-realizacja.md). Do tego czasu karta pokazuje wbudowaną ofertę (strona + obsługa), tylko podgląd.</div>`;
+  const dash = `<span class="tb-empty">—</span>`;
+  const rows = state.catalog.map((s) => {
+    const visible = s.visible !== false;
+    let priceCell;
+    if (s.price_mode === "fixed") priceCell = `${esc(String(Number(s.price_fixed) || 0))} zł`;
+    else {
+      const min = svcMin(s), rec = svcRec(s);   // pokazuj tylko ustawione granice
+      const sub = [min != null ? `min. ${min} zł` : "", rec != null ? `rek. ${rec} zł` : ""].filter(Boolean).join(" · ");
+      priceCell = `<div class="tb-name"><span>wpisywana</span>${sub ? `<span class="tb-co">${esc(sub)}</span>` : ""}</div>`;
+    }
+    // celowo BEZ usuwania: stare karty trzymają klucz usługi w clients.services — ukrycie wystarcza
+    const actions = manage ? `<div class="admin-actions" data-key="${esc(s.key)}">
+        <button type="button" class="maps-btn" data-act="edit">Edytuj</button>
+        <button type="button" class="maps-btn" data-act="toggle">${visible ? "Ukryj" : "Pokaż"}</button>
+      </div>` : dash;
+    return `<tr>
+        <td><div class="tb-name"><span class="tb-nm">${esc(s.label)}</span><span class="tb-co">${esc(s.key)}</span></div></td>
+        <td>${s.billing === "monthly" ? "miesięcznie" : "jednorazowo"}</td>
+        <td>${priceCell}</td>
+        <td>${visible ? `<span class="chip chip-demo-done">Widoczna</span>` : `<span class="chip chip-blocked">Ukryta</span>`}</td>
+        <td>${actions}</td>
+      </tr>`;
+  }).join("");
+  wrap.innerHTML = `
+    ${banner}
+    ${manage ? `<div class="admin-toolbar"><button type="button" class="primary-btn sm" id="admin-add-svc">+ Dodaj usługę</button></div>` : ""}
+    <div class="table-wrap"><table class="crm-table">
+      <thead><tr><th>Usługa</th><th>Rozliczenie</th><th>Cena</th><th>Widoczność</th><th>Akcje</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="5"><div class="table-empty">Katalog jest pusty — dodaj pierwszą usługę.</div></td></tr>`}</tbody>
+    </table></div>`;
+  const addBtn = $("#admin-add-svc");
+  if (addBtn) addBtn.addEventListener("click", () => openServiceModal(null));
+  wrap.querySelectorAll(".admin-actions [data-act]").forEach((btn) => btn.addEventListener("click", async () => {
+    const key = btn.closest(".admin-actions").dataset.key;
+    const svc = state.catalog.find((s) => s.key === key); if (!svc) return;
+    if (btn.dataset.act === "edit") { openServiceModal(svc); return; }
+    btn.disabled = true;                                        // toggle widoczności (Ukryj ↔ Pokaż)
+    try { await api.setServiceVisible(key, svc.visible === false); flashSaved(); renderAdminOferta(); }
+    catch (err) { console.error("setServiceVisible", err); btn.disabled = false; toast(err.message || "Nie zapisano widoczności"); }
+  }));
+}
+
+// „+ Dodaj usługę" / „Edytuj" → mały modal (wzorzec „Dodaj użytkownika"); edycja = upsert po niezmiennym key
+function openServiceModal(svc) {
+  const isEdit = !!svc;
+  const s = svc || { label: "", billing: "one_time", price_mode: "fixed", price_fixed: null, price_min: null, price_rec: null, visible: true };
+  const num = (v) => (v === 0 || v ? esc(String(Number(v))) : "");
+  openSmallModal(`
+    <h2>${isEdit ? "Edytuj usługę" : "Dodaj usługę"}</h2>
+    <p class="modal-sub">${isEdit ? `Klucz usługi jest stały — zapisane karty rozpoznają po nim swoje wybory.` : `Usługa pojawi się na kartach klientów w zakładce „Usługi".`}</p>
+    <form id="sv-form" class="admin-form">
+      <label class="admin-field"><span>Nazwa (widoczna dla handlowców)</span><input id="sv-label" required maxlength="60" value="${esc(s.label || "")}" placeholder="np. Opinie Google" /></label>
+      ${isEdit ? `<label class="admin-field"><span>Klucz (niezmienny)</span><input id="sv-key" value="${esc(s.key)}" disabled /></label>` : ""}
+      <label class="admin-field"><span>Rozliczenie</span><select id="sv-billing">
+        <option value="one_time" ${s.billing !== "monthly" ? "selected" : ""}>jednorazowo</option>
+        <option value="monthly" ${s.billing === "monthly" ? "selected" : ""}>miesięcznie (cena × wybrany okres)</option>
+      </select></label>
+      <label class="admin-field"><span>Tryb ceny</span><select id="sv-mode">
+        <option value="fixed" ${s.price_mode !== "custom" ? "selected" : ""}>stała</option>
+        <option value="custom" ${s.price_mode === "custom" ? "selected" : ""}>wpisywana przez handlowca</option>
+      </select></label>
+      <label class="admin-field" id="sv-f-fixed"><span>Cena (zł)</span><input id="sv-fixed" type="number" min="0" step="1" inputmode="numeric" value="${num(s.price_fixed)}" placeholder="np. 49" /></label>
+      <label class="admin-field" id="sv-f-min" hidden><span>Cena minimalna (zł, opcjonalna)</span><input id="sv-min" type="number" min="0" step="1" inputmode="numeric" value="${num(s.price_min)}" placeholder="appka nie pozwoli zejść niżej" /></label>
+      <label class="admin-field" id="sv-f-rec" hidden><span>Cena rekomendowana (zł, opcjonalna)</span><input id="sv-rec" type="number" min="0" step="1" inputmode="numeric" value="${num(s.price_rec)}" placeholder="podpowiedź i prefill dla handlowca" /></label>
+      <label class="svc-check"><input type="checkbox" class="svc-cb" id="sv-visible" ${s.visible !== false ? "checked" : ""} /><span>Widoczna dla handlowców</span></label>
+      <div class="save-row">
+        <button type="button" class="ghost-btn" id="sv-cancel">Anuluj</button>
+        <button type="submit" class="primary-btn" id="sv-submit">${isEdit ? "Zapisz zmiany" : "Dodaj usługę"}</button>
+      </div>
+    </form>`);
+  $("#sv-cancel").addEventListener("click", closeModal);
+  // pola ceny przełączają się na żywo wg trybu: stała → Cena; wpisywana → Minimalna + Rekomendowana
+  const modeSel = $("#sv-mode");
+  const syncMode = () => {
+    const custom = modeSel.value === "custom";
+    $("#sv-f-fixed").hidden = custom;
+    $("#sv-f-min").hidden = !custom;
+    $("#sv-f-rec").hidden = !custom;
+  };
+  modeSel.addEventListener("change", syncMode);
+  syncMode();
+  $("#sv-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const label = $("#sv-label").value.trim();
+    if (!label) { toast("Podaj nazwę usługi"); return; }
+    const mode = modeSel.value;
+    const numVal = (sel) => { const raw = $(sel).value.trim(); return raw === "" ? null : Number(raw); };
+    let price_fixed = null, price_min = null, price_rec = null;
+    if (mode === "fixed") {
+      price_fixed = numVal("#sv-fixed");
+      if (price_fixed == null || Number.isNaN(price_fixed) || price_fixed < 0) { toast("Podaj cenę — liczba ≥ 0"); return; }
+    } else {
+      price_min = numVal("#sv-min"); price_rec = numVal("#sv-rec");
+      if ((price_min != null && (Number.isNaN(price_min) || price_min < 0)) ||
+          (price_rec != null && (Number.isNaN(price_rec) || price_rec < 0))) { toast("Ceny minimalna i rekomendowana muszą być liczbami ≥ 0"); return; }
+      if (price_min != null && price_rec != null && price_rec < price_min) { toast("Cena rekomendowana nie może być niższa od minimalnej"); return; }
+    }
+    const row = {
+      key: isEdit ? svc.key : slugifyKey(label),               // key niezmienny; przy kolizji slug dostaje liczbę
+      label, visible: $("#sv-visible").checked,
+      price_mode: mode, price_fixed, price_min, price_rec,
+      billing: $("#sv-billing").value,
+      ord: isEdit ? (svc.ord == null ? 0 : svc.ord) : nextCatalogOrd(),   // nowa usługa na koniec listy
+    };
+    const btn = $("#sv-submit"); btn.disabled = true; btn.textContent = "Zapisuję…";
+    try {
+      await api.upsertService(row);
+      closeModal(); flashSaved();
+      toast(isEdit ? `Zapisano usługę: ${label}` : `Dodano usługę: ${label}`);
+      renderAdmin();                                            // odświeża state.catalog (renderAdminOferta → loadCatalog)
+    } catch (err) {
+      console.error("upsertService", err);
+      btn.disabled = false; btn.textContent = isEdit ? "Zapisz zmiany" : "Dodaj usługę";
+      toast(err.message || "Nie udało się zapisać usługi");
+    }
+  });
 }
 
 function wireChrome() {
@@ -2246,6 +2481,13 @@ const DEMO_PERMISSIONS = [
   { key: "section.admin", label: "Panel admina", grp: "Sekcje", ord: 20 },
   { key: "stages.dev", label: "Widzi szczegóły etapów realizacji (dev)", grp: "Sekcje", ord: 30 },
   { key: "team.manage", label: "Zarządza użytkownikami i rolami", grp: "Zespół", ord: 10 },
+  { key: "services.manage", label: "Zarządza ofertą usług", grp: "Zespół", ord: 20 },   // seed ze schema-uslugi.sql
+];
+// katalog usług 1:1 z seedem schema-uslugi.sql + trzecia usługa UKRYTA (w DEMO widać wycofywanie z oferty)
+const DEMO_SERVICE_CATALOG = [
+  { key: "strona",  label: "Strona internetowa", visible: true,  price_mode: "custom", price_fixed: null, price_min: null, price_rec: null, billing: "one_time", ord: 10, created_at: "2026-07-01T10:00:00" },
+  { key: "obsluga", label: "Obsługa techniczna", visible: true,  price_mode: "fixed",  price_fixed: 49,   price_min: null, price_rec: null, billing: "monthly",  ord: 20, created_at: "2026-07-01T10:01:00" },
+  { key: "hosting", label: "Hosting",            visible: false, price_mode: "fixed",  price_fixed: 30,   price_min: null, price_rec: null, billing: "monthly",  ord: 30, created_at: "2026-07-01T10:02:00" },
 ];
 // admin celowo BEZ wpisów (ma wszystko z definicji — jak w kontrakcie backendu); retencja startuje bez uprawnień
 const DEMO_ROLE_PERMS = [
