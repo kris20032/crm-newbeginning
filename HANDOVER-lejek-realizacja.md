@@ -1,6 +1,6 @@
 # HANDOVER — rozbudowa lejka CRM „realizacja/usługi" (branch `feat/lejek-realizacja`)
 
-> Dla: **Marceli** (i jego Claude). Data: 2026-07-02. Autor: Krzysztof + Claude.
+> Dla: **kto kontynuuje** (Marceli lub Krzysztof — i jego Claude). Data: 2026-07-02. Autorzy: Krzysztof + Marceli + Claude.
 > **Najpierw powiedz swojemu Claude: „przeczytaj HANDOVER-lejek-realizacja.md i kontynuuj według niego".**
 
 ## Co to jest
@@ -14,14 +14,22 @@ Rozbudowujemy nasz CRM (repo `kris20032/crm-newbeginning`, live na GitHub Pages 
 - „Konwersja" → przemianowana na **„Umowa podpisana"** (klucz `konwersja` bez zmian → istniejące karty zostają).
 - Dodane 3 nowe: `checklista`=„Checklista gotowa", `w_realizacji`=„W trakcie realizacji", `zrealizowane`=„Realizacja ukończona".
 
-**Krok 2 — zakładka Usługi na karcie klienta.** W karcie, nad polem notatek, jest teraz przełącznik **Notatki | Usługi**:
+**Krok 2 — zakładka Usługi na karcie klienta.** W karcie, nad polem notatek, przełącznik **Notatki | Usługi | Checklista**:
 - Zakładka „Usługi" pojawia się **od etapu „Sprzedaż" (`po_spotkaniu`) w górę**.
-- 2 usługi na start: **Strona internetowa** (checkbox + pole na kwotę wpisywaną przez handlowca) + **Obsługa techniczna** (wymagana, stała 49 zł, stała `OBSLUGA_CENA` w kodzie).
-- Zaznaczony checkbox **świeci się na pomarańczowo** (`#e8843c`).
-- Kod: funkcje `servicesHTML()` i `saveServices()` w `app.js`; style `.notes-tabs` / `.svc-*` w `styles.css`.
-- Zapis do kolumny `clients.services` (jsonb). W trybie DEMO trzymane w pamięci przeglądarki.
+- 2 usługi: **Strona internetowa** (checkbox + kwota od handlowca) + **Obsługa techniczna** (**49 zł/mies.** × wybrany **okres**: 6 mies./1 rok/2 lata; `OBSLUGA_CENA`, `OKRESY` w kodzie).
+- Na dole **suma „Razem"** (`svcTotal()`) = kwota strony + 49 × miesiące okresu; liczona tylko z zaznaczonych.
+- Zaznaczona usługa świeci **na niebiesko** (`--accent`). **Od etapu „Umowa wysłana" (`oferta`) w górę usługi są zamrożone i zielone** (bez edycji/odklikania) — `svcLocked` w `renderCard`.
+- Kod: `servicesHTML()`, `saveServices()`, `svcTotal()`/`updateSvcTotal()` w `app.js`; style `.notes-tabs` / `.svc-*` w `styles.css`.
+- Zapis do kolumny `clients.services` (jsonb). W DEMO trzymane w pamięci przeglądarki.
 
-Aktualna wersja cache: **v70** (w `index.html` przy `styles.css`/`config.js`/`app.js` jest `?v=70` — **przy każdej zmianie front trzeba podbić numer**, np. na v71, żeby zespół nie miał starej wersji z cache).
+**Krok 3 (ta sesja) — nawigacja + sekcja Klienci + kosmetyka lejka.**
+- Etapy przemianowane: „Wysłane demo"→**„Demo wysłane"**, „Oferta/umowa"→**„Umowa wysłana"** (klucze bez zmian).
+- Zakładka **Checklista** na karcie — pojawia się **od „Umowa podpisana" (`konwersja`) w górę**, na razie **pusty panel** (treść = roadmap #1).
+- Zmiana statusu w karcie **przerysowuje kartę** (usługi zmieniają kolor na żywo) — `saveField` woła `openModal` przy zmianie `status`.
+- **Topbar, prawy róg:** ikona **Konto** (ludzik → menu „Wyloguj") i **hamburger Sekcje** (menu: **Sprzedaż** / **Klienci**) — dwie rozwijane listy (`.pop-menu`, `closeTopMenus`); usunięto dawny napis nazwiska, przycisk „Wyloguj" i boczny drawer. „Błysk zapisano" jest teraz na ikonie konta.
+- **Sekcja „Klienci"** (`showSection` / `renderKlienci` / `renderKlienciRows`): tabela klientów, którzy **przeszli przez „Umowa podpisana"** (są na nim lub dalej; archiwum wykluczone), reużywa `.crm-table`. Wiersze **klikalne → ta sama karta co w Sprzedaży** (`openModal`). Szukanie = **wspólna szukajka z topbaru** (per sekcja: `state.search` vs `state.klienciSearch`).
+
+Aktualna wersja cache: **v83** (w `index.html` przy `styles.css`/`config.js`/`app.js` jest `?v=83` — **przy każdej zmianie front podbij numer**, np. na v84, żeby zespół nie miał starej wersji z cache).
 
 ## ⚠️ BACKEND — jedna rzecz do zrobienia przed puszczeniem na żywo
 Zakładka Usługi zapisuje dane do kolumny **`clients.services` (typ jsonb)** — a tej kolumny **jeszcze nie ma w bazie**. W DEMO działa bez bazy, ale na żywej wersji zapis by się wywalił (Supabase odrzuca nieznaną kolumnę).
@@ -64,7 +72,7 @@ cd /tmp/crm-demo && python3 -m http.server 8899
 4. **Nie merguj do `main`** — to robi Krzysztof, gdy decydujemy „idziemy na żywo".
 
 ## Co dalej (roadmap z narady — po kolei, tylko gdy Krzysztof powie „robimy następny"):
-1. **Treść checklisty** na etapie „Umowa podpisana" (płatność / umowa / dane / wybór produktu / domena) — handlowiec odhacza, potem karta idzie do „Checklista gotowa".
+1. **Treść checklisty** na etapie „Umowa podpisana" (płatność / umowa / dane / wybór produktu / domena) — handlowiec odhacza, potem karta idzie do „Checklista gotowa". *(Zakładka Checklista już istnieje — pusta; brakuje treści/pytań. Naturalny NASTĘPNY krok.)*
 2. **Więcej usług** w zakładce Usługi + ceny (minimalna / rekomendowana).
 3. **Pod-etapy „development"** widoczne tylko dla nas (zarząd), handlowiec widzi jeden etap „W trakcie realizacji".
 4. **ROLE + panel admina** (handlowiec widzi TYLKO swoich klientów; my wszystkich) — to wymaga prawdziwej roboty w backendzie (RLS w Supabase) i jest najważniejsze dla bezpieczeństwa PRZED wpuszczeniem większej liczby ludzi.
