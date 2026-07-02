@@ -20,7 +20,10 @@ const STATUSES = [
   { key: "umowiony",      label: "Zainteresowany",        dot: "#9a6dd7", bg: "#ede1f7", fg: "#6940a5", tint: "#faf7fd" },
   { key: "po_spotkaniu",  label: "Sprzedaż",               dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f", tint: "#fdf6f5" },
   { key: "oferta",        label: "Oferta/umowa",           dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a", tint: "#fdfbf2" },
-  { key: "konwersja",     label: "Konwersja",              dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e", tint: "#f5faf4" },
+  { key: "konwersja",     label: "Umowa podpisana",        dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e", tint: "#f5faf4" },
+  { key: "checklista",    label: "Checklista gotowa",      dot: "#4ba39a", bg: "#d9efec", fg: "#2b6b63", tint: "#f3faf9" },
+  { key: "w_realizacji",  label: "W trakcie realizacji",   dot: "#d98c3f", bg: "#f8e6d3", fg: "#8a561a", tint: "#fdf8f2" },
+  { key: "zrealizowane",  label: "Realizacja ukończona",   dot: "#2f8f4e", bg: "#cfe9d6", fg: "#1f5e33", tint: "#f1f9f3" },
 ];
 const statusOf = (k) => STATUSES.find((s) => s.key === k) || STATUSES[0];
 // status spoza lejka (np. dawny etap 'archiwum') traktuj jak 'lead' — żeby karta nigdy nie zniknęła z tablicy
