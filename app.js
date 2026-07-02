@@ -1993,7 +1993,6 @@ async function renderAdminRoles() {
         }).join("")}
       </tr>`).join("")).join("");
   wrap.innerHTML = `
-    <p class="admin-desc">Zaznaczenie = rola ma dane uprawnienie. Zmiany działają od razu dla wszystkich zalogowanych. Administrator ma zawsze wszystkie uprawnienia — jego kolumny nie edytujesz.</p>
     <div class="table-wrap"><table class="crm-table admin-matrix">
       <thead><tr>${head}</tr></thead>
       <tbody>${rows}</tbody>

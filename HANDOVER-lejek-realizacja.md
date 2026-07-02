@@ -34,7 +34,7 @@ Rozbudowujemy nasz CRM (repo `kris20032/crm-newbeginning`, live na GitHub Pages 
 - **Backend (pliki gotowe, NIC nie wykonane na żywej bazie):** `schema-rbac.sql` (część A — bezpieczna), `schema-rbac-enforce.sql` (część B — OSTRA), `supabase/functions/admin-users/index.ts` (Edge Function do kont; instrukcja deployu w nagłówku pliku).
 - Architektura: tabele `roles`/`permissions`/`role_permissions` + `team_members.user_id/role/active`; funkcja `authorize()` czyta rolę **z tabeli** (świadomie BEZ auth hooka JWT — błędny hook zablokowałby logowanie całemu zespołowi na żywym main); trigger-strażnik na `team_members` blokuje podszywanie się (nie rzuca wyjątków — upsert z żywego frontu działa).
 
-Aktualna wersja cache: **v84** (w `index.html` przy `styles.css`/`config.js`/`app.js` — **przy każdej zmianie front podbij numer**, żeby zespół nie miał starej wersji z cache).
+Aktualna wersja cache: **v85** (w `index.html` przy `styles.css`/`config.js`/`app.js` — **przy każdej zmianie front podbij numer**, żeby zespół nie miał starej wersji z cache).
 
 ## ⚠️ BACKEND — kolejność wdrażania (gdy idziemy na żywo)
 1. **`schema-rbac.sql` (część A)** — bezpieczne w KAŻDEJ chwili, także przed merge do main: tylko dodaje (m.in. kolumnę `clients.services` dla zakładki Usługi — dawny pkt z tego handovera — oraz tabele ról + strażnika). Wkleić całość w Supabase → SQL Editor. Idempotentne (można wielokrotnie). **Najpierw świeży backup** (auto-backup u Krzysztofa — potwierdzić).

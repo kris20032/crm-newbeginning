@@ -568,7 +568,6 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .admin-title { font-size: 20px; font-weight: 700; }
 .admin-banner { background: #fbf3e4; color: #7a5b14; font-size: 13px; padding: 9px 12px; border-radius: 8px; margin-top: 12px; }   /* jak .readonly-note */
 .admin-tabs { margin: 16px 0 14px; }
-.admin-desc { color: var(--ink-soft); font-size: 13px; margin: 0 0 14px; }
 .admin-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
 .admin-person { display: flex; align-items: center; gap: 8px; }
 .admin-person .owner-me { font-size: 12px; }
