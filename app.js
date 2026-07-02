@@ -712,6 +712,9 @@ async function openModal(id) {
     : `<div class="prop-value readonly">${esc(c.opiekun) || "—"}</div>`;
   const safe = safeUrl(c.google_maps);
   const stars = Math.max(0, Math.min(3, parseInt(c.quality, 10) || 0));   // ocena 1–3 (w kolumnie quality)
+  // Zakładka „Usługi" pojawia się od etapu „Sprzedaż" (po_spotkaniu) w górę — wtedy handlowiec wybiera, co sprzedaje.
+  const stageIdx = STATUSES.findIndex((s) => s.key === normStatus(c));
+  const showServices = stageIdx >= STATUSES.findIndex((s) => s.key === "po_spotkaniu");
 
   $("#modal-body").innerHTML = `
     <div class="cm">
@@ -745,11 +748,17 @@ async function openModal(id) {
         </div>
 
         <div class="cm-notes">
-          <div class="notes-label">Notatki</div>
-          ${editable
-            ? `<div class="notes-view" id="notes-view" tabindex="0" title="Kliknij, aby edytować">${c.notes ? linkify(c.notes) : `<span class="notes-empty">${esc(NOTE_PLACEHOLDER)}</span>`}</div>
-               <textarea class="notes" data-key="notes" id="notes-edit" hidden>${esc(c.notes || "")}</textarea>`
-            : `<div class="notes-view readonly">${c.notes ? linkify(c.notes) : "—"}</div>`}
+          <div class="notes-tabs">
+            <button type="button" class="notes-tab on" id="tab-notes">Notatki</button>
+            ${showServices ? `<button type="button" class="notes-tab" id="tab-services">Usługi</button>` : ""}
+          </div>
+          <div class="notes-pane" id="pane-notes">
+            ${editable
+              ? `<div class="notes-view" id="notes-view" tabindex="0" title="Kliknij, aby edytować">${c.notes ? linkify(c.notes) : `<span class="notes-empty">${esc(NOTE_PLACEHOLDER)}</span>`}</div>
+                 <textarea class="notes" data-key="notes" id="notes-edit" hidden>${esc(c.notes || "")}</textarea>`
+              : `<div class="notes-view readonly">${c.notes ? linkify(c.notes) : "—"}</div>`}
+          </div>
+          ${showServices ? `<div class="notes-pane services-pane" id="pane-services" hidden>${servicesHTML(c, editable)}</div>` : ""}
         </div>
 
         ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Przenieś do archiwum</button></div>` : ""}
@@ -808,7 +817,37 @@ async function openModal(id) {
   };
   wireLink("maps-open", "maps-copy", "maps-input", c.google_maps);
 
+  // Przełącznik Notatki ↔ Usługi (zakładka Usługi istnieje od etapu „Sprzedaż")
+  const tabN = $("#tab-notes"), tabS = $("#tab-services"), paneN = $("#pane-notes"), paneS = $("#pane-services");
+  if (tabS && paneS) {
+    const show = (svc) => {
+      tabS.classList.toggle("on", svc); tabN.classList.toggle("on", !svc);
+      paneS.hidden = !svc; paneN.hidden = svc;
+    };
+    tabN.addEventListener("click", () => show(false));
+    tabS.addEventListener("click", () => show(true));
+  }
+
   if (editable) {
+    // Usługi: checkbox (pomarańczowy gdy zaznaczony) + kwota za stronę (wpisuje handlowiec)
+    document.querySelectorAll("#pane-services .svc-cb").forEach((cb) => cb.addEventListener("change", () => {
+      const k = cb.dataset.svc;
+      c.services = c.services || {}; c.services[k] = c.services[k] || {};
+      c.services[k].on = cb.checked;
+      const item = cb.closest(".svc-item"); if (item) item.classList.toggle("on", cb.checked);
+      saveServices(c.id);
+    }));
+    const priceInp = document.querySelector("#pane-services .svc-price-input[data-svc='strona']");
+    if (priceInp) {
+      const savePrice = () => {
+        c.services = c.services || {}; c.services.strona = c.services.strona || {};
+        const raw = priceInp.value.trim();
+        c.services.strona.price = raw === "" ? null : Number(raw);
+        saveServices(c.id);
+      };
+      priceInp.addEventListener("input", debounce(savePrice, 600));
+      priceInp.addEventListener("change", savePrice);
+    }
     const saveDeb = debounce((el) => saveField(c.id, el.dataset.key, el.value), 600);
     document.querySelectorAll("#modal-body [data-key]").forEach((el) => {
       if (el.id === "demo-input") return;   // pole demo ma własne wiązanie (wireDemoCell) — bez podwójnego zapisu
@@ -849,6 +888,43 @@ async function openModal(id) {
   wireDemoCell(c.id);
   wireComposer(c.id);
   updateNavButtons();
+}
+
+// Usługi sprzedawane klientowi (widok w karcie od etapu „Sprzedaż"). Zapisywane w kolumnie clients.services (jsonb).
+// Na start: strona internetowa (kwota wpisywana przez handlowca) + obsługa techniczna (wymagana, 49 zł).
+const OBSLUGA_CENA = 49;
+function servicesHTML(c, editable) {
+  const sv = c.services || {};
+  const strona = sv.strona || {};
+  const obsluga = sv.obsluga || {};
+  const price = (strona.price === 0 || strona.price) ? strona.price : "";
+  const dis = editable ? "" : "disabled";
+  return `
+    <div class="svc-intro">Zaznacz usługi, które sprzedajesz temu klientowi:</div>
+    <div class="svc-item${strona.on ? " on" : ""}" data-svc="strona">
+      <label class="svc-check">
+        <input type="checkbox" class="svc-cb" data-svc="strona" ${strona.on ? "checked" : ""} ${dis} />
+        <span class="svc-name">Strona internetowa</span>
+      </label>
+      <div class="svc-price">
+        <input type="number" class="svc-price-input" data-svc="strona" min="0" step="10" inputmode="numeric" value="${esc(String(price))}" placeholder="kwota" ${dis} />
+        <span class="svc-cur">zł</span>
+      </div>
+    </div>
+    <div class="svc-item${obsluga.on ? " on" : ""}" data-svc="obsluga">
+      <label class="svc-check">
+        <input type="checkbox" class="svc-cb" data-svc="obsluga" ${obsluga.on ? "checked" : ""} ${dis} />
+        <span class="svc-name">Obsługa techniczna <span class="svc-req">wymagana</span></span>
+      </label>
+      <div class="svc-price"><span class="svc-fixed">${OBSLUGA_CENA}</span> <span class="svc-cur">zł</span></div>
+    </div>`;
+}
+
+async function saveServices(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  try { await api.updateClient(id, { services: c.services || {} }); flashSaved(); }
+  catch (e) { console.error("saveServices", e); toast("Nie zapisano usług — spróbuj ponownie"); }
 }
 
 async function saveField(id, key, value) {
