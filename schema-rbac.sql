@@ -69,7 +69,7 @@ insert into permissions (key, label, grp, ord) values
   ('clients.view_all',    'Widzi klientów całego zespołu',           'Klienci', 10),
   ('clients.edit_all',    'Edytuje cudze karty',                     'Klienci', 20),
   ('clients.hard_delete', 'Usuwa trwale z archiwum',                 'Klienci', 30),
-  ('section.klienci',     'Sekcja Klienci (podpisani)',              'Sekcje',  10),
+  ('section.klienci',     'Sekcja Baza partnerów (podpisani)',       'Sekcje',  10),
   ('section.admin',       'Panel admina',                            'Sekcje',  20),
   ('stages.dev',          'Widzi szczegóły etapów realizacji (dev)', 'Sekcje',  30),
   ('team.manage',         'Zarządza użytkownikami i rolami',         'Zespół',  10)

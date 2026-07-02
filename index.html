@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=85" />
+  <link rel="stylesheet" href="styles.css?v=86" />
 </head>
 <body>
   <!-- ===== Pasek trybu DEMO ===== -->
@@ -72,14 +72,14 @@
             <button type="button" class="pop-menu-item" id="logout-item">Wyloguj</button>
           </div>
         </div>
-        <!-- Sekcje (hamburger) — rozwijana lista: Sprzedaż / Klienci -->
+        <!-- Sekcje (hamburger) — rozwijana lista: Sprzedaż / Baza partnerów (klucz „klienci" bez zmian) / Panel admina -->
         <div class="menu-wrap">
           <button id="nav-toggle" class="notif-bell" type="button" title="Sekcje" aria-label="Sekcje">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </button>
           <div id="nav-menu" class="pop-menu" hidden>
             <button type="button" class="pop-menu-item active" data-section="sprzedaz">Sprzedaż</button>
-            <button type="button" class="pop-menu-item" data-section="klienci">Klienci</button>
+            <button type="button" class="pop-menu-item" data-section="klienci">Baza partnerów</button>
             <!-- Panel admina — odsłaniany w applyRbacGating tylko dla uprawnionych (section.admin / rola admin) -->
             <button type="button" class="pop-menu-item" data-section="admin" hidden>Panel admina</button>
           </div>
@@ -91,7 +91,7 @@
 
     <main id="board" class="board"></main>
 
-    <!-- Sekcja Klienci (na razie pusta) -->
+    <!-- Sekcja Baza partnerów (id/klucz „klienci" bez zmian; render w JS: renderKlienci) -->
     <section id="klienci-view" class="section-view" hidden></section>
 
     <!-- Sekcja Panel admina (render w JS: renderAdmin) -->
@@ -112,7 +112,7 @@
 
   <!-- Supabase JS (używane tylko gdy skonfigurowane) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="config.js?v=85"></script>
-  <script src="app.js?v=85"></script>
+  <script src="config.js?v=86"></script>
+  <script src="app.js?v=86"></script>
 </body>
 </html>

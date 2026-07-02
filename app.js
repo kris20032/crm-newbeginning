@@ -1742,7 +1742,7 @@ function showSection(name) {
   closeTopMenus();
 }
 
-/* ---------- Sekcja „Klienci": tabela klientów z podpisaną umową ---------- */
+/* ---------- Sekcja „Baza partnerów" (klucz „klienci"): tabela klientów z podpisaną umową ---------- */
 // „Podpisali umowę" = przeszli przez etap „Umowa podpisana" (konwersja): są na nim LUB dalej w lejku.
 const SIGNED_IDX = STATUSES.findIndex((s) => s.key === "konwersja");
 const isSigned = (c) => !c.deleted_at && STATUSES.findIndex((s) => s.key === normStatus(c)) >= SIGNED_IDX;
@@ -1761,7 +1761,7 @@ function renderKlienci() {
 function renderKlienciRows() {
   const wrap = $("#klienci-table"); if (!wrap) return;
   const list = signedClients();
-  if (!list.length) { wrap.innerHTML = `<div class="table-empty">Brak klientów z podpisaną umową.</div>`; return; }
+  if (!list.length) { wrap.innerHTML = `<div class="table-empty">Baza partnerów jest pusta — trafiają tu klienci od etapu „Umowa podpisana".</div>`; return; }
   const dash = `<span class="tb-empty">—</span>`;
   const nameCell = (c) => `<div class="tb-name"><span class="tb-nm">${esc(c.name)}</span>${c.company ? `<span class="tb-co">${esc(c.company)}</span>` : ""}</div>`;
   const statusCell = (c) => { const s = statusOf(normStatus(c)); return `<span class="status-pill" style="background:${s.bg};color:${s.fg}"><span class="dot" style="background:${s.dot}"></span>${esc(s.label)}</span>`; };
@@ -2242,7 +2242,7 @@ const DEMO_PERMISSIONS = [
   { key: "clients.view_all", label: "Widzi klientów całego zespołu", grp: "Klienci", ord: 10 },
   { key: "clients.edit_all", label: "Edytuje cudze karty", grp: "Klienci", ord: 20 },
   { key: "clients.hard_delete", label: "Usuwa trwale z archiwum", grp: "Klienci", ord: 30 },
-  { key: "section.klienci", label: "Sekcja Klienci (podpisani)", grp: "Sekcje", ord: 10 },
+  { key: "section.klienci", label: "Sekcja Baza partnerów (podpisani)", grp: "Sekcje", ord: 10 },
   { key: "section.admin", label: "Panel admina", grp: "Sekcje", ord: 20 },
   { key: "stages.dev", label: "Widzi szczegóły etapów realizacji (dev)", grp: "Sekcje", ord: 30 },
   { key: "team.manage", label: "Zarządza użytkownikami i rolami", grp: "Zespół", ord: 10 },
