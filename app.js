@@ -50,6 +50,8 @@ const state = {
   ownerPopOpen: false,      // czy rozwinięty panel zespołu (poza DOM, by przeżyć przebudowę #tabs przez realtime)
   currentUser: "Krzysztof", search: "", live: false, openCardId: null, openCardWasArchived: false, newCardIds: new Set(), skipFlipId: null, animateNextRender: false,
   suppressUntil: 0, lastSnap: "",
+  section: "sprzedaz",      // aktywna sekcja z menu: "sprzedaz" (lejek) | "klienci" (tabela podpisanych)
+  klienciSearch: "",        // pole szukania w sekcji Klienci (osobne od głównej wyszukiwarki)
 };
 
 /* ---------- Panel zespołu: czyje karty widać (domyślnie tylko moje) ---------- */
@@ -999,6 +1001,7 @@ async function saveField(id, key, value) {
     }
     if (key === "status" || key === "follow_up") {
       renderTabs(); state.animateNextRender = true; renderBoard();
+      if (state.section === "klienci") renderKlienciRows();          // zmiana etapu może dodać/usunąć klienta z tabeli podpisanych
       // Zmiana etapu może zmienić stan usług (niebieskie → zielone/zamrożone) i zakładkę Checklista — przerysuj otwartą kartę.
       if (key === "status" && state.openCardId === id) openModal(id);
       return;
@@ -1451,7 +1454,7 @@ function toast(msg) {
   t.textContent = msg; t.classList.add("show");
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
 }
-function flashSaved() { const w = $("#who"); if (w) { w.classList.add("saved"); setTimeout(() => w.classList.remove("saved"), 600); } }
+function flashSaved() { const w = $("#account-btn"); if (w) { w.classList.add("saved"); setTimeout(() => w.classList.remove("saved"), 600); } }
 
 /* ---------- Realtime → odśwież (debounced) ---------- */
 let refreshTimer = null, refreshInFlight = false, refreshPending = false;
@@ -1479,6 +1482,7 @@ async function refreshData() {
     if (snap === state.lastSnap) return;
     state.lastSnap = snap;
     renderTabs(); renderBoard();
+    if (state.section === "klienci") renderKlienciRows();            // sekcja Klienci odświeża się na żywo jak tablica
     if (state.openCardId) {
       const fresh = state.clients.find((c) => String(c.id) === String(state.openCardId));
       if (!fresh) {
@@ -1514,8 +1518,8 @@ function startSafetyRefresh() {
 /* ---------- Start ---------- */
 async function showApp() {
   $("#login-view").hidden = true; $("#app-view").hidden = false;
-  $("#who").textContent = (state.live ? "" : "demo: ") + state.currentUser;
-  $("#logout-btn").hidden = !state.live;
+  const acc = $("#account-name"); if (acc) acc.textContent = (state.live ? "" : "demo: ") + state.currentUser;
+  const li = $("#logout-item"); if (li) li.hidden = !state.live;
   state.clients = await api.getClients();
   state.commentsByClient = await api.getAllComments();
   // DOMYŚLNIE: każdy widzi tylko SWOJE karty; przez panel zespołu może dobrać innych / wszystkich
@@ -1550,6 +1554,69 @@ async function loadTeamAndMe(user) {
   state.team = team.map((t) => t.name); state.currentUser = me.name;
 }
 
+/* ============================================================
+   Sekcje (hamburger): „Sprzedaż" (lejek) ↔ „Development" (na razie pusta).
+   Przełączenie chowa/pokazuje elementy sprzedażowe; #board renderuje się
+   dalej w tle (realtime), więc powrót do Sprzedaży jest natychmiastowy.
+   ============================================================ */
+// Zamknij wszystkie rozwijane menu topbaru (konto, sekcje, dzwonek)
+function closeTopMenus() {
+  ["#account-menu", "#nav-menu", "#notif-panel"].forEach((sel) => { const el = $(sel); if (el) el.hidden = true; });
+}
+function showSection(name) {
+  state.section = name;
+  const other = name === "klienci";                                  // „klienci" = tabela klientów z podpisaną umową
+  $("#tabs").hidden = other;
+  $("#board").hidden = other;
+  $("#klienci-view").hidden = !other;
+  const nb = $("#new-card-btn"); if (nb) nb.hidden = other;          // „+ Nowa karta" dotyczy lejka
+  const search = $("#search"); if (search) search.value = other ? (state.klienciSearch || "") : (state.search || "");   // ta sama szukajka w topbarze obsługuje obie sekcje
+  document.querySelectorAll("#nav-menu .pop-menu-item").forEach((b) => b.classList.toggle("active", b.dataset.section === name));
+  if (other) renderKlienci();
+  closeTopMenus();
+}
+
+/* ---------- Sekcja „Klienci": tabela klientów z podpisaną umową ---------- */
+// „Podpisali umowę" = przeszli przez etap „Umowa podpisana" (konwersja): są na nim LUB dalej w lejku.
+const SIGNED_IDX = STATUSES.findIndex((s) => s.key === "konwersja");
+const isSigned = (c) => !c.deleted_at && STATUSES.findIndex((s) => s.key === normStatus(c)) >= SIGNED_IDX;
+function signedClients() {
+  const q = (state.klienciSearch || "").trim().toLowerCase();
+  let list = state.clients.filter(isSigned);
+  if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
+  return list.sort((a, b) => String(a.company || a.name || "").localeCompare(String(b.company || b.name || ""), "pl"));
+}
+function renderKlienci() {
+  const v = $("#klienci-view"); if (!v) return;
+  // Szukanie obsługuje wspólna szukajka w topbarze (state.klienciSearch) — bez osobnego pola tutaj.
+  v.innerHTML = `<div id="klienci-table"></div>`;
+  renderKlienciRows();
+}
+function renderKlienciRows() {
+  const wrap = $("#klienci-table"); if (!wrap) return;
+  const list = signedClients();
+  if (!list.length) { wrap.innerHTML = `<div class="table-empty">Brak klientów z podpisaną umową.</div>`; return; }
+  const dash = `<span class="tb-empty">—</span>`;
+  const nameCell = (c) => `<div class="tb-name"><span class="tb-nm">${esc(c.name)}</span>${c.company ? `<span class="tb-co">${esc(c.company)}</span>` : ""}</div>`;
+  const statusCell = (c) => { const s = statusOf(normStatus(c)); return `<span class="status-pill" style="background:${s.bg};color:${s.fg}"><span class="dot" style="background:${s.dot}"></span>${esc(s.label)}</span>`; };
+  const teamCell = (c) => `${c.opiekun ? `<span class="avatar avatar-sec" title="Opiekun: ${esc(c.opiekun)}" style="background:${ownerColor(c.opiekun)}">${initials(c.opiekun)}</span>` : ""}<span class="avatar" title="Handlowiec: ${esc(c.owner)}" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span>`;
+  const rows = list.map((c) => {
+    const val = svcTotal(c.services);
+    return `<tr class="tb-row" data-id="${esc(String(c.id))}">
+        <td>${nameCell(c)}</td>
+        <td>${c.phone ? esc(c.phone) : dash}</td>
+        <td>${statusCell(c)}</td>
+        <td class="tb-num">${val ? esc(String(val)) + " zł" : dash}</td>
+        <td class="tb-team"><div class="tb-team-in">${teamCell(c)}</div></td>
+      </tr>`;
+  }).join("");
+  wrap.innerHTML = `<div class="table-wrap"><table class="crm-table">
+      <thead><tr><th>Klient</th><th>Telefon</th><th>Etap</th><th>Usługi</th><th>Zespół</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  wrap.querySelectorAll(".tb-row").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
+}
+
 function wireChrome() {
   $("#modal-close").addEventListener("click", closeModal);
   $("#modal-prev").addEventListener("click", () => navigateCard(-1));
@@ -1566,6 +1633,8 @@ function wireChrome() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       if (!$("#modal-overlay").hidden) { closeModal(); return; }
+      const am = $("#account-menu"), nm = $("#nav-menu");
+      if ((am && !am.hidden) || (nm && !nm.hidden)) { closeTopMenus(); return; }
       const pop = $("#owner-pop");
       if (pop && !pop.hidden) { closeOwnerPanel(); const t = $("#owner-toggle"); if (t) t.focus(); return; }
     }
@@ -1578,8 +1647,29 @@ function wireChrome() {
     if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); const s = $("#search"); if (s) { s.focus(); s.select(); } }
   });
   const renderBoardDeb = debounce(renderBoard, 140);
-  const s = $("#search"); if (s) s.addEventListener("input", () => { state.search = s.value; renderBoardDeb(); });
+  const s = $("#search"); if (s) s.addEventListener("input", () => {
+    if (state.section === "klienci") { state.klienciSearch = s.value; renderKlienciRows(); }
+    else { state.search = s.value; renderBoardDeb(); }
+  });
   const nb = $("#new-card-btn"); if (nb) nb.addEventListener("click", () => newCard("lead"));
+  // Rozwijane menu w topbarze: Konto (ludzik) i Sekcje (hamburger)
+  const toggleMenu = (btnSel, menuSel) => {
+    const btn = $(btnSel), menu = $(menuSel);
+    if (!btn || !menu) return;
+    btn.addEventListener("click", (e) => { e.stopPropagation(); const show = menu.hidden; closeTopMenus(); menu.hidden = !show; });
+  };
+  toggleMenu("#nav-toggle", "#nav-menu");
+  toggleMenu("#account-btn", "#account-menu");
+  document.querySelectorAll("#nav-menu .pop-menu-item").forEach((b) => b.addEventListener("click", () => showSection(b.dataset.section)));
+  const logoutItem = $("#logout-item");
+  if (logoutItem) logoutItem.addEventListener("click", async () => { closeTopMenus(); await api.signOut(); location.reload(); });
+  // klik poza menami topbaru je zamyka
+  document.addEventListener("click", (e) => {
+    if (e.target.closest(".menu-wrap")) return;
+    const am = $("#account-menu"), nm = $("#nav-menu");
+    if (am && !am.hidden) am.hidden = true;
+    if (nm && !nm.hidden) nm.hidden = true;
+  });
   // klik poza panelem zespołu zamyka jego rozwijaną listę
   document.addEventListener("click", (e) => {
     const pop = $("#owner-pop");
@@ -1656,7 +1746,7 @@ function wireNotif() {
   const bell = $("#notif-bell"); const panel = $("#notif-panel");
   if (!bell || !panel || bell.dataset.wired) return;
   bell.dataset.wired = "1";
-  bell.addEventListener("click", (e) => { e.stopPropagation(); const show = panel.hidden; panel.hidden = !show; if (show) renderNotifPanel(); });
+  bell.addEventListener("click", (e) => { e.stopPropagation(); const show = panel.hidden; closeTopMenus(); panel.hidden = !show; if (show) renderNotifPanel(); });
   document.addEventListener("click", (e) => { if (!panel.hidden && !panel.contains(e.target) && e.target !== bell) panel.hidden = true; });
 }
 
@@ -1707,7 +1797,7 @@ function showRecoveryForm() {
 async function init() {
   await api.init(); state.live = api.isLive(); wireChrome();
   if (!state.live) { $("#demo-banner").hidden = false; state.team = [...DEMO_OWNERS]; state.currentUser = "Krzysztof"; await showApp(); return; }
-  $("#logout-btn").addEventListener("click", async () => { await api.signOut(); location.reload(); });
+  // (Wyloguj wpięte w wireChrome jako pozycja menu konta — #logout-item.)
   // POWRÓT Z LINKU RESETU HASŁA: pokaż ekran „ustaw nowe hasło", nie wpuszczaj od razu do appki
   sb.auth.onAuthStateChange((event) => { if (event === "PASSWORD_RECOVERY") showRecoveryForm(); });
   if (location.hash.includes("type=recovery")) { showRecoveryForm(); return; }

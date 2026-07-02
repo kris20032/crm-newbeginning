@@ -70,12 +70,21 @@ body {
 .logo { font-weight: 700; font-size: 16px; }
 .logo-sub { color: var(--ink-soft); font-size: 13px; }
 .topbar-right { display: flex; align-items: center; gap: 12px; }
-.who { color: var(--ink-soft); font-size: 13px; }
 .ghost-btn {
   background: transparent; border: 1px solid var(--line-strong); border-radius: 7px;
   padding: 6px 12px; font-size: 13px; cursor: pointer; color: var(--ink); font-family: inherit;
 }
 .ghost-btn:hover { background: var(--bg); }
+
+/* ===== Rozwijane menu w topbarze: Konto (ludzik) + Sekcje (hamburger) ===== */
+.menu-wrap { position: relative; display: inline-flex; }
+.notif-bell.saved { border-color: #16a34a; color: #16a34a; }
+.pop-menu { position: absolute; top: calc(100% + 6px); right: 0; min-width: 180px; background: #fff; border: 1px solid var(--line-strong); border-radius: 12px; box-shadow: var(--shadow); padding: 5px; z-index: 60; }
+.pop-menu-head { font-size: 12px; font-weight: 600; color: var(--ink-soft); padding: 8px 10px 6px; }
+.pop-menu-item { display: block; width: 100%; text-align: left; border: none; background: transparent; color: var(--ink); font-family: inherit; font-size: 14px; font-weight: 500; padding: 9px 10px; border-radius: 8px; cursor: pointer; }
+.pop-menu-item:hover { background: var(--bg); }
+.pop-menu-item.active { background: #eef5fd; color: var(--accent); font-weight: 600; }
+.section-view { padding: 28px 26px 40px; }
 
 /* ===== Pasek widoków (Tablica / Na dziś / Archiwum) + panel zespołu ===== */
 .tabs {
@@ -431,7 +440,6 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .search { width: 100%; max-width: 420px; border: 1px solid var(--line-strong); border-radius: 8px; padding: 7px 12px; font-size: 13.5px; font-family: inherit; background: var(--bg); }
 .search:focus { outline: none; border-color: var(--accent); background: #fff; }
 .primary-btn.sm { padding: 6px 12px; font-size: 13px; }
-.who.saved { color: #3d6b2e; }
 
 .chip-due { color: #c0392b; font-weight: 600; }
 .chip-overdue { color: #c0392b; font-weight: 700; }
