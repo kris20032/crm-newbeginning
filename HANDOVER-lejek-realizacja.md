@@ -1,7 +1,13 @@
 # HANDOVER — rozbudowa lejka CRM „realizacja/usługi" (branch `feat/lejek-realizacja`)
 
-> Dla: **kto kontynuuje** (Marceli lub Krzysztof — i jego Claude). Data: 2026-07-02. Autorzy: Krzysztof + Marceli + Claude.
+> Dla: **kto kontynuuje** (Marceli lub Krzysztof — i jego Claude). Data: 2026-07-02, zaktualizowano 2026-07-03. Autorzy: Krzysztof + Marceli + Claude.
 > **Najpierw powiedz swojemu Claude: „przeczytaj HANDOVER-lejek-realizacja.md i kontynuuj według niego".**
+
+## ⏸️ STAN NA KONIEC SESJI 2026-07-03 — od czego zacząć następną
+- Branch = commit `be1ce15` (v89), wszystko wypchnięte, working tree czysty. Zrobione Kroki 1–6 (lejek, usługi, nawigacja, **panel admina+RBAC**, „Baza partnerów", **katalog usług „Oferta"**).
+- **Żywa baza NIETKNIĘTA** — Krzysztof świadomie wstrzymał wdrożenie plików SQL („czekaj, na razie chcę wprowadzić lekkie zmiany"). Gdy da zgodę → sekcja „⚠️ BACKEND" niżej (kolejność 1→4).
+- **NASTĘPNE ZADANIE: Krzysztof poda listę realnych usług agencji** (nazwa, rozliczenie jednorazowo/miesięcznie, cena stała albo wpisywana + minimum/rekomendowana, widoczna/ukryta). Dwie drogi: (a) wypisze na czacie → dopisać do seedu `schema-uslugi.sql` + mocków `DEMO_SERVICE_CATALOG` w `app.js`; (b) po wdrożeniu backendu wyklika w Panel admina → Oferta na prawdziwym logowaniu → wtedy ściągnąć je z bazy do seedu (żeby plik odtwarzał katalog 1:1).
+- Podgląd DEMO: instrukcja niżej („Jak odpalić PODGLĄD"); serwer z tej sesji już nie działa.
 
 ## Co to jest
 Rozbudowujemy nasz CRM (repo `kris20032/crm-newbeginning`, live na GitHub Pages z gałęzi `main`) o etapy realizacji zamówienia i wybór usług. Robimy to **MAŁYMI krokami, na osobnym branchu `feat/lejek-realizacja`** — żeby nic nie wpłynęło na żywy CRM zespołu, dopóki Krzysztof nie powie „puszczamy".
@@ -88,7 +94,7 @@ cd /tmp/crm-demo && python3 -m http.server 8899
 
 ## Co dalej (roadmap z narady — po kolei, tylko gdy Krzysztof powie „robimy następny"):
 1. **Treść checklisty** na etapie „Umowa podpisana" (płatność / umowa / dane / wybór produktu / domena) — handlowiec odhacza, potem karta idzie do „Checklista gotowa". *(Zakładka Checklista już istnieje — pusta; brakuje treści/pytań. Naturalny NASTĘPNY krok.)*
-2. **Więcej usług** w zakładce Usługi + ceny (minimalna / rekomendowana).
+2. ~~**Więcej usług** w zakładce Usługi + ceny (minimalna / rekomendowana)~~ — **mechanizm ZROBIONY w Kroku 6** (katalog + panel Oferta); zostało **wprowadzenie realnej listy usług od Krzysztofa** (patrz „STAN NA KONIEC SESJI" na górze).
 3. **Pod-etapy „development"** widoczne tylko dla nas (zarząd), handlowiec widzi jeden etap „W trakcie realizacji".
 4. ~~**ROLE + panel admina**~~ — **ZROBIONE w Kroku 4** (front + pliki backendu na tym branchu; do wdrożenia wg sekcji „⚠️ BACKEND" wyżej).
 5. Retencja / upsell, Google Drive na pliki klienta, archiwum umów.
