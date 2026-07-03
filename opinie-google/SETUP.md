@@ -3,8 +3,8 @@
 > Kolejność ma znaczenie. Kroki „👤 K." = klik Krzysztofa/Marcelego (nietechniczne, z instrukcją). Reszta = Claude.
 
 ## ✅ Krok 0 — OSOBNY projekt Supabase (WYKONANE 3.07, Claude przez Chrome)
-- Projekt **`opinie-google`**, ref: **`uzccwsmzmzcsijddbtzn`**, region eu-central-1 (Frankfurt), org krzychu.brzezi (obok CRM).
-- Slot darmowego planu zwolniony przez **pauzę martwego `bita-crm`** (org Marcelego; 0 realnego ruchu, tylko zapomniana karta). Odwracalne: Restore w dashboardzie. ⚠️ Po **~1.10.2026** (90 dni) wznowienie już nie 1-klik, tylko pobranie backupu — jeśli BITA ma być kiedyś wskrzeszona, wznowić przed tą datą.
+- Projekt **`opinie-google`**, ref: **`uzccwsmzmzcsijddbtzn`**, region eu-central-1 (Frankfurt), org krzychu.brzezi (obok CRM). **Całkowicie świeży projekt, dedykowany wyłącznie temu produktowi** — nie współdzieli niczego z żadnym starym systemem.
+- (Slot darmowego planu zwolniono usypiając stary, nieużywany projekt z archiwum — szczegół operacyjny poza tym produktem, zapisany w pamięci archiwum.)
 - Ustawienia bezpieczeństwa przy tworzeniu: „Automatically expose new tables" **OFF**, „Enable automatic RLS" **ON**, self-signup **OFF** (konta zakłada tylko operator).
 - Hasło DB: wygenerowane przez formularz, nie zapisywane (niepotrzebne przy pracy przez dashboard/API; reset w Settings → Database w razie potrzeby).
 - ⏳ Klucze API (anon/service_role) — pobrać do `~/Library/Application Support/newbeginning/opinie-google.env` przy Kroku 3 (deploy funkcji).

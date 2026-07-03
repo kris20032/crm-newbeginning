@@ -13,7 +13,7 @@ Wieloklientowy system zbierania i obsługi opinii Google dla lokalnych fachowcó
 | **Audyt izolacji (Fable)** | ✅ zrobiony — 10 znalezisk, wszystkie fixy wprowadzone → [`AUDYT-IZOLACJI.md`](AUDYT-IZOLACJI.md) |
 | Schemat bazy `og_*` (`db/001`) v2 | ✅ po audycie (composite FK, retencja, koszt SMS) |
 | Izolacja: granty + RLS (`db/002`) v2 | ✅ po audycie (2 warstwy: granty kolumnowe + force RLS) |
-| **Osobny projekt Supabase (F1)** | ✅ **`opinie-google` ref `uzccwsmzmzcsijddbtzn`** (3.07, Frankfurt; slot po pauzie martwego bita-crm) |
+| **Osobny projekt Supabase (F1)** | ✅ **`opinie-google` ref `uzccwsmzmzcsijddbtzn`** (3.07, Frankfurt; świeży, dedykowany produktowi) |
 | **Schemat + RLS na żywej bazie** | ✅ zaaplikowane 3.07 (SQL Editor) |
 | **Test izolacji (`tests/test-izolacja.sql`)** | ✅ **PRZESZEDŁ 14/14 na żywej bazie (3.07)** |
 | Moduł 2 — funkcje (onboard, request, dispatch, snapshot) | ✅ kod gotowy (`functions/`) — ⏳ deploy (wymaga kluczy: Places, SMSAPI) |
