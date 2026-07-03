@@ -464,6 +464,7 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .chk-answer::placeholder { color: #c4c4c2; }
 .chk-answer:disabled { background: #f6f6f4; color: var(--ink); opacity: 1; }
 /* segment „Zapłacił": pełna kwota / zadatek / inne — jeden kontrolek jak stepper etapu */
+.chk-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .chk-seg { display: inline-flex; align-self: flex-start; border: 1px solid var(--line-strong); border-radius: 9px; overflow: hidden; background: var(--panel); }
 .chk-seg-btn { font-family: inherit; font-size: 12.5px; font-weight: 500; color: var(--ink-soft); background: transparent; border: none; padding: 7px 14px; cursor: pointer; transition: background .12s ease, color .12s ease; }
 .chk-seg-btn + .chk-seg-btn { border-left: 1px solid var(--line); }
@@ -472,6 +473,11 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .chk-check { display: inline-flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; align-self: flex-start; }
 .chk-check input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; margin: 0; }
 .chk-sep { border-top: 1px solid var(--line); margin: 3px 0; }
+/* „Checklista gotowa" — na dole checklisty przy etapie „Umowa podpisana"; aktywny po wypełnieniu całości */
+.chk-done-row { display: flex; margin-top: 6px; }
+.chk-done-btn { flex: 1 1 auto; font-family: inherit; font-size: 13.5px; font-weight: 600; padding: 10px 16px; border-radius: 9px; border: 1px solid #b7d6ab; background: #fff; color: #1a7f37; cursor: pointer; transition: background .14s ease, opacity .14s ease; }
+.chk-done-btn:hover:not(:disabled) { background: #eef6ea; }
+.chk-done-btn:disabled { opacity: .45; cursor: default; }
 .svc-cur { color: var(--ink-soft); }
 .svc-retired { color: var(--ink-soft); font-weight: 400; font-size: 11.5px; }     /* dopisek przy usłudze ukrytej-a-zaznaczonej — jak .owner-me */
 /* kwota poniżej minimum: pole na czerwono + limit obok (kolor jak .login-error) */

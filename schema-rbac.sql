@@ -78,6 +78,7 @@ insert into permissions (key, label, grp, ord) values
   ('clients.edit_all',    'Edytuje cudze karty',                     'Klienci', 20),
   ('clients.hard_delete', 'Usuwa trwale z archiwum',                 'Klienci', 30),
   ('partners.revoke',     'Zdejmuje token partnera (Baza partnerów)','Klienci', 40),
+  ('stages.realizacja',   'Przenosi karty przez etapy realizacji (po checkliście)', 'Klienci', 50),
   ('section.klienci',     'Sekcja Baza partnerów (podpisani)',       'Sekcje',  10),
   ('section.admin',       'Panel admina',                            'Sekcje',  20),
   ('stages.dev',          'Widzi szczegóły etapów realizacji (dev)', 'Sekcje',  30),

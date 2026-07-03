@@ -1321,9 +1321,7 @@ const CHK_PAID = [
 ];
 const CHECKLIST_ITEMS = [
   { key: "dane",        label: "Dane kontaktowe",               hint: "adres, numer telefonu, e-mail" },
-  { key: "godziny",     label: "Godziny pracy" },
   { key: "oferta",      label: "Pełna oferta / menu" },
-  { key: "obszar",      label: "Obszar działania" },
   { key: "social",      label: "Linki do social",               hint: "IG / FB / TikTok" },
   { key: "domena",      label: "Domena" },
   { key: "podstrony",   label: "Podstrony",                     hint: "ile, tytuły, tematyka", sep: true },
@@ -1332,6 +1330,14 @@ const CHECKLIST_ITEMS = [
   { key: "o_nas",       label: "Sekcja „O nas”",      hint: "historia firmy, od kiedy działa, dlaczego powstała, kto tam pracuje" },
   { key: "preferencje", label: "Preferencje klienta",           hint: "co chce na stronie, kolorystyka, estetyka, funkcjonalności" },
 ];
+// Checklista KOMPLETNA = zapłacił (ptaszek + wybrany typ) + materiały dotarły + odpowiedź pod każdym
+// pytaniem. Notatki pod „zapłacił"/„materiały" są opcjonalne (to uwagi, nie pytania).
+function checklistComplete(c) {
+  const ch = (c && c.checklist) || {};
+  if (!ch.paid_ok || !ch.paid || !ch.materials) return false;
+  const notes = ch.notes || {};
+  return CHECKLIST_ITEMS.every((it) => (notes[it.key] || "").trim());
+}
 function checklistHTML(c, editable) {
   const ch = c.checklist || {};
   const notes = ch.notes || {};
@@ -1345,8 +1351,10 @@ function checklistHTML(c, editable) {
     </div>`).join("");
   return `
     <div class="chk-item">
-      <div class="chk-label">Klient zapłacił</div>
-      <div class="chk-seg">${paidBtns}</div>
+      <div class="chk-row">
+        <label class="chk-check"><input type="checkbox" id="chk-paid" ${ch.paid_ok ? "checked" : ""} ${dis} /><span>Klient zapłacił</span></label>
+        <div class="chk-seg" id="chk-paid-seg" ${ch.paid_ok ? "" : "hidden"}>${paidBtns}</div>
+      </div>
       ${noteArea("paid", "Szczegóły płatności — kwota, terminy…")}
     </div>
     <div class="chk-item">
@@ -1354,7 +1362,10 @@ function checklistHTML(c, editable) {
       ${noteArea("materials", "Czego brakuje / uwagi…")}
     </div>
     <div class="chk-sep"></div>
-    ${items}`;
+    ${items}
+    ${(editable && normStatus(c) === "konwersja")
+      ? `<div class="chk-done-row"><button type="button" class="chk-done-btn" id="chk-done" ${checklistComplete(c) ? "" : "disabled"}>Checklista gotowa</button></div>`
+      : ""}`;
 }
 async function saveChecklist(id) {
   const c = state.clients.find((x) => String(x.id) === String(id));
@@ -1371,20 +1382,43 @@ function wireChecklist(c) {
   if (!pane) return;
   const ch = () => (c.checklist = c.checklist || {});
   const saveDeb = debounce(() => saveChecklist(c.id), 600);
+  // przycisk „Checklista gotowa" (tylko na „Umowa podpisana"): odblokowuje się, gdy WSZYSTKO wypełnione
+  const doneBtn = document.getElementById("chk-done");
+  const updateDone = () => {
+    if (!doneBtn) return;
+    const ok = checklistComplete(c);
+    doneBtn.disabled = !ok;
+    doneBtn.title = ok ? `Przenosi kartę na etap „Checklista gotowa"` : `Uzupełnij całą checklistę (płatność, materiały i wszystkie odpowiedzi), żeby przejść dalej`;
+  };
+  updateDone();
+  if (doneBtn) doneBtn.addEventListener("click", () => {
+    if (!checklistComplete(c)) return;
+    saveField(c.id, "status", "checklista");   // konwersja → „Checklista gotowa" (za progiem — bramka przepuszcza)
+  });
+  // „Klient zapłacił": checkbox jak przy materiałach — dopiero po zaznaczeniu wysuwa się segment wyboru
+  const paidCb = document.getElementById("chk-paid");
+  if (paidCb) paidCb.addEventListener("change", () => {
+    const cur = ch();
+    cur.paid_ok = paidCb.checked;
+    if (!paidCb.checked) { cur.paid = null; pane.querySelectorAll(".chk-seg-btn").forEach((x) => x.classList.remove("on")); }   // odznaczenie czyści wybór
+    const seg = document.getElementById("chk-paid-seg");
+    if (seg) seg.hidden = !paidCb.checked;
+    saveChecklist(c.id); updateDone();
+  });
   pane.querySelectorAll(".chk-seg-btn").forEach((b) => b.addEventListener("click", () => {
     const cur = ch();
     cur.paid = cur.paid === b.dataset.paid ? null : b.dataset.paid;   // drugi klik w to samo = odznacz
     pane.querySelectorAll(".chk-seg-btn").forEach((x) => x.classList.toggle("on", x.dataset.paid === cur.paid));
-    saveChecklist(c.id);
+    saveChecklist(c.id); updateDone();
   }));
   const mat = document.getElementById("chk-materials");
-  if (mat) mat.addEventListener("change", () => { ch().materials = mat.checked; saveChecklist(c.id); });
+  if (mat) mat.addEventListener("change", () => { ch().materials = mat.checked; saveChecklist(c.id); updateDone(); });
   pane.querySelectorAll(".chk-answer").forEach((ta) => {
     ta.addEventListener("input", () => {
       ta.style.height = "auto"; ta.style.height = Math.max(34, ta.scrollHeight) + "px";   // auto-grow przy zawijaniu
       const cur = ch(); cur.notes = cur.notes || {};
       cur.notes[ta.dataset.chk] = ta.value;
-      saveDeb();
+      saveDeb(); updateDone();
     });
     ta.addEventListener("change", () => saveChecklist(c.id));
   });
@@ -2017,6 +2051,8 @@ function showSection(name) {
 // „Podpisali umowę" = przeszli przez etap „Umowa podpisana" (konwersja): są na nim LUB dalej w lejku.
 const SIGNED_IDX = STATUSES.findIndex((s) => s.key === "konwersja");
 const OFERTA_IDX = STATUSES.findIndex((s) => s.key === "oferta");
+const CHECKLIST_IDX = STATUSES.findIndex((s) => s.key === "checklista");
+const REALIZACJA_IDX = STATUSES.findIndex((s) => s.key === "w_realizacji");
 const isAdminUser = () => !!(state.me && state.me.role === "admin");
 const hasSelectedService = (c) => { const sv = (c && c.services) || {}; return Object.keys(sv).some((k) => sv[k] && sv[k].on); };
 /* Bramki przejść W PRZÓD w lejku (cofanie zawsze wolno) — pilnowane we WSZYSTKICH drogach zmiany
@@ -2029,10 +2065,15 @@ function stageChangeBlocked(c, targetKey) {
   const to = STATUSES.findIndex((s) => s.key === targetKey);
   const from = STATUSES.findIndex((s) => s.key === normStatus(c));
   if (to < 0 || to <= from) return null;
-  if (to >= OFERTA_IDX && !hasSelectedService(c)) return `Najpierw zaznacz usługę w zakładce Usługi — dopiero wtedy karta może przejść na „Umowa wysłana"`;
-  // pilnujemy tylko PRZEKROCZENIA progu „Umowa podpisana" — karta, która już jest za nim
-  // (token nadany), swobodnie płynie dalej przez etapy realizacji (Checklista → W trakcie → Ukończona)
+  // KAŻDA reguła pilnuje PRZEKROCZENIA swojego progu (nie strefy) — cofanie zawsze wolne:
+  // 1) próg „Umowa wysłana": wymagana min. 1 zaznaczona usługa
+  if (to >= OFERTA_IDX && from < OFERTA_IDX && !hasSelectedService(c)) return `Najpierw zaznacz usługę w zakładce Usługi — dopiero wtedy karta może przejść na „Umowa wysłana"`;
+  // 2) próg „Umowa podpisana": wyłącznie przycisk „Nadaj token" (bypassGate), nikt ręcznie
   if (to >= SIGNED_IDX && from < SIGNED_IDX) return `Na „Umowa podpisana" karta przechodzi WYŁĄCZNIE przyciskiem „Nadaj token" (widzi go admin na karcie z etapem „Umowa wysłana")`;
+  // 3) próg „Checklista gotowa": tylko z KOMPLETNIE wypełnioną checklistą (dotyczy każdego, admina też)
+  if (to >= CHECKLIST_IDX && from < CHECKLIST_IDX && !checklistComplete(c)) return `Na „Checklista gotowa" przejdziesz dopiero z kompletnie wypełnioną checklistą (płatność, materiały i wszystkie odpowiedzi)`;
+  // 4) etapy realizacji (od „W trakcie realizacji"): tylko admin lub rola z uprawnieniem 'stages.realizacja'
+  if (to >= REALIZACJA_IDX && !can("stages.realizacja")) return `Etapy realizacji przenosi tylko admin (albo rola z uprawnieniem „Przenosi karty przez etapy realizacji")`;
   return null;
 }
 /* ---------- TOKEN PARTNERA ----------
@@ -2799,6 +2840,7 @@ const DEMO_PERMISSIONS = [
   { key: "clients.edit_all", label: "Edytuje cudze karty", grp: "Klienci", ord: 20 },
   { key: "clients.hard_delete", label: "Usuwa trwale z archiwum", grp: "Klienci", ord: 30 },
   { key: "partners.revoke", label: "Zdejmuje token partnera (Baza partnerów)", grp: "Klienci", ord: 40 },
+  { key: "stages.realizacja", label: "Przenosi karty przez etapy realizacji (po checkliście)", grp: "Klienci", ord: 50 },
   { key: "section.klienci", label: "Sekcja Baza partnerów (podpisani)", grp: "Sekcje", ord: 10 },
   { key: "section.admin", label: "Panel admina", grp: "Sekcje", ord: 20 },
   { key: "stages.dev", label: "Widzi szczegóły etapów realizacji (dev)", grp: "Sekcje", ord: 30 },
