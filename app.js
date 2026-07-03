@@ -331,7 +331,6 @@ const api = {
    POMOCNICZE
    ============================================================ */
 const $ = (sel) => document.querySelector(sel);
-const fmtDate = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return d; return dt.toLocaleDateString("pl-PL", { day: "numeric", month: "short", year: "numeric" }); };
 const fmtDateTime = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return d; return dt.toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
 // follow_up = timestamp; pole datetime-local chce "YYYY-MM-DDTHH:MM"
 const toDTLocal = (v) => { if (!v) return ""; let s = String(v).replace(" ", "T"); if (s.length === 10) s += "T00:00"; return s.slice(0, 16); };
@@ -757,9 +756,12 @@ function wireDragAndDrop() {
       if (c.status === newStatus && newPos === c.position) return;        // nic się nie zmienia
       const block = stageChangeBlocked(c, newStatus);                     // bramki lejka (usługa / tylko admin)
       if (block) { toast(block); return; }
-      c.status = newStatus; c.position = newPos; maybeMarkPartner(c); markServicesSold(c); state.skipFlipId = c.id; renderBoard(); flashCard(c.id);
+      c.status = newStatus; c.position = newPos; state.skipFlipId = c.id; renderBoard(); flashCard(c.id);
       const patch = (prevStatus !== newStatus) ? { status: newStatus, position: newPos } : { position: newPos };
-      try { await api.updateClient(c.id, patch); }
+      try {
+        await api.updateClient(c.id, patch);
+        maybeMarkPartner(c); markServicesSold(c);   // stemple DOPIERO po udanym zapisie (inaczej zostają na cofniętej karcie)
+      }
       catch (err) { console.error(err); c.status = prevStatus; c.position = prevPos; state.animateNextRender = true; renderBoard(); toast("Nie zapisano — przywrócono poprzednią kolejność"); }
     });
   });
@@ -782,8 +784,10 @@ function formatPhonePL(raw) {
 function wireStageArrows(c) {
   const prev = document.getElementById("stage-prev"), next = document.getElementById("stage-next");
   const idx = STATUSES.findIndex((s) => s.key === normStatus(c));
-  if (prev) { prev.disabled = idx <= 0; prev.addEventListener("click", () => { if (idx > 0) saveField(c.id, "status", STATUSES[idx - 1].key); }); }
-  if (next) { next.disabled = idx >= STATUSES.length - 1; next.addEventListener("click", () => { if (idx < STATUSES.length - 1) saveField(c.id, "status", STATUSES[idx + 1].key); }); }
+  // idx liczony w handlerze ze ŚWIEŻEGO etapu (ktoś mógł przesunąć kartę realtime) — nie z zamrożonego renderu
+  const step = (dir) => { const cur = STATUSES.findIndex((s) => s.key === normStatus(c)); const t = STATUSES[cur + dir]; if (t) saveField(c.id, "status", t.key); };
+  if (prev) { prev.disabled = idx <= 0; prev.addEventListener("click", () => step(-1)); }
+  if (next) { next.disabled = idx >= STATUSES.length - 1; next.addEventListener("click", () => step(1)); }
 }
 
 // Pole nazwiska dopasowuje szerokość do treści (pomiar niewidocznym spanem o tej samej czcionce) —
@@ -912,7 +916,7 @@ function wireFuBar(clientId) {
   const del = document.getElementById("fu-del"); if (del) del.addEventListener("click", () => { deleteReminder(clientId); toggle(false); });
 }
 
-// Ikony pól karty (liniowe, jak FU_ICON/EDIT_ICON) — zamiast etykiet tekstowych; nazwa pola w title/aria.
+// Ikony pól karty (liniowe) — zamiast etykiet tekstowych; nazwa pola w title/aria.
 const CI_ATTRS = `viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"`;
 const CARD_ICON = {
   firma:      `<svg ${CI_ATTRS}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>`,
@@ -970,12 +974,13 @@ async function openModal(id) {
       <div class="notes-label">Komentarze</div>
       <div class="comments-wrap" id="comments-wrap">${renderComments(comments)}</div>
       <div class="save-row archive-actions">
-        <button class="primary-btn" id="restore-card">↩ Przywróć kartę</button>
+        ${canEdit(c) ? `<button class="primary-btn" id="restore-card">↩ Przywróć kartę</button>` : `<span class="readonly-note">To karta: ${esc(c.owner)} — przywrócić może właściciel/opiekun.</span>`}
         ${can("clients.hard_delete") ? `<button class="ghost-btn danger-btn" id="purge-card">Usuń trwale</button>` : ""}
       </div>`;
     $(".modal").classList.remove("modal-full");   // Archiwum = mały modal
     $("#modal-overlay").hidden = false;
-    $("#restore-card").addEventListener("click", () => doRestoreCard(c.id));
+    const restoreBtn = $("#restore-card");        // przywrócenie tylko dla właściciela/opiekuna (canEdit)
+    if (restoreBtn) restoreBtn.addEventListener("click", () => doRestoreCard(c.id));
     const purgeBtn = $("#purge-card");            // przycisk tylko z uprawnieniem 'clients.hard_delete'
     if (purgeBtn) purgeBtn.addEventListener("click", (e) => askPurgeCard(c.id, e.target));
     updateNavButtons();
@@ -1485,9 +1490,7 @@ async function saveField(id, key, value, opts) {
 }
 
 /* ---------- Feed aktywności: follow-up + demo jako wpisy „jak komentarz" ---------- */
-const FU_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`;
-const EDIT_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
-const TRASH_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>`;
+const TRASH_ICON =`<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>`;
 const CHECK_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
 
 function commentHTML(c) {
@@ -1701,10 +1704,11 @@ async function askArchiveCard(id, btn) {
 
 async function doRestoreCard(id) {
   const c = state.clients.find((x) => String(x.id) === String(id));
-  if (!c) return;
+  if (!c || !canEdit(c)) return;                  // przywraca tylko właściciel/opiekun
   try {
     await api.restoreClient(id);
     c.deleted_at = null;
+    maybeMarkPartner(c); markServicesSold(c);      // samonaprawa pomija zarchiwizowane — nadrób token/stemple po przywróceniu
     closeModal(); renderTabs(); state.animateNextRender = true; renderBoard();
     toast("Przywrócono kartę");
   } catch (err) { console.error(err); toast("Nie udało się przywrócić"); }
@@ -1883,6 +1887,15 @@ async function refreshData() {
         }
       }
     }
+    // ZACHOWAJ IDENTYCZNOŚĆ obiektu otwartej karty: closury modala (usługi/checklista/follow-up/strzałki)
+    // trzymają referencję do `c`; podmiana na nowy obiekt odłączyłaby je i zapisy szłyby do stale danych,
+    // a saveChecklist/saveServices (re-find po id) wysyłałyby do bazy STARY stan → cicha utrata wpisów.
+    // Aktualizujemy więc pola w miejscu i podmieniamy nowy obiekt na zachowany (ten sam z modala).
+    if (state.openCardId != null) {
+      const keep = state.clients.find((c) => String(c.id) === String(state.openCardId));
+      const i = clients.findIndex((c) => String(c.id) === String(state.openCardId));
+      if (keep && i !== -1) { Object.assign(keep, clients[i]); clients[i] = keep; }
+    }
     state.clients = clients; state.commentsByClient = comments; state.team = team;
     // nie przerysowuj, jeśli nic WIDOCZNEGO się nie zmieniło (koniec migania) — tani odcisk bez serializacji notatek
     const snap = clients.map((c) => c.id + ":" + c.updated_at).join("|") + "#" +
@@ -1905,8 +1918,9 @@ async function refreshData() {
         openModal(state.openCardId);
       } else {
         // NIGDY nie przebudowuj całego modala (gubi wpisywany komentarz, scroll, podpowiedź @) —
-        // odśwież tylko feed (komentarze + status follow-up/demo) i licznik
+        // odśwież tylko feed (komentarze), belkę follow-upu i licznik ‹ ›
         refreshFeed(state.openCardId);
+        updateFuBar(fresh);   // ktoś inny mógł zmienić termin follow-upu — belka to pokaże (obiekt jest ten sam)
         updateNavButtons();   // lista/kolejność mogła się zmienić → odśwież stan ‹ ›
       }
     }
@@ -2054,7 +2068,9 @@ const OFERTA_IDX = STATUSES.findIndex((s) => s.key === "oferta");
 const CHECKLIST_IDX = STATUSES.findIndex((s) => s.key === "checklista");
 const REALIZACJA_IDX = STATUSES.findIndex((s) => s.key === "w_realizacji");
 const isAdminUser = () => !!(state.me && state.me.role === "admin");
-const hasSelectedService = (c) => { const sv = (c && c.services) || {}; return Object.keys(sv).some((k) => sv[k] && sv[k].on); };
+// próg „Umowa wysłana" wymaga NOWEJ (jeszcze niesprzedanej) usługi — partner na retencji musi dołożyć
+// świeżą, samo posiadanie starych sprzedanych (on=true, sold_at) nie przepuszcza kolejnej sprzedaży
+const hasSelectedService = (c) => { const sv = (c && c.services) || {}; return Object.keys(sv).some((k) => sv[k] && sv[k].on && !sv[k].sold_at); };
 /* Bramki przejść W PRZÓD w lejku (cofanie zawsze wolno) — pilnowane we WSZYSTKICH drogach zmiany
    etapu: select na karcie, strzałki steppera, drag&drop na tablicy, tworzenie karty w kolumnie:
    1) na „Umowa wysłana"+ dopiero, gdy karta ma zaznaczoną min. 1 usługę (handlowiec wybiera, co sprzedaje);
@@ -2353,10 +2369,12 @@ async function renderAdminUsers() {
 
 // Czytelne hasło startowe: 3 krótkie słowa + liczba (łatwo podyktować; bez polskich znaków)
 const PW_WORDS = ["sowa", "kawa", "lipa", "most", "wilk", "fala", "brzeg", "klon", "mewa", "step", "biwak", "orzel", "sosna", "malwa", "trawa", "ogien", "burza", "krab"];
+// hasło startowe z CSPRNG (crypto) — nie Math.random (przewidywalny); pobieramy z zapasem i odrzucamy modulo-bias
+function rand(n) { const a = new Uint32Array(1); const lim = Math.floor(0x100000000 / n) * n; let x; do { crypto.getRandomValues(a); x = a[0]; } while (x >= lim); return x % n; }
 function genPassword() {
   const parts = new Set();
-  while (parts.size < 3) parts.add(PW_WORDS[Math.floor(Math.random() * PW_WORDS.length)]);
-  return [...parts].join("-") + Math.floor(10 + Math.random() * 90);
+  while (parts.size < 3) parts.add(PW_WORDS[rand(PW_WORDS.length)]);
+  return [...parts].join("-") + (10 + rand(90));
 }
 
 // Mały modal wielokrotnego użytku (panel admina): bez trybu pełnoekranowego i bez nawigacji ‹ ›
