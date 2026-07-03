@@ -143,4 +143,40 @@ Praca na osobnej gałęzi, nie na żywym CRM. Sekrety poza repo. Nadzór (Fable 
 - **Business Profile API:** darmowe (po approval).
 - **Fable:** za darmo do 7.07 (rdzeń). Po 7.07 tylko utrzymanie Opus/Sonnet.
 
-**Model:** koszt bliski zera przy przychodzie ~49–99 zł/klient/mies = wysoka marża, skaluje się bez proporcjonalnej pracy.
+**Model:** koszt bliski zera przy przychodzie ~49-99 zł/klient/mies = wysoka marża, skaluje się bez proporcjonalnej pracy.
+
+---
+
+## 8. Walidacja rynkowa + nauki z konkurencji (research 3.07) - DECYZJA: BUDUJEMY SAMI
+
+**Decyzja Krzysztofa 3.07:** budujemy własne (Fable), NIE odsprzedajemy gotowca. Uzasadnienie: konkurencja = dowód popytu; nasza przewaga to dystrybucja (baza klientów + cold calling), a produkt Fablem jest za darmo. Zaczynamy dziś (Opus = plan/spec, Fable = rdzeń).
+
+**Konkurencja (dowód, że rynek JEST i ludzie płacą):**
+- 🇵🇱 **RatingCaptain** - robi niemal 1:1 nasz pomysł (auto-prośby, auto-odpowiedzi, monitoring, statystyki, white label, zgodność Omnibus). **35 zł netto/mies**, 14 dni free, gwarancja zwrotu. To nasz główny benchmark.
+- **NiceJob** ~$75/mies (mali usługodawcy), **Podium/Birdeye** $299-599/mies/lokalizacja (enterprise), **Whautomate/Wati** $49-79 (WhatsApp review requests).
+- Dowód skuteczności kanału: **WhatsApp 98% otwieralność, 20-35% wystawia opinię; SMS 8-15% vs e-mail 3-4%; z bezpośrednim linkiem do 70% vs <5% spontanicznie.**
+
+**⭐ NASZA UNIKALNA PRZEWAGA (czego konkurencja nie ma):**
+1. **Widget opinii na stronie** - MY robimy klientom strony → wpinamy żywy pasek najnowszych opinii Google na ich stronę (auto-update). RatingCaptain nie robi stron. Synergia "strona + opinie w jednym".
+2. **Dystrybucja** - sprzedaż istniejącym klientom (po stronie) przez cold calling; oni łapią klienta od zera.
+3. **WhatsApp jednym klikiem** - oni głównie SMS/e-mail.
+
+**BEST PRACTICES do wbudowania (żeby działało skutecznie):**
+- **Timing:** SMS/WA wysyłać 2-4h po zleceniu, lub wieczorem 17-20, sobota rano dobra. NIE losowo, NIE od razu. Konwersja z linkiem do 70%.
+- **Treść:** personalizacja imieniem, krótko, bezpośredni link, treść NEUTRALNA ("oceń nas", NIE "daj 5 gwiazdek" - Google karze za proszenie tylko o pozytywne).
+- **Follow-up:** max 1 delikatne przypomnienie jak nie wystawił; NIE nękać (jeden SMS zwykle wystarcza).
+- **Multi-touch** (dla e-maila) podnosi konwersję 2-5% → 12-20%, ale przy SMS ostrożnie (1-2 dotknięcia max).
+
+**⛔ CZEGO NIE ROBIMY (miny - konkurencja część z nich robi, my NIE):**
+- **REVIEW GATING** (filtrowanie: zadowoleni→Google, niezadowoleni→prywatnie) = ZAKAZANE przez Google. Kara: usunięcie WSZYSTKICH opinii firmy, spadek w wynikach, **zawieszenie wizytówki**; + FTC/Omnibus kary finansowe. Google wykrywa po nienaturalnym braku negatywnych. → Prosimy WSZYSTKICH klientów, nie tylko zadowolonych. Gramy czysto = argument sprzedażowy (Omnibus-compliant, "nie ryzykujesz wizytówką").
+- Fake/generowane opinie = nielegalne (FTC, kary do ~$51k/naruszenie). Tylko prawdziwi klienci.
+- Nie prosić wyłącznie o pozytywne opinie. Nie nękać.
+
+**ROZSZERZONY ZAKRES MVP (vs §2) - dokładamy:**
+- Widget opinii na stronę klienta (nasza przewaga).
+- Silnik timingu wysyłki (optymalne okno, nie od razu).
+- 1 przypomnienie z limitem (anty-spam).
+- Zgodność Omnibus (weryfikacja że opinia od realnego klienta) - do zaprojektowania.
+- (Później) multi-platform: Facebook obok Google.
+
+**Zostaje z §0.5 bez zmian:** kanał WhatsApp (bot po naszej stronie), model B (my za klienta), publikacja odpowiedzi ręczna→automat po approval, NIGDY bot w panelu Google.
