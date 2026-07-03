@@ -1,11 +1,11 @@
 # HANDOVER — rozbudowa lejka CRM „realizacja/usługi" (branch `feat/lejek-realizacja`)
 
-> Dla: **kto kontynuuje** (Marceli lub Krzysztof — i jego Claude). Data: 2026-07-02, zaktualizowano 2026-07-03. Autorzy: Krzysztof + Marceli + Claude.
+> Dla: **kto kontynuuje** (Marceli lub Krzysztof — i jego Claude). Data: 2026-07-02, zaktualizowano 2026-07-04. Autorzy: Krzysztof + Marceli + Claude.
 > **Najpierw powiedz swojemu Claude: „przeczytaj HANDOVER-lejek-realizacja.md i kontynuuj według niego".**
 
-## ⏸️ STAN NA KONIEC SESJI 2026-07-03 — od czego zacząć następną
-- Branch = commit `be1ce15` (v89), wszystko wypchnięte, working tree czysty. Zrobione Kroki 1–6 (lejek, usługi, nawigacja, **panel admina+RBAC**, „Baza partnerów", **katalog usług „Oferta"**).
-- **Żywa baza NIETKNIĘTA** — Krzysztof świadomie wstrzymał wdrożenie plików SQL („czekaj, na razie chcę wprowadzić lekkie zmiany"). Gdy da zgodę → sekcja „⚠️ BACKEND" niżej (kolejność 1→4).
+## ⏸️ STAN NA KONIEC SESJI 2026-07-04 — od czego zacząć następną
+- Branch = v90, wszystko wypchnięte, working tree czysty. Zrobione Kroki 1–8 (lejek, usługi, nawigacja, **panel admina+RBAC**, „Baza partnerów", **katalog usług „Oferta"**, **redesign karty**, **token partnera + bramki lejka + checklista**).
+- **Żywa baza NIETKNIĘTA** — Krzysztof świadomie wstrzymał wdrożenie plików SQL. Gdy da zgodę → sekcja „⚠️ BACKEND" niżej (kolejność 1→4). Uwaga: `schema-rbac.sql` (część A) urósł — dodaje teraz też kolumny `clients.partner_since` i `clients.checklist` oraz uprawnienie `partners.revoke`.
 - **NASTĘPNE ZADANIE: Krzysztof poda listę realnych usług agencji** (nazwa, rozliczenie jednorazowo/miesięcznie, cena stała albo wpisywana + minimum/rekomendowana, widoczna/ukryta). Dwie drogi: (a) wypisze na czacie → dopisać do seedu `schema-uslugi.sql` + mocków `DEMO_SERVICE_CATALOG` w `app.js`; (b) po wdrożeniu backendu wyklika w Panel admina → Oferta na prawdziwym logowaniu → wtedy ściągnąć je z bazy do seedu (żeby plik odtwarzał katalog 1:1).
 - Podgląd DEMO: instrukcja niżej („Jak odpalić PODGLĄD"); serwer z tej sesji już nie działa.
 
@@ -48,10 +48,25 @@ Rozbudowujemy nasz CRM (repo `kris20032/crm-newbeginning`, live na GitHub Pages 
 - **Karta klienta** (zakładka Usługi) renderuje katalog dynamicznie — wygląd/zapis bez zmian (`clients.services` jsonb, klucze `strona`/`obsluga` kompatybilne wstecz). Bez tabeli w bazie: tryb zgodności = wbudowane strona+obsluga jak dotąd, a „Oferta" pokazuje baner-instrukcję.
 - ⚠️ Kruczek: cena **stała** liczy się z katalogu w momencie wyświetlenia — zmiana ceny stałej w Ofercie zmieni „Razem" także na starych/zamrożonych kartach (tak działało i dotąd z ceną 49 zł w kodzie). Jeśli kiedyś ma być inaczej → snapshot ceny do `clients.services` przy zamrożeniu (roadmap).
 
-Aktualna wersja cache: **v89** (w `index.html` przy `styles.css`/`config.js`/`app.js` — **przy każdej zmianie front podbij numer**, żeby zespół nie miał starej wersji z cache).
+**Krok 7 (2026-07-03/04) — REDESIGN KARTY KLIENTA.**
+- **Nagłówek w jednej linii:** imię (input dopasowuje szerokość do treści — `wireNameAutosize`) + **znaczek partnera** tuż przy nazwisku, po prawej gwiazdki oceny i **stepper etapu** `‹ Status ›` (strzałki ±1 etap, `wireStageArrows`).
+- **Pola na ikonach liniowych** (teczka/słuchawka/koperta/pinezka/osoba/tarcza/monitor — `CARD_ICON`, tooltip z nazwą pola), dwie kolumny rozdzielone cienką linią, bez nagłówków „KONTAKT/USTALENIA".
+- **Telefon**: auto-format `+48 XXX XXX XXX` przy wpisywaniu/wklejaniu (`formatPhonePL` — obsługa 0048/48/myślników, 9 cyfr).
+- **Follow-up = belka nad czatem** (`fu-bar`): klik rozwija (data + godzina + notatka auto-zapis), pomarańczowa gdy ustawiony, badge dziś/zaległe, ✓ = wykonany (trwały wpis w komentarzach), Enter zatwierdza i zwija. Notatka pod datą, ikonka wyrównana do linii daty. Sekcja „Przypomnienia" w feedzie USUNIĘTA — belka to jedyne miejsce follow-upu.
+- Przyciski w wierszach karty ujednolicone (jeden rozmiar); „Poproś o demo" stonowany do szarości.
+- **FIX (demo-only, siedział od dawna):** czat w DEMO nie pokazywał dodanych komentarzy — demo `getComments` zwracał statyczne seedy i `sendComment` nadpisywał nimi stan. Naprawione: demo `getComments` czyta bieżący stan.
+
+**Krok 8 (2026-07-04) — TOKEN PARTNERA + BRAMKI LEJKA + CHECKLISTA.**
+- **Token** (`clients.partner_since`) = JEDYNE źródło prawdy o partnerstwie. Zielony znaczek weryfikacyjny przy imieniu (karta, kafelki, tabele). Klik na karcie → popover z zawartością tokena (od kiedy partner + sprzedane usługi z kwotami/datami). **Samonaprawa przy starcie** (`showApp`): karty już na „Umowa podpisana"+ dostają token i stemple automatycznie (pokryje też żywe dane po wdrożeniu).
+- **Sprzedane usługi**: `services[key].sold_at` — stemplowane przez `markServicesSold` przy KAŻDYM wejściu na „Umowa podpisana"+ (kolejna sprzedaż = kolejna porcja). Sprzedana usługa = trwale zielona z plakietką „aktywna", nie do odznaczenia na żadnym etapie (retencja). Zakładki Usługi i Checklista widoczne dla partnera na każdym etapie, dla reszty od „Sprzedaży".
+- **Bramki lejka** (`stageChangeBlocked` — pilnuje selecta, strzałek, drag&drop i tworzenia karty w kolumnie): (1) na „Umowa wysłana"+ tylko z min. 1 zaznaczoną usługą; (2) próg „Umowa podpisana" przechodzi się **WYŁĄCZNIE przyciskiem „Nadaj token"** (zielony, na karcie z etapem „Umowa wysłana", widzi go tylko admin; `bypassGate` w `saveField`). NIKT nie przenosi ręcznie przez próg — także admin. Za progiem (konwersja→checklista→realizacja→ukończona) ruch swobodny. Cofanie zawsze wolne.
+- **Baza partnerów**: kolumny Klient/Telefon/Etap/Zespół/**Rejestracja** (=data tokena) + **⚙ menu** (doklejane do body — tabela ma overflow:hidden) z opcją **„Zdejmij token"** wymagającą 2 potwierdzeń; zdjęcie czyści token + stemple (usługi wracają do edycji), zablokowane gdy karta stoi na „Umowa podpisana"+ (najpierw cofnij etap). Nowe uprawnienie **`partners.revoke`** w matrycy (admin niejawnie; seed w SQL i demo).
+- **Checklista (roadmap #1 ZROBIONY):** „Klient zapłacił" (segment: pełna kwota / zadatek / inne, drugi klik odznacza) + „Komplet materiałów dotarł" (ptaszek) + 11 pytań (dane kontaktowe, godziny, oferta, obszar, social, domena / podstrony, najważniejsze usługi, wyróżniki, „O nas", preferencje). Pod KAŻDĄ pozycją auto-rosnąca linijka odpowiedzi (textarea, auto-grow). Zapis do `clients.checklist` (jsonb), auto-zapis z debounce.
+
+Aktualna wersja cache: **v90** (w `index.html` przy `styles.css`/`config.js`/`app.js` — **przy każdej zmianie front podbij numer**, żeby zespół nie miał starej wersji z cache).
 
 ## ⚠️ BACKEND — kolejność wdrażania (gdy idziemy na żywo)
-1. **`schema-rbac.sql` (część A)** — bezpieczne w KAŻDEJ chwili, także przed merge do main: tylko dodaje (m.in. kolumnę `clients.services` dla zakładki Usługi — dawny pkt z tego handovera — oraz tabele ról + strażnika). Wkleić całość w Supabase → SQL Editor. Idempotentne (można wielokrotnie). **Najpierw świeży backup** (auto-backup u Krzysztofa — potwierdzić).
+1. **`schema-rbac.sql` (część A)** — bezpieczne w KAŻDEJ chwili, także przed merge do main: tylko dodaje (kolumny `clients.services` / `clients.partner_since` / `clients.checklist`, uprawnienie `partners.revoke` oraz tabele ról + strażnika). Wkleić całość w Supabase → SQL Editor. Idempotentne (można wielokrotnie). **Najpierw świeży backup** (auto-backup u Krzysztofa — potwierdzić).
 2. **`schema-uslugi.sql`** — katalog usług (zakładka „Oferta"); bezpieczny/addytywny jak część A, ale wymaga jej wykonania wcześniej (sam się zatrzyma, jeśli brak). Bez niego karta działa w trybie zgodności (wbudowane strona+obsluga).
 3. **Edge Function `admin-users`** — `supabase login && supabase link --project-ref zngfubfinbojfgaxdrbf && supabase functions deploy admin-users`. Bez niej panel działa, ale akcje na kontach (dodaj/zablokuj/usuń/zmiana roli) pokazują toast z instrukcją; reset hasła działa od razu.
 4. **`schema-rbac-enforce.sql` (część B) — DOPIERO przy wdrożeniu, ZA WYRAŹNĄ ZGODĄ KRZYSZTOFA.** Zmienia zachowanie bazy natychmiast, RÓWNIEŻ dla starego frontu z main (sprzedawcy przestaną widzieć cudze karty). Wymagania i kruczki — w nagłówku pliku; najważniejsze:
@@ -93,7 +108,7 @@ cd /tmp/crm-demo && python3 -m http.server 8899
 4. **Nie merguj do `main`** — to robi Krzysztof, gdy decydujemy „idziemy na żywo".
 
 ## Co dalej (roadmap z narady — po kolei, tylko gdy Krzysztof powie „robimy następny"):
-1. **Treść checklisty** na etapie „Umowa podpisana" (płatność / umowa / dane / wybór produktu / domena) — handlowiec odhacza, potem karta idzie do „Checklista gotowa". *(Zakładka Checklista już istnieje — pusta; brakuje treści/pytań. Naturalny NASTĘPNY krok.)*
+1. ~~**Treść checklisty**~~ — **ZROBIONE w Kroku 8** (płatność-segment, materiały-ptaszek, 11 pytań z auto-rosnącymi polami odpowiedzi; zapis w `clients.checklist`).
 2. ~~**Więcej usług** w zakładce Usługi + ceny (minimalna / rekomendowana)~~ — **mechanizm ZROBIONY w Kroku 6** (katalog + panel Oferta); zostało **wprowadzenie realnej listy usług od Krzysztofa** (patrz „STAN NA KONIEC SESJI" na górze).
 3. **Pod-etapy „development"** widoczne tylko dla nas (zarząd), handlowiec widzi jeden etap „W trakcie realizacji".
 4. ~~**ROLE + panel admina**~~ — **ZROBIONE w Kroku 4** (front + pliki backendu na tym branchu; do wdrożenia wg sekcji „⚠️ BACKEND" wyżej).
