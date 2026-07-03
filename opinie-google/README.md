@@ -6,16 +6,19 @@ Wieloklientowy system zbierania i obsługi opinii Google dla lokalnych fachowcó
 - **Plan budowy (moduł po module):** [`../docs/BLUEPRINT-opinie-google.md`](../docs/BLUEPRINT-opinie-google.md)
 - **Zadanie startowe dla Fable:** [`PROMPT-FABLE-KM1.md`](PROMPT-FABLE-KM1.md)
 
-## Status
+## Status (3.07, po turze Fable KM1+KM2-kod)
 | Element | Stan |
 |---|---|
 | Blueprint techniczny | ✅ gotowy (Opus, 3.07) |
-| Schemat bazy `og_*` (`db/001`) | ✅ napisany (Opus) — czeka na audyt Fable |
-| Polityki izolacji RLS (`db/002`) | ✅ napisane (Opus) — ⭐ Fable audytuje PRZED apply |
-| Seed testowy A/B (`db/003`) | ✅ napisany |
-| Apply na Supabase | ⏳ świadomie, po audycie Fable |
-| Workery (snapshoty, SMS, WhatsApp, monitoring) | ⏳ Fable — Moduły 2-4 |
-| Panel + widget | ⏳ Opus/Sonnet — Moduł 5 |
+| **Audyt izolacji (Fable)** | ✅ zrobiony — 10 znalezisk, wszystkie fixy wprowadzone → [`AUDYT-IZOLACJI.md`](AUDYT-IZOLACJI.md) |
+| Schemat bazy `og_*` (`db/001`) v2 | ✅ po audycie (composite FK, retencja, koszt SMS) |
+| Izolacja: granty + RLS (`db/002`) v2 | ✅ po audycie (2 warstwy: granty kolumnowe + force RLS) |
+| Test izolacji (`tests/test-izolacja.sql`) | ✅ napisany (14 testów, samoczyszczący) — ⏳ uruchomienie po Kroku 0 |
+| Moduł 2 — funkcje (onboard, request, dispatch, snapshot) | ✅ kod gotowy (`functions/`) — ⏳ deploy po Kroku 0 |
+| Harmonogram cronów (`db/004`) | ✅ szablon |
+| **⛔ BRAMKA: osobny projekt Supabase (F1)** | ⏳ **klik Krzysztofa — [`SETUP.md`](SETUP.md) Krok 0** |
+| Moduł 3 (bot WhatsApp) + Moduł 4 (monitoring+AI) | ⏳ następna tura Fable |
+| Panel + widget (Moduł 5) | ⏳ Opus/Sonnet po 7.07 |
 
 ## Struktura
 ```
@@ -30,9 +33,10 @@ opinie-google/
   PROMPT-FABLE-KM1.md  — zadanie startowe dla Fable
 ```
 
-## Jak zastosować schemat (dopiero po audycie Fable)
-Kolejność: `001_schema.sql` → (poprawki Fable) → `002_rls.sql` → `003_seed_test.sql`.
-Baza: projekt Supabase CRM (`zngfubfinbojfgaxdrbf`), osobne tabele `og_*` — **NIE dotyka CRM**.
+## Jak uruchomić
+Cała ścieżka krok po kroku: [`SETUP.md`](SETUP.md).
+⚠️ **Baza: OSOBNY projekt Supabase** (wynik audytu F1 — NIE projekt CRM: jego polityki dają każdemu zalogowanemu pełny wgląd, więc abonenci nie mogą dzielić z nim puli logowań).
+Kolejność SQL: `001_schema.sql` → `002_rls.sql` → **bramka** `tests/test-izolacja.sql` (musi być ✅) → `004_cron.sql`.
 Cofnięcie w każdej chwili: `999_drop.sql` (usuwa tylko `og_*`).
 
 ## Zasady (jak w całym New Beginning)
