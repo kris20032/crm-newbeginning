@@ -28,15 +28,23 @@
 --     drop table if exists public.permissions;
 --     drop table if exists public.roles;
 --     alter table public.clients drop column if exists services;     -- UWAGA: skasuje zapisane usługi z kart
+--     alter table public.clients drop column if exists partner_since; -- UWAGA: skasuje tokeny partnera
+--     alter table public.clients drop column if exists checklist;     -- UWAGA: skasuje odpowiedzi checklisty
 -- ============================================================
 
 begin;
 
 -- ============================================================
---  1. Domknięcie z handovera lejka: kolumna na usługi z karty klienta
---     (zakładka „Usługi" zapisuje tu jsonb; bez kolumny zapis by się wywalał)
+--  1. Domknięcie z handovera lejka: kolumny na karcie klienta
+--     - services: zakładka „Usługi" zapisuje tu jsonb (bez kolumny zapis by się wywalał)
+--     - partner_since: TOKEN PARTNERA — znacznik „przeszedł przez etap Umowa podpisana";
+--       front nadaje go przy pierwszym wejściu na ten etap (lub dalszy) i już NIGDY nie
+--       zdejmuje, niezależnie od późniejszych etapów (zielony znaczek przy imieniu)
 -- ============================================================
 alter table clients add column if not exists services jsonb;
+alter table clients add column if not exists partner_since timestamptz;
+-- CHECKLISTA wdrożeniowa (zakładka na karcie): { paid, materials, notes: {…} }
+alter table clients add column if not exists checklist jsonb;
 
 -- ============================================================
 --  2. ROLE — słownik ról zespołu (panel admina będzie mógł dodawać własne)
@@ -69,6 +77,7 @@ insert into permissions (key, label, grp, ord) values
   ('clients.view_all',    'Widzi klientów całego zespołu',           'Klienci', 10),
   ('clients.edit_all',    'Edytuje cudze karty',                     'Klienci', 20),
   ('clients.hard_delete', 'Usuwa trwale z archiwum',                 'Klienci', 30),
+  ('partners.revoke',     'Zdejmuje token partnera (Baza partnerów)','Klienci', 40),
   ('section.klienci',     'Sekcja Baza partnerów (podpisani)',       'Sekcje',  10),
   ('section.admin',       'Panel admina',                            'Sekcje',  20),
   ('stages.dev',          'Widzi szczegóły etapów realizacji (dev)', 'Sekcje',  30),

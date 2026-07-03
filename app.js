@@ -180,7 +180,9 @@ const api = {
     const by = {}; (data || []).forEach((c) => { (by[c.client_id] = by[c.client_id] || []).push(c); }); return by;
   },
   async getComments(clientId) {
-    if (!LIVE) return structuredClone(DEMO_COMMENTS[clientId] || []);
+    // DEMO: źródłem prawdy jest bieżący stan (addComment dopisuje tam) — seedy tylko przed pierwszym załadowaniem.
+    // (Wcześniej zwracało zawsze seedy, przez co sendComment nadpisywał świeżo dodany komentarz i czat "nie działał".)
+    if (!LIVE) return structuredClone(state.commentsByClient[clientId] || DEMO_COMMENTS[clientId] || []);
     const { data, error } = await sb.from("comments").select("*").eq("client_id", clientId).order("created_at", { ascending: true });
     if (error) throw error; return data;
   },
@@ -617,7 +619,7 @@ function renderTable(board, list, opts = {}) {
     return;
   }
   const dash = `<span class="tb-empty">—</span>`;
-  const nameCell = (c) => `<div class="tb-name"><span class="tb-nm">${esc(c.name)}</span>${c.company ? `<span class="tb-co">${esc(c.company)}</span>` : ""}</div>`;
+  const nameCell = (c) => `<div class="tb-name"><span class="tb-nm">${esc(c.name)}${partnerMark(c)}</span>${c.company ? `<span class="tb-co">${esc(c.company)}</span>` : ""}</div>`;
   const statusCell = (c) => { const s = statusOf(normStatus(c)); return `<span class="status-pill" style="background:${s.bg};color:${s.fg}"><span class="dot" style="background:${s.dot}"></span>${esc(s.label)}</span>`; };
   const teamCell = (c) => `${c.opiekun ? `<span class="avatar avatar-sec" title="Opiekun: ${esc(c.opiekun)}" style="background:${ownerColor(c.opiekun)}">${initials(c.opiekun)}</span>` : ""}<span class="avatar" title="Handlowiec: ${esc(c.owner)}" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span>`;
 
@@ -669,7 +671,7 @@ function renderCardInner(c) {
   const ds = c.follow_up_done ? "" : dueState(c.follow_up);   // zrobiony follow-up nie świeci jako „dziś/zaległe"
   const stars = qStars(c);
   const starsHtml = stars ? `<span class="card-stars" title="Ocena ${stars}/3">${"★".repeat(stars)}</span>` : "";
-  return `<div class="card-title"><span class="card-ic">👤</span>${esc(c.name)}${starsHtml}</div>
+  return `<div class="card-title"><span class="card-ic">👤</span>${esc(c.name)}${partnerMark(c)}${starsHtml}</div>
     ${c.company ? `<div class="card-company">${esc(c.company)}</div>` : ""}
     <div class="card-meta">${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}</div>
     <div class="card-foot">
@@ -753,13 +755,181 @@ function wireDragAndDrop() {
       const prevStatus = c.status, prevPos = c.position;
       const newPos = positionForDrop(zone, e.clientY, c.id);
       if (c.status === newStatus && newPos === c.position) return;        // nic się nie zmienia
-      c.status = newStatus; c.position = newPos; state.skipFlipId = c.id; renderBoard(); flashCard(c.id);
+      const block = stageChangeBlocked(c, newStatus);                     // bramki lejka (usługa / tylko admin)
+      if (block) { toast(block); return; }
+      c.status = newStatus; c.position = newPos; maybeMarkPartner(c); markServicesSold(c); state.skipFlipId = c.id; renderBoard(); flashCard(c.id);
       const patch = (prevStatus !== newStatus) ? { status: newStatus, position: newPos } : { position: newPos };
       try { await api.updateClient(c.id, patch); }
       catch (err) { console.error(err); c.status = prevStatus; c.position = prevPos; state.animateNextRender = true; renderBoard(); toast("Nie zapisano — przywrócono poprzednią kolejność"); }
     });
   });
 }
+
+// Telefon PL → "+48 XXX XXX XXX" przy wpisywaniu/wklejaniu. Puste zostaje puste (placeholder działa).
+// Wiodące +48 / 0048 / 48 traktuj jak prefiks kraju i odetnij; krajowy numer = 9 cyfr, grupowany po 3.
+function formatPhonePL(raw) {
+  let d = String(raw || "").replace(/\D/g, "");
+  if (!d) return "";
+  if (d.startsWith("0048")) d = d.slice(4);
+  else if (d.startsWith("48")) d = d.slice(2);
+  if (!d) return "";                               // został sam prefiks (np. po skasowaniu numeru)
+  d = d.slice(0, 9);
+  return "+48 " + (d.match(/.{1,3}/g) || []).join(" ");
+}
+
+// Stepper statusu: strzałki ‹ › przesuwają kartę o jeden etap w lejku (te same klucze co select „Status").
+// saveField("status") przerysowuje kartę (openModal) → stepper sam się odświeży z nowym indeksem.
+function wireStageArrows(c) {
+  const prev = document.getElementById("stage-prev"), next = document.getElementById("stage-next");
+  const idx = STATUSES.findIndex((s) => s.key === normStatus(c));
+  if (prev) { prev.disabled = idx <= 0; prev.addEventListener("click", () => { if (idx > 0) saveField(c.id, "status", STATUSES[idx - 1].key); }); }
+  if (next) { next.disabled = idx >= STATUSES.length - 1; next.addEventListener("click", () => { if (idx < STATUSES.length - 1) saveField(c.id, "status", STATUSES[idx + 1].key); }); }
+}
+
+// Pole nazwiska dopasowuje szerokość do treści (pomiar niewidocznym spanem o tej samej czcionce) —
+// dzięki temu znaczek partnera siedzi TUŻ przy nazwisku, a nie na końcu rozciągniętego inputu.
+function wireNameAutosize() {
+  const inp = document.querySelector('#modal-body input.cm-name');
+  if (!inp) return;
+  const fit = () => {
+    const cs = getComputedStyle(inp);
+    const m = document.createElement("span");
+    m.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${cs.font};letter-spacing:${cs.letterSpacing}`;
+    m.textContent = inp.value || inp.placeholder || "";
+    document.body.appendChild(m);
+    const max = (inp.parentElement ? inp.parentElement.clientWidth : 400) - 30;   // zostaw miejsce na znaczek
+    inp.style.width = Math.min(max, m.offsetWidth + 20) + "px";                   // +padding pola i kursor
+    m.remove();
+  };
+  fit();
+  inp.addEventListener("input", fit);
+}
+
+// Telefon: auto-format PL przy wpisywaniu i wklejaniu → "+48 XXX XXX XXX".
+function wirePhoneInput() {
+  const el = document.querySelector('#modal-body input[data-key="phone"]');
+  if (!el) return;
+  const fmt = () => { el.value = formatPhonePL(el.value); };
+  el.addEventListener("input", fmt);
+  el.addEventListener("paste", () => setTimeout(fmt, 0));   // po wstawieniu wklejonej treści
+}
+
+/* ---------- Belka follow-upu nad czatem: klik rozwija termin + notatkę; ✓ zamyka ---------- */
+const CHEV_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`;
+
+function fuBarLabel(c) {
+  const active = c && c.follow_up && !c.follow_up_done;
+  if (!active) return `<span class="fu-bar-empty">Follow-up</span>`;
+  const ds = dueState(c.follow_up);
+  const badge = ds === "overdue" ? `<span class="rm-badge rm-overdue">zaległe</span>`
+              : ds === "today"   ? `<span class="rm-badge rm-today">dziś</span>` : "";
+  const note = (c.follow_up_note || "").trim();
+  return `<span class="fu-bar-line"><strong>${esc(fmtFollow(c.follow_up))}</strong>${badge}</span>${note ? `<span class="fu-bar-note">${esc(note)}</span>` : ""}`;
+}
+// Belka nad feedem: dla edytującego zawsze (planowanie), dla oglądającego tylko gdy follow-up aktywny.
+function fuBarHTML(c, editable) {
+  const active = c.follow_up && !c.follow_up_done;
+  if (!editable && !active) return "";
+  const ds = active ? dueState(c.follow_up) : "";
+  return `<div class="fu-bar${active ? " is-set" : ""}${ds ? " is-" + ds : ""}" id="fu-bar">
+      <div class="fu-bar-head${editable ? "" : " ro"}" id="fu-bar-head" ${editable ? `role="button" tabindex="0" aria-expanded="false" title="Kliknij, aby ${active ? "edytować" : "zaplanować"} follow-up"` : ""}>
+        <span class="fu-bar-ic">${CARD_ICON.followup}</span>
+        <span class="fu-bar-label" id="fu-bar-label">${fuBarLabel(c)}</span>
+        ${editable ? `<button type="button" class="rm-act rm-done" id="fu-done" title="Oznacz jako zrobione" aria-label="Zrobione" ${active ? "" : "hidden"}>${CHECK_ICON}</button>
+        <span class="fu-bar-chev">${CHEV_ICON}</span>` : ""}
+      </div>
+      ${editable ? `<div class="fu-bar-body" id="fu-bar-body" hidden>
+        <div class="fu-bar-row">
+          <input type="date" id="fu-date" />
+          <input type="time" id="fu-time" title="Godzina (opcjonalnie)" />
+          <button type="button" class="rm-act" id="fu-del" title="Usuń przypomnienie" aria-label="Usuń przypomnienie" ${active ? "" : "hidden"}>${TRASH_ICON}</button>
+        </div>
+        <input type="text" id="fu-note" placeholder="Notatka (opcjonalnie)" autocomplete="off" maxlength="200" />
+      </div>` : ""}
+    </div>`;
+}
+// Odśwież belkę po zmianie follow-upu (bez przebudowy DOM — pola nie znikają w trakcie edycji).
+function updateFuBar(c) {
+  const bar = document.getElementById("fu-bar");
+  if (!bar || !c || String(state.openCardId) !== String(c.id)) return;
+  const active = c.follow_up && !c.follow_up_done;
+  const ds = active ? dueState(c.follow_up) : "";
+  bar.classList.toggle("is-set", !!active);
+  bar.classList.toggle("is-today", ds === "today");
+  bar.classList.toggle("is-overdue", ds === "overdue");
+  const lbl = document.getElementById("fu-bar-label"); if (lbl) lbl.innerHTML = fuBarLabel(c);
+  const done = document.getElementById("fu-done"); if (done) done.hidden = !active;
+  const del = document.getElementById("fu-del"); if (del) del.hidden = !active;
+  const sync = (id, val) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = val; };
+  sync("fu-date", toDateInput(c.follow_up));
+  sync("fu-time", toTimeInput(c.follow_up));
+  sync("fu-note", c.follow_up_note || "");
+}
+function wireFuBar(clientId) {
+  const c = state.clients.find((x) => String(x.id) === String(clientId));
+  const bar = document.getElementById("fu-bar"), head = document.getElementById("fu-bar-head"), body = document.getElementById("fu-bar-body");
+  const fuDate = document.getElementById("fu-date"), fuTime = document.getElementById("fu-time"), fuNote = document.getElementById("fu-note");
+  if (!bar || !body || !fuDate) return;
+  fuDate.value = toDateInput(c ? c.follow_up : "");
+  if (fuTime) fuTime.value = toTimeInput(c ? c.follow_up : "");
+  if (fuNote) fuNote.value = (c && c.follow_up_note) || "";
+  const toggle = (open) => {
+    const willOpen = open != null ? open : body.hidden;
+    body.hidden = !willOpen;
+    bar.classList.toggle("open", willOpen);
+    head.setAttribute("aria-expanded", String(willOpen));
+    if (willOpen) fuDate.focus();
+  };
+  head.addEventListener("click", (e) => { if (!e.target.closest(".rm-act")) toggle(); });
+  head.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === head) { e.preventDefault(); toggle(); } });
+  // Enter w edytorze = zatwierdź (blur → zapis) i zwiń belkę
+  body.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (e.target && typeof e.target.blur === "function") e.target.blur();
+    toggle(false);
+  });
+  const save = () => {
+    const d = fuDate.value, t = fuTime ? fuTime.value : "";
+    if (!d) {                                       // brak daty → czyścimy follow-up (termin + notatkę)
+      saveField(clientId, "follow_up", "");
+      saveField(clientId, "follow_up_note", "");
+      if (fuTime) fuTime.value = ""; if (fuNote) fuNote.value = "";
+    } else {
+      saveField(clientId, "follow_up", t ? `${d}T${t}` : d);
+      if (c && c.follow_up_done) setFollowDone(clientId, false);   // nowy termin → znów „do zrobienia"
+    }
+    updateFuBar(c);
+  };
+  fuDate.addEventListener("change", save);
+  if (fuTime) fuTime.addEventListener("change", save);
+  if (fuNote) {
+    const saveNote = () => { saveField(clientId, "follow_up_note", fuNote.value.trim()); updateFuBar(c); };
+    fuNote.addEventListener("change", saveNote);
+    fuNote.addEventListener("input", debounce(saveNote, 600));
+  }
+  const done = document.getElementById("fu-done"); if (done) done.addEventListener("click", () => completeReminder(clientId));
+  const del = document.getElementById("fu-del"); if (del) del.addEventListener("click", () => { deleteReminder(clientId); toggle(false); });
+}
+
+// Ikony pól karty (liniowe, jak FU_ICON/EDIT_ICON) — zamiast etykiet tekstowych; nazwa pola w title/aria.
+const CI_ATTRS = `viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"`;
+const CARD_ICON = {
+  firma:      `<svg ${CI_ATTRS}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>`,
+  telefon:    `<svg ${CI_ATTRS}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`,
+  email:      `<svg ${CI_ATTRS}><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>`,
+  maps:       `<svg ${CI_ATTRS}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`,
+  handlowiec: `<svg ${CI_ATTRS}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+  opiekun:    `<svg ${CI_ATTRS}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>`,
+  followup:   `<svg ${CI_ATTRS}><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`,
+  demo:       `<svg ${CI_ATTRS}><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`,
+};
+// odznaka z ptaszkiem — wiersz „Nadaj token" na karcie (admin, etap „Umowa wysłana")
+const BADGE_CHECK_ICON = `<svg ${CI_ATTRS}><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></svg>`;
+// zębatka — ustawienia partnera w Bazie partnerów (menu z opcją zdjęcia tokena)
+const GEAR_ICON = `<svg ${CI_ATTRS}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
+// wiersz pola: ikonka z podpowiedzią (title) zamiast etykiety tekstowej
+const cmRow = (icon, label, v, vClass = "", vId = "") => `<div class="cm-row"><span class="k" title="${label}" aria-label="${label}">${CARD_ICON[icon]}</span><div class="v${vClass ? " " + vClass : ""}"${vId ? ` id="${vId}"` : ""}>${v}</div></div>`;
 
 /* ============================================================
    MODAL — karta (auto-zapis, bez przycisku "Zapisz")
@@ -814,13 +984,8 @@ async function openModal(id) {
 
   const editable = canEdit(c);
 
-  const field = (label, icon, key, type = "text") => {
-    const val = c[key] || "";
-    const input = editable ? `<input type="${type}" data-key="${key}" value="${esc(val)}" />` : `<div class="prop-value readonly">${esc(val) || "—"}</div>`;
-    return `<div class="prop-label">${icon} ${label}</div><div class="prop-value">${input}</div>`;
-  };
   const statusSelect = editable
-    ? `<select data-key="status">${STATUSES.map((s) => `<option value="${s.key}" ${normStatus(c) === s.key ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select>`
+    ? `<select data-key="status" class="stage-select">${STATUSES.map((s) => `<option value="${s.key}" ${normStatus(c) === s.key ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select>`
     : `<div class="prop-value readonly"><span class="status-pill" style="background:${statusOf(normStatus(c)).bg};color:${statusOf(normStatus(c)).fg}"><span class="dot" style="background:${statusOf(normStatus(c)).dot}"></span>${esc(statusOf(normStatus(c)).label)}</span></div>`;
   const ownerOpts = Array.from(new Set([...state.team, c.owner].filter(Boolean)));
   const ownerSelect = editable
@@ -832,44 +997,54 @@ async function openModal(id) {
     : `<div class="prop-value readonly">${esc(c.opiekun) || "—"}</div>`;
   const safe = safeUrl(c.google_maps);
   const stars = Math.max(0, Math.min(3, parseInt(c.quality, 10) || 0));   // ocena 1–3 (w kolumnie quality)
-  // Zakładka „Usługi" pojawia się od etapu „Sprzedaż" (po_spotkaniu) w górę — wtedy handlowiec wybiera, co sprzedaje.
+  // Zakładka „Usługi": od etapu „Sprzedaż" (po_spotkaniu) w górę — a dla PARTNERA zawsze (retencja:
+  // karta wraca na początek lejka, ale sprzedane usługi mają być widoczne i można dokładać nowe).
   const stageIdx = STATUSES.findIndex((s) => s.key === normStatus(c));
-  const showServices = stageIdx >= STATUSES.findIndex((s) => s.key === "po_spotkaniu");
+  const showServices = stageIdx >= STATUSES.findIndex((s) => s.key === "po_spotkaniu") || isPartner(c);
   // Usługi zamrożone (zielone, bez edycji) już od „Umowa wysłana" (oferta) w górę.
-  // Zakładka Checklista pojawia się dopiero od „Umowa podpisana" (konwersja) w górę.
+  // Zakładka Checklista pojawia się tak samo jak Usługi — od etapu „Sprzedaż" (i dla partnera zawsze).
   const lockedIdx = STATUSES.findIndex((s) => s.key === "oferta");
-  const signedIdx = STATUSES.findIndex((s) => s.key === "konwersja");
   const svcLocked = stageIdx >= lockedIdx;
-  const showChecklist = stageIdx >= signedIdx;
+  const showChecklist = showServices;
+
+  const starsHTML = editable
+    ? `<div class="stars" id="stars" title="Ocena leada">${[1,2,3].map((n) => `<button type="button" class="star${n <= stars ? " on" : ""}" data-val="${n}" title="${n}/3" aria-label="Ocena ${n} z 3">★</button>`).join("")}</div>`
+    : `<div class="stars readonly">${[1,2,3].map((n) => `<span class="star${n <= stars ? " on" : ""}">★</span>`).join("")}</div>`;
 
   $("#modal-body").innerHTML = `
     <div class="cm">
       <div class="cm-left">
-        ${editable ? `<input class="title-input cm-name" data-key="name" value="${esc(c.name)}" placeholder="Imię i nazwisko" />` : `<h2 class="cm-name">${esc(c.name)}</h2>`}
+        <div class="cm-head">
+          <div class="cm-name-wrap">
+            ${editable ? `<input class="title-input cm-name" data-key="name" value="${esc(c.name)}" placeholder="Imię i nazwisko" />` : `<h2 class="cm-name">${esc(c.name)}</h2>`}
+            ${partnerMark(c)}
+          </div>
+          ${starsHTML}
+          <div class="cm-stage${editable ? "" : " cm-stage-ro"}">${editable
+              ? `<button type="button" class="stage-arrow" id="stage-prev" title="Cofnij etap" aria-label="Cofnij etap">‹</button>${statusSelect}<button type="button" class="stage-arrow" id="stage-next" title="Następny etap" aria-label="Następny etap">›</button>`
+              : statusSelect}</div>
+        </div>
         ${!editable ? `<div class="readonly-note">To karta: ${esc(c.owner)}. Pól nie edytujesz, ale możesz dodać komentarz (z @oznaczeniem).</div>` : ""}
 
         <div class="cm-props">
           <div class="cm-group">
-            <div class="cm-gh">Kontakt</div>
-            <div class="cm-row"><span class="k">Firma</span><div class="v">${editable ? `<input data-key="company" value="${esc(c.company || "")}" placeholder="—" />` : `<div class="prop-value readonly">${esc(c.company) || "—"}</div>`}</div></div>
-            <div class="cm-row"><span class="k">Telefon</span><div class="v">${editable ? `<input data-key="phone" value="${esc(c.phone || "")}" placeholder="—" />` : `<div class="prop-value readonly">${esc(c.phone) || "—"}</div>`}</div></div>
-            <div class="cm-row"><span class="k">Email</span><div class="v">${editable ? `<input data-key="email" value="${esc(c.email || "")}" placeholder="—" />` : `<div class="prop-value readonly">${esc(c.email) || "—"}</div>`}</div></div>
-            <div class="cm-row"><span class="k">Maps</span><div class="v maps-cell">${editable
-                  ? `<input data-key="google_maps" id="maps-input" value="${esc(c.google_maps || "")}" placeholder="link" />`
+            ${cmRow("firma", "Firma", editable ? `<input data-key="company" value="${esc(c.company || "")}" placeholder="Firma" />` : `<div class="prop-value readonly">${esc(c.company) || "—"}</div>`)}
+            ${cmRow("telefon", "Telefon", editable ? `<input data-key="phone" inputmode="tel" value="${esc(c.phone || "")}" placeholder="Telefon" />` : `<div class="prop-value readonly">${esc(c.phone) || "—"}</div>`)}
+            ${cmRow("email", "Email", editable ? `<input data-key="email" value="${esc(c.email || "")}" placeholder="Email" />` : `<div class="prop-value readonly">${esc(c.email) || "—"}</div>`)}
+            ${cmRow("maps", "Google Maps", `${editable
+                  ? `<input data-key="google_maps" id="maps-input" value="${esc(c.google_maps || "")}" placeholder="Google Maps" />`
                   : (safe ? `<a class="maps-link" href="${esc(safe)}" target="_blank" rel="noopener">otwórz</a>` : `<span class="readonly">—</span>`)}${(c.google_maps || "").trim()
                   ? `${editable ? `<button type="button" class="maps-btn" id="maps-open" title="Otwórz wizytówkę Google">↗</button>` : ""}<button type="button" class="maps-btn" id="maps-copy" title="Kopiuj link">⧉</button>`
-                  : ""}</div></div>
+                  : ""}`, "maps-cell")}
           </div>
 
           <div class="cm-group">
-            <div class="cm-gh">Sprzedaż</div>
-            <div class="cm-row"><span class="k">Ocena</span><div class="v">${editable
-                ? `<div class="stars" id="stars">${[1,2,3].map((n) => `<button type="button" class="star${n <= stars ? " on" : ""}" data-val="${n}" title="${n}/3" aria-label="Ocena ${n} z 3">★</button>`).join("")}</div>`
-                : `<div class="stars readonly">${[1,2,3].map((n) => `<span class="star${n <= stars ? " on" : ""}">★</span>`).join("")}</div>`}</div></div>
-            <div class="cm-row"><span class="k">Status</span><div class="v">${statusSelect}</div></div>
-            <div class="cm-row"><span class="k">Handlowiec</span><div class="v">${ownerSelect}</div></div>
-            <div class="cm-row"><span class="k">Opiekun</span><div class="v">${opiekunSelect}</div></div>
-            <div class="cm-row"><span class="k">Demo</span><div class="v demo-cell maps-cell" id="demo-cell">${demoFieldHTML(c, editable)}</div></div>
+            ${cmRow("handlowiec", "Handlowiec", ownerSelect)}
+            ${cmRow("opiekun", "Opiekun", opiekunSelect)}
+            ${cmRow("demo", "Demo", demoFieldHTML(c, editable), "demo-cell maps-cell", "demo-cell")}
+            ${(editable && isAdminUser() && stageIdx >= lockedIdx && stageIdx < SIGNED_IDX)
+              ? `<div class="cm-row"><span class="k" title="Token partnera" aria-label="Token partnera">${BADGE_CHECK_ICON}</span><div class="v"><button type="button" class="ghost-btn grant-token" id="grant-token" title="Przenosi kartę na „Umowa podpisana" i nadaje token partnera (widzi tylko admin)">Nadaj token</button></div></div>`
+              : ""}
           </div>
         </div>
 
@@ -886,29 +1061,17 @@ async function openModal(id) {
               : `<div class="notes-view readonly">${c.notes ? linkify(c.notes) : "—"}</div>`}
           </div>
           ${showServices ? `<div class="notes-pane services-pane${svcLocked ? " locked" : ""}" id="pane-services" hidden>${servicesHTML(c, editable && !svcLocked)}</div>` : ""}
-          ${showChecklist ? `<div class="notes-pane checklist-pane" id="pane-checklist" hidden></div>` : ""}
+          ${showChecklist ? `<div class="notes-pane checklist-pane" id="pane-checklist" hidden>${checklistHTML(c, editable)}</div>` : ""}
         </div>
 
         ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Przenieś do archiwum</button></div>` : ""}
       </div>
 
       <aside class="cm-right">
+        ${fuBarHTML(c, editable)}
         <div class="comments-wrap" id="comments-wrap">${renderActivity(c, comments)}</div>
         <div class="composer">
-          ${editable ? `<div class="fu-setter" id="fu-setter" hidden>
-            <div class="fu-setter-row">
-              <input type="date" id="fu-date" />
-              <input type="time" id="fu-time" title="Godzina (opcjonalnie)" />
-            </div>
-            <div class="fu-quick">
-              <button type="button" class="fu-chip" data-days="1">Jutro</button>
-              <button type="button" class="fu-chip" data-days="3">+3 dni</button>
-              <button type="button" class="fu-chip" data-days="7">+tydzień</button>
-              <button type="button" class="fu-chip fu-chip-clear" data-clear="1">Wyczyść</button>
-            </div>
-          </div>` : ""}
           <div class="add-comment">
-            ${editable ? `<button type="button" class="fu-mode" id="fu-mode" title="Zaplanuj follow-up" aria-pressed="false">${FU_ICON}<span>Follow-up</span></button>` : ""}
             <div class="hl-wrap"><div id="comment-hl" class="hl-backdrop" aria-hidden="true"></div><input id="new-comment" placeholder="Dodaj komentarz...  (@ aby oznaczyć osobę)" autocomplete="off" /></div>
             <button id="send-comment">Wyślij</button>
             <div id="mention-pop" class="mention-pop" hidden></div>
@@ -952,10 +1115,13 @@ async function openModal(id) {
     { btn: "#tab-checklist", pane: "#pane-checklist" },
   ].filter((t) => $(t.btn) && $(t.pane));
   if (noteTabs.length > 1) {
-    const showTab = (active) => noteTabs.forEach((t) => {
-      $(t.btn).classList.toggle("on", t.btn === active.btn);
-      $(t.pane).hidden = t.btn !== active.btn;
-    });
+    const showTab = (active) => {
+      noteTabs.forEach((t) => {
+        $(t.btn).classList.toggle("on", t.btn === active.btn);
+        $(t.pane).hidden = t.btn !== active.btn;
+      });
+      if (active.btn === "#tab-checklist") sizeChecklistAreas();   // schowany panel ma scrollHeight 0 — dopasuj po pokazaniu
+    };
     noteTabs.forEach((t) => $(t.btn).addEventListener("click", () => showTab(t)));
   }
 
@@ -964,6 +1130,7 @@ async function openModal(id) {
     const svcRow = (k) => { c.services = c.services || {}; return (c.services[k] = c.services[k] || {}); };
     document.querySelectorAll("#pane-services .svc-cb").forEach((cb) => cb.addEventListener("change", () => {
       const k = cb.dataset.svc;
+      if (svcRow(k).sold_at) { cb.checked = true; return; }   // sprzedana = nie do odznaczenia (checkbox i tak disabled — pas bezpieczeństwa)
       svcRow(k).on = cb.checked;   // rekomendowaną cenę podpowiada placeholder pola — kwotę handlowiec wpisuje sam
       const item = cb.closest(".svc-item"); if (item) item.classList.toggle("on", cb.checked);
       updateSvcTotal(c);
@@ -1032,11 +1199,19 @@ async function openModal(id) {
   const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askArchiveCard(c.id, delBtn));
   wireDemoCell(c.id);
   wireComposer(c.id);
+  wirePartnerToken(c);
+  if (editable) { wireStageArrows(c); wireFuBar(c.id); wirePhoneInput(); wireNameAutosize(); wireChecklist(c); }
+  const grantBtn = document.getElementById("grant-token");   // JEDYNA droga na „Umowa podpisana": admin klika → token + przeniesienie
+  if (grantBtn) grantBtn.addEventListener("click", () => {
+    if (!isAdminUser()) return;                              // pas bezpieczeństwa (przycisk i tak renderuje się tylko adminowi)
+    saveField(c.id, "status", "konwersja", { bypassGate: true });
+  });
   updateNavButtons();
 }
 
-// Usługi sprzedawane klientowi (widok w karcie od etapu „Sprzedaż"). Wybory zapisywane w clients.services (jsonb):
-// { "<key>": { on, price?, period? } } — klucze z katalogu (service_catalog), format bez zmian (kompatybilny wstecz).
+// Usługi sprzedawane klientowi (widok w karcie od etapu „Sprzedaż"; dla partnera zawsze). Zapis w clients.services (jsonb):
+// { "<key>": { on, price?, period?, sold_at? } } — klucze z katalogu (service_catalog), kompatybilne wstecz.
+// sold_at = data domknięcia sprzedaży (markServicesSold) → usługa trwale „aktywna", zielona, nie do odznaczenia.
 // KATALOG = jedyne źródło prawdy o ofercie (etykiety, ceny, tryb rozliczenia); zarządzany w panelu admina → „Oferta".
 const OKRESY = [{ key: "6m", label: "6 mies.", months: 6 }, { key: "1y", label: "1 rok", months: 12 }, { key: "2y", label: "2 lata", months: 24 }];
 const DEF_OKRES = "6m";
@@ -1069,7 +1244,7 @@ const svcMin = (s) => (s && (s.price_min === 0 || s.price_min) ? Number(s.price_
 const svcRec = (s) => (s && (s.price_rec === 0 || s.price_rec) ? Number(s.price_rec) : null);
 // Wpisana cena poniżej minimum z katalogu → przytnij do minimum (toast informuje handlowca).
 // Suma kwot ZAZNACZONYCH usług wg katalogu (fixed → cena z katalogu; custom → kwota od handlowca;
-// monthly → × miesiące wybranego okresu). Sygnatura bez zmian — używane też w Bazie partnerów (renderKlienciRows).
+// monthly → × miesiące wybranego okresu). Używane w karcie (wiersz „Razem" zakładki Usługi).
 function svcTotal(sv) {
   sv = sv || {};
   let t = 0;
@@ -1088,16 +1263,20 @@ function updateSvcTotal(c) {
   const el = document.getElementById("svc-total-val");
   if (el) el.textContent = svcTotal(c.services);
 }
-// Jeden wiersz na usługę z katalogu: checkbox + (okres przy monthly) + cena (stała / input handlowca) — wygląd jak dotąd.
+// Jeden wiersz na usługę z katalogu: checkbox + (okres przy monthly) + cena (stała / input handlowca).
+// Usługa z sold_at (sprzedana — patrz markServicesSold) jest TRWALE zielona i zablokowana per-wiersz,
+// niezależnie od etapu karty; pozostałe wiersze podlegają zwykłym regułom (edycja do „Umowa wysłana").
 function servicesHTML(c, editable) {
   const sv = c.services || {};
-  const dis = editable ? "" : "disabled";
   const cur = (s) => s.billing === "monthly" ? "zł/mies." : "zł";
   const items = servicesForClient(sv).map((s) => {
     const row = sv[s.key] || {};
+    const sold = !!row.sold_at;
+    const dis = (editable && !sold) ? "" : "disabled";
     const k = esc(s.key);
     // usługa wycofana z oferty (ukryta), ale na tej karcie zaznaczona — pokaż z dyskretnym dopiskiem
     const retired = s.visible === false ? ` <span class="svc-retired">(wycofana z oferty)</span>` : "";
+    const activeTag = sold ? ` <span class="svc-active-tag" title="Sprzedana — klient ją ma, nie do odznaczenia">aktywna</span>` : "";
     const period = s.billing === "monthly" ? `<select class="svc-period" data-svc="${k}" ${dis}>
           ${OKRESY.map((o) => `<option value="${o.key}" ${(row.period || DEF_OKRES) === o.key ? "selected" : ""}>${o.label}</option>`).join("")}
         </select>` : "";
@@ -1109,13 +1288,13 @@ function servicesHTML(c, editable) {
       const min = svcMin(s), rec = svcRec(s);
       // rekomendowana = szary placeholder w polu; minimum NIGDZIE nie widać — dopiero wpis poniżej
       // świeci pole na czerwono i odsłania limit (.svc-min-warn, wiązanie w openModal)
-      priceHtml = `<span class="svc-min-warn" data-svc="${k}" hidden></span><input type="number" class="svc-price-input" data-svc="${k}" min="${min != null ? min : 0}" step="10" inputmode="numeric" value="${esc(String(price))}" placeholder="${rec != null ? esc(String(rec)) : "kwota"}" ${dis} />
+      priceHtml = `<span class="svc-min-warn" data-svc="${k}" hidden></span><input type="number" class="svc-price-input" data-svc="${k}" min="${min != null ? min : 0}" step="10" inputmode="numeric" value="${esc(String(price))}" placeholder="${rec != null ? esc(String(rec)) : ""}" ${dis} />
         <span class="svc-cur">${cur(s)}</span>`;
     }
-    return `<div class="svc-item${row.on ? " on" : ""}" data-svc="${k}">
+    return `<div class="svc-item${row.on ? " on" : ""}${sold ? " sold" : ""}" data-svc="${k}">
       <label class="svc-check">
         <input type="checkbox" class="svc-cb" data-svc="${k}" ${row.on ? "checked" : ""} ${dis} />
-        <span class="svc-name">${esc(s.label)}${retired}</span>
+        <span class="svc-name">${esc(s.label)}${activeTag}${retired}</span>
       </label>
       <div class="svc-price">${period}${priceHtml}</div>
     </div>`;
@@ -1131,12 +1310,101 @@ async function saveServices(id) {
   catch (e) { console.error("saveServices", e); toast("Nie zapisano usług — spróbuj ponownie"); }
 }
 
-async function saveField(id, key, value) {
+/* ---------- Checklista wdrożeniowa (zakładka na karcie, obok Notatek/Usług) ----------
+   Zapis w clients.checklist (jsonb): { paid: 'full'|'deposit'|'other'|null, materials: bool,
+   notes: { <key>: tekst } }. „Zapłacił" = segment 3 przycisków (drugi klik odznacza), „materiały" =
+   ptaszek, a pod KAŻDĄ pozycją podłużna linijka na odpowiedź rosnąca razem z tekstem (auto-grow). */
+const CHK_PAID = [
+  { key: "full",    label: "pełna kwota" },
+  { key: "deposit", label: "zadatek" },
+  { key: "other",   label: "inne" },
+];
+const CHECKLIST_ITEMS = [
+  { key: "dane",        label: "Dane kontaktowe",               hint: "adres, numer telefonu, e-mail" },
+  { key: "godziny",     label: "Godziny pracy" },
+  { key: "oferta",      label: "Pełna oferta / menu" },
+  { key: "obszar",      label: "Obszar działania" },
+  { key: "social",      label: "Linki do social",               hint: "IG / FB / TikTok" },
+  { key: "domena",      label: "Domena" },
+  { key: "podstrony",   label: "Podstrony",                     hint: "ile, tytuły, tematyka", sep: true },
+  { key: "uslugi",      label: "Najważniejsze usługi",          hint: "które usługi strona ma najbardziej promować" },
+  { key: "wyrozniki",   label: "Czym firma się charakteryzuje", hint: "obsługa klienta, wyróżniki na tle konkurencji, uprawnienia, certyfikaty, osiągnięcia, gwarancje, doświadczenie" },
+  { key: "o_nas",       label: "Sekcja „O nas”",      hint: "historia firmy, od kiedy działa, dlaczego powstała, kto tam pracuje" },
+  { key: "preferencje", label: "Preferencje klienta",           hint: "co chce na stronie, kolorystyka, estetyka, funkcjonalności" },
+];
+function checklistHTML(c, editable) {
+  const ch = c.checklist || {};
+  const notes = ch.notes || {};
+  const dis = editable ? "" : "disabled";
+  const noteArea = (k, ph) => `<textarea class="chk-answer" data-chk="${k}" rows="1" placeholder="${ph || "Wpisz odpowiedź…"}" ${dis}>${esc(notes[k] || "")}</textarea>`;
+  const paidBtns = CHK_PAID.map((o) => `<button type="button" class="chk-seg-btn${ch.paid === o.key ? " on" : ""}" data-paid="${o.key}" ${dis}>${o.label}</button>`).join("");
+  const items = CHECKLIST_ITEMS.map((it) => `${it.sep ? `<div class="chk-sep"></div>` : ""}
+    <div class="chk-item">
+      <div class="chk-label">${esc(it.label)}${it.hint ? ` <span class="chk-hint">${esc(it.hint)}</span>` : ""}</div>
+      ${noteArea(it.key)}
+    </div>`).join("");
+  return `
+    <div class="chk-item">
+      <div class="chk-label">Klient zapłacił</div>
+      <div class="chk-seg">${paidBtns}</div>
+      ${noteArea("paid", "Szczegóły płatności — kwota, terminy…")}
+    </div>
+    <div class="chk-item">
+      <label class="chk-check"><input type="checkbox" id="chk-materials" ${ch.materials ? "checked" : ""} ${dis} /><span>Komplet materiałów dotarł</span></label>
+      ${noteArea("materials", "Czego brakuje / uwagi…")}
+    </div>
+    <div class="chk-sep"></div>
+    ${items}`;
+}
+async function saveChecklist(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  try { await api.updateClient(id, { checklist: c.checklist || {} }); flashSaved(); }
+  catch (e) { console.error("saveChecklist", e); toast("Nie zapisano checklisty — spróbuj ponownie"); }
+}
+// Dopasuj wysokość linijek do tekstu (wołane też przy pokazaniu zakładki — schowany panel ma scrollHeight 0)
+function sizeChecklistAreas() {
+  document.querySelectorAll("#pane-checklist .chk-answer").forEach((ta) => { ta.style.height = "auto"; ta.style.height = Math.max(34, ta.scrollHeight) + "px"; });
+}
+function wireChecklist(c) {
+  const pane = document.getElementById("pane-checklist");
+  if (!pane) return;
+  const ch = () => (c.checklist = c.checklist || {});
+  const saveDeb = debounce(() => saveChecklist(c.id), 600);
+  pane.querySelectorAll(".chk-seg-btn").forEach((b) => b.addEventListener("click", () => {
+    const cur = ch();
+    cur.paid = cur.paid === b.dataset.paid ? null : b.dataset.paid;   // drugi klik w to samo = odznacz
+    pane.querySelectorAll(".chk-seg-btn").forEach((x) => x.classList.toggle("on", x.dataset.paid === cur.paid));
+    saveChecklist(c.id);
+  }));
+  const mat = document.getElementById("chk-materials");
+  if (mat) mat.addEventListener("change", () => { ch().materials = mat.checked; saveChecklist(c.id); });
+  pane.querySelectorAll(".chk-answer").forEach((ta) => {
+    ta.addEventListener("input", () => {
+      ta.style.height = "auto"; ta.style.height = Math.max(34, ta.scrollHeight) + "px";   // auto-grow przy zawijaniu
+      const cur = ch(); cur.notes = cur.notes || {};
+      cur.notes[ta.dataset.chk] = ta.value;
+      saveDeb();
+    });
+    ta.addEventListener("change", () => saveChecklist(c.id));
+  });
+}
+
+async function saveField(id, key, value, opts) {
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c) return;
   const v = value === "" ? null : value;
   const prev = c[key];
   if (prev === v) return;            // nic się nie zmieniło — nie strzelaj zbędnym zapisem (m.in. data+Esc)
+  if (key === "status" && !(opts && opts.bypassGate)) {
+    const block = stageChangeBlocked(c, v);   // bramki lejka; bypassGate ma TYLKO przycisk „Nadaj token"
+    if (block) {
+      toast(block);
+      const el = document.querySelector(`#modal-body [data-key="status"]`);
+      if (el) el.value = normStatus(c);       // cofnij select na karcie do faktycznego etapu
+      return;
+    }
+  }
   c[key] = v;
   try {
     await api.updateClient(id, { [key]: v });
@@ -1162,6 +1430,7 @@ async function saveField(id, key, value) {
       return;
     }
     if (key === "status" || key === "follow_up") {
+      if (key === "status") { maybeMarkPartner(c); markServicesSold(c); }   // wejście na „Umowa podpisana"+ → trwały token partnera + usługi „aktywne"
       renderTabs(); state.animateNextRender = true; renderBoard();
       if (state.section === "klienci") renderKlienciRows();          // zmiana etapu może dodać/usunąć klienta z tabeli podpisanych
       // Zmiana etapu może zmienić stan usług (niebieskie → zielone/zamrożone) i zakładkę Checklista — przerysuj otwartą kartę.
@@ -1187,24 +1456,6 @@ const EDIT_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" s
 const TRASH_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>`;
 const CHECK_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
 
-// Pojedyncze przypomnienie (aktywny follow-up) — układ jak komentarz, z akcjami: edytuj / usuń / zrobione
-function reminderHTML(c, editable) {
-  const ds = dueState(c.follow_up);                  // "" | "today" | "overdue"
-  const badge = ds === "overdue" ? `<span class="rm-badge rm-overdue">zaległe</span>`
-              : ds === "today"   ? `<span class="rm-badge rm-today">dziś</span>` : "";
-  const actions = editable ? `<div class="reminder-actions">
-        <button type="button" class="rm-act rm-edit" title="Edytuj" aria-label="Edytuj przypomnienie">${EDIT_ICON}</button>
-        <button type="button" class="rm-act rm-del" title="Usuń" aria-label="Usuń przypomnienie">${TRASH_ICON}</button>
-        <button type="button" class="rm-act rm-done" title="Oznacz jako zrobione" aria-label="Zrobione">${CHECK_ICON}</button>
-      </div>` : "";
-  return `<div class="comment feed-item feed-followup reminder${ds ? " is-" + ds : ""}">
-      <span class="avatar feed-ic">${FU_ICON}</span>
-      <div class="comment-main">
-        <div class="comment-head"><span class="c-author">${esc(fmtFollow(c.follow_up))}</span>${badge}${actions}</div>
-        <div class="comment-body">${c.follow_up_note ? esc(c.follow_up_note) : `<span class="feed-muted">— bez treści —</span>`}</div>
-      </div>
-    </div>`;
-}
 function commentHTML(c) {
   return `<div class="comment">
       <span class="avatar" style="background:${ownerColor(c.author)}">${initials(c.author)}</span>
@@ -1214,22 +1465,13 @@ function commentHTML(c) {
       </div>
     </div>`;
 }
-// Prawy panel = opcjonalna sekcja „Przypomnienia" (gdy jest aktywny follow-up) + zawsze „Komentarze"
+// Prawy panel = „Komentarze" (follow-up ma własną belkę nad feedem — fuBarHTML)
 function renderActivity(c, comments) {
-  const editable = canEdit(c);
-  let html = "";
-  if (c.follow_up && !c.follow_up_done) {            // aktywny follow-up → sekcja Przypomnienia
-    html += `<section class="feed-section">
-        <div class="feed-section-head">Przypomnienia</div>
-        ${reminderHTML(c, editable)}
-      </section>`;
-  }
   const n = comments.length;
-  html += `<section class="feed-section">
+  return `<section class="feed-section">
       <div class="feed-section-head">Komentarze${n ? ` <span class="cm-cc">${n}</span>` : ""}</div>
       ${n ? comments.map(commentHTML).join("") : `<div class="no-comments">Brak komentarzy.</div>`}
     </section>`;
-  return html;
 }
 // Przerysuj prawy panel w otwartej (pełnej) karcie
 function refreshFeed(id) {
@@ -1267,7 +1509,7 @@ async function completeReminder(id) {
   await saveField(id, "follow_up_note", "");         // → null
   await saveField(id, "follow_up", "");              // → null (saveField odświeża tablicę; chip znika)
   if (wasDone) { c.follow_up_done = false; try { await api.updateClient(id, { follow_up_done: false }); } catch (e) { console.error(e); } }
-  refreshFeed(id); updateCardInPlace(c); renderTabs();
+  refreshFeed(id); updateCardInPlace(c); renderTabs(); updateFuBar(c);
   toast("Follow-up wykonany");
 }
 // Usuń przypomnienie: kasuje termin + treść follow-upu (chip na tablicy też znika)
@@ -1277,7 +1519,7 @@ async function deleteReminder(id) {
   await saveField(id, "follow_up_note", "");        // → null
   await saveField(id, "follow_up", "");             // → null (saveField odświeża tablicę)
   if (c.follow_up_done) { c.follow_up_done = false; try { await api.updateClient(id, { follow_up_done: false }); } catch (e) { console.error(e); } }
-  refreshFeed(id);
+  refreshFeed(id); updateFuBar(c);
   toast("Usunięto przypomnienie");
 }
 function renderComments(list) {
@@ -1293,10 +1535,8 @@ function highlightMentions(text) {
 function wireComposer(clientId) {
   const c = state.clients.find((x) => String(x.id) === String(clientId));
   const inp = $("#new-comment"), pop = $("#mention-pop");
-  const modeBtn = $("#fu-mode"), setter = $("#fu-setter"), sendBtn = $("#send-comment");
-  const fuDate = $("#fu-date"), fuTime = $("#fu-time");
+  const sendBtn = $("#send-comment");
   const PH_COMMENT = "Dodaj komentarz...  (@ aby oznaczyć osobę)";
-  let fuMode = false;
 
   // podświetlanie @claude WPISYWANEGO w polu (nakładka: realny input nietknięty, pod spodem warstwa z pomarańczowym tłem)
   const hl = $("#comment-hl");
@@ -1318,21 +1558,6 @@ function wireComposer(clientId) {
   inp.addEventListener("input", syncHL);
   inp.addEventListener("scroll", syncHL);
 
-  const setMode = (on) => {                                    // przełącz pole między „komentarz" a „follow-up"
-    fuMode = on && !!modeBtn;
-    if (modeBtn) { modeBtn.classList.toggle("on", fuMode); modeBtn.setAttribute("aria-pressed", fuMode ? "true" : "false"); }
-    if (setter) setter.hidden = !fuMode;
-    inp.placeholder = fuMode ? "Treść follow-upu (opcjonalnie)…" : PH_COMMENT;
-    if (sendBtn) sendBtn.textContent = fuMode ? "Zaplanuj" : "Wyślij";
-    if (fuMode && c) {                                          // wejście w tryb → prefill bieżącym follow-upem
-      if (fuDate) fuDate.value = toDateInput(c.follow_up);
-      if (fuTime) fuTime.value = toTimeInput(c.follow_up);
-      inp.value = c.follow_up_note || "";
-    }
-    syncHL();
-    inp.focus();
-  };
-
   const sendComment = async () => {
     const body = inp.value.trim();
     if (!body) return;
@@ -1346,47 +1571,7 @@ function wireComposer(clientId) {
     } catch (err) { console.error(err); toast("Nie udało się dodać komentarza"); }
   };
 
-  const saveFollowUp = () => {                                  // „Zaplanuj": data(+godz) + treść → follow_up na karcie, pojawia się w feedzie
-    const d = fuDate ? fuDate.value : "", t = fuTime ? fuTime.value : "";
-    if (!d) { toast("Ustaw datę follow-upu"); return; }
-    saveField(clientId, "follow_up_note", inp.value.trim());
-    saveField(clientId, "follow_up", t ? `${d}T${t}` : d);
-    if (c && c.follow_up_done) setFollowDone(clientId, false);  // nowy termin → znów „do zrobienia"
-    inp.value = ""; syncHL();
-    setMode(false);
-    refreshFeed(clientId);
-  };
-
-  const submit = () => { if (fuMode) saveFollowUp(); else sendComment(); };
-
-  if (modeBtn) modeBtn.addEventListener("click", () => setMode(!fuMode));
-  if (sendBtn) sendBtn.addEventListener("click", submit);
-  // szybkie terminy w setterze (Jutro / +3 dni / +tydzień / Wyczyść)
-  if (setter) setter.querySelectorAll(".fu-chip").forEach((ch) => ch.addEventListener("click", () => {
-    if (ch.dataset.clear) { if (fuDate) fuDate.value = ""; if (fuTime) fuTime.value = ""; }
-    else {
-      const dt = new Date(); dt.setHours(0, 0, 0, 0); dt.setDate(dt.getDate() + (Number(ch.dataset.days) || 0));
-      const y = dt.getFullYear(), m = String(dt.getMonth() + 1).padStart(2, "0"), dd = String(dt.getDate()).padStart(2, "0");
-      if (fuDate) fuDate.value = `${y}-${m}-${dd}`;
-    }
-    inp.focus();
-  }));
-  // akcje przypomnienia (delegacja — panel się przerysowuje): zrobione / edytuj / usuń (2 kliki)
-  const wrap = $("#comments-wrap");
-  if (wrap) wrap.addEventListener("click", (e) => {
-    if (!c) return;
-    if (e.target.closest(".rm-done")) { completeReminder(clientId); return; }      // zrobione → wpis „wykonany" w komentarzach + czyści follow-up
-    if (e.target.closest(".rm-edit")) { setMode(true); return; }                   // edytuj → otwórz pole follow-upu z prefillem
-    if (e.target.closest(".rm-del-yes")) { deleteReminder(clientId); return; }
-    if (e.target.closest(".rm-del-no")) { refreshFeed(clientId); return; }
-    const del = e.target.closest(".rm-del");
-    if (del) {                                                                     // pierwszy klik kosza → potwierdzenie inline
-      const box = del.closest(".reminder-actions");
-      if (box) box.innerHTML = `<span class="rm-confirm">Usunąć?</span>
-        <button type="button" class="rm-act rm-del-yes" title="Tak, usuń">Tak</button>
-        <button type="button" class="rm-act rm-del-no" title="Anuluj">Nie</button>`;
-    }
-  });
+  if (sendBtn) sendBtn.addEventListener("click", sendComment);
 
   inp.addEventListener("keydown", (e) => {
     if (!pop.hidden) {
@@ -1400,7 +1585,7 @@ function wireComposer(clientId) {
       }
       if (e.key === "Escape") { pop.hidden = true; return; }
     }
-    if (e.key === "Enter") submit();
+    if (e.key === "Enter") sendComment();
   });
   inp.addEventListener("input", () => {
     const m = inp.value.slice(0, inp.selectionStart).match(/@([\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)$/);
@@ -1597,6 +1782,8 @@ function cleanupEmptyNewCard(id) {
 
 async function newCard(status) {
   const st = status || "lead";
+  const block = stageChangeBlocked({ status: "lead", services: {} }, st);   // nowa karta = bez usług — te same bramki
+  if (block) { toast(block); return; }
   // nowa karta jest MOJA — upewnij się, że widzę siebie i jestem na tablicy (inaczej zostałaby odfiltrowana)
   if (!selectedOwnersSet().has(state.currentUser)) { const s = new Set(selectedOwnersSet()); s.add(state.currentUser); state.owners = s; persistOwners(); }
   state.viewMode = "owner:" + state.currentUser;   // pokaż nową kartę na MOJEJ zakładce
@@ -1607,7 +1794,7 @@ async function newCard(status) {
   try {
     const saved = await api.addClient(obj);
     state.newCardIds.add(String(saved.id));
-    state.clients.push(saved); renderTabs(); state.animateNextRender = true; renderBoard();
+    state.clients.push(saved); maybeMarkPartner(saved); markServicesSold(saved); renderTabs(); state.animateNextRender = true; renderBoard();
     openModal(saved.id);
   } catch (err) { console.error(err); toast("Nie udało się dodać karty"); }
 }
@@ -1711,6 +1898,10 @@ async function showApp() {
   state.clients = await api.getClients();
   state.commentsByClient = await api.getAllComments();
   await loadCatalog();   // katalog usług — potrzebny karcie (zakładka „Usługi") i Bazie partnerów (kolumna Usługi)
+  // SAMONAPRAWA TOKENÓW: karty będące już na „Umowa podpisana"+ (sprzed wprowadzenia tokena albo po
+  // ręcznych zmianach w bazie) dostają token + stemple sprzedanych usług. Dzięki temu token jest
+  // jedynym źródłem prawdy dla widoków (isPartner), a stare dane nie znikają z Bazy partnerów.
+  state.clients.forEach((cl) => { if (!cl.deleted_at) { maybeMarkPartner(cl); markServicesSold(cl); } });
   // DOMYŚLNIE: każdy widzi tylko SWOJE karty; przez panel zespołu może dobrać innych / wszystkich
   const loaded = loadOwners(); state.ownersAll = loaded.all; state.owners = loaded.owners;
   applyRbacGating();   // pozycje menu Sekcje wg uprawnień + przycięcie „Pokaż" do siebie, gdy brak podglądu cudzych
@@ -1825,10 +2016,126 @@ function showSection(name) {
 /* ---------- Sekcja „Baza partnerów" (klucz „klienci"): tabela klientów z podpisaną umową ---------- */
 // „Podpisali umowę" = przeszli przez etap „Umowa podpisana" (konwersja): są na nim LUB dalej w lejku.
 const SIGNED_IDX = STATUSES.findIndex((s) => s.key === "konwersja");
-const isSigned = (c) => !c.deleted_at && STATUSES.findIndex((s) => s.key === normStatus(c)) >= SIGNED_IDX;
+const OFERTA_IDX = STATUSES.findIndex((s) => s.key === "oferta");
+const isAdminUser = () => !!(state.me && state.me.role === "admin");
+const hasSelectedService = (c) => { const sv = (c && c.services) || {}; return Object.keys(sv).some((k) => sv[k] && sv[k].on); };
+/* Bramki przejść W PRZÓD w lejku (cofanie zawsze wolno) — pilnowane we WSZYSTKICH drogach zmiany
+   etapu: select na karcie, strzałki steppera, drag&drop na tablicy, tworzenie karty w kolumnie:
+   1) na „Umowa wysłana"+ dopiero, gdy karta ma zaznaczoną min. 1 usługę (handlowiec wybiera, co sprzedaje);
+   2) na „Umowa podpisana"+ NIKT nie przenosi ręcznie — ani handlowiec, ani admin. JEDYNA droga to
+      przycisk „Nadaj token" na karcie (widzi go tylko admin), który przechodzi z flagą bypassGate.
+   Zwraca komunikat blokady albo null. */
+function stageChangeBlocked(c, targetKey) {
+  const to = STATUSES.findIndex((s) => s.key === targetKey);
+  const from = STATUSES.findIndex((s) => s.key === normStatus(c));
+  if (to < 0 || to <= from) return null;
+  if (to >= OFERTA_IDX && !hasSelectedService(c)) return `Najpierw zaznacz usługę w zakładce Usługi — dopiero wtedy karta może przejść na „Umowa wysłana"`;
+  // pilnujemy tylko PRZEKROCZENIA progu „Umowa podpisana" — karta, która już jest za nim
+  // (token nadany), swobodnie płynie dalej przez etapy realizacji (Checklista → W trakcie → Ukończona)
+  if (to >= SIGNED_IDX && from < SIGNED_IDX) return `Na „Umowa podpisana" karta przechodzi WYŁĄCZNIE przyciskiem „Nadaj token" (widzi go admin na karcie z etapem „Umowa wysłana")`;
+  return null;
+}
+/* ---------- TOKEN PARTNERA ----------
+   Klient, który przeszedł przez „Umowa podpisana", dostaje TOKEN (clients.partner_since) — zielony
+   znaczek weryfikacyjny przy imieniu, niezależnie od tego, na jaki etap później trafi (retencja).
+   Token = JEDYNE źródło prawdy o partnerstwie; jego zawartość to partner_since + sprzedane usługi
+   (services[key].sold_at — patrz markServicesSold), podgląd po kliknięciu znaczka na karcie.
+   Stare karty (sprzed tokena) dostają go automatycznie przy starcie appki (samonaprawa w showApp).
+   Zdjęcie tokena: tylko uprawnienie 'partners.revoke' (admin niejawnie), tylko z Bazy partnerów. */
+const isPartner = (c) => !!(c && c.partner_since);
+const PARTNER_BADGE = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#1a9950"/><path d="m7.5 12.6 3 3 6-6.4" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const partnerMark = (c) => (isPartner(c) ? `<span class="partner-mark" title="Partner — przeszedł przez etap Umowa podpisana">${PARTNER_BADGE}</span>` : "");
+// Nadaj token przy KAŻDEJ drodze na etap >= „Umowa podpisana" (select/strzałki, drag&drop, nowa karta).
+function maybeMarkPartner(c) {
+  if (!c || c.partner_since) return;
+  if (STATUSES.findIndex((s) => s.key === normStatus(c)) < SIGNED_IDX) return;
+  c.partner_since = new Date().toISOString();
+  api.updateClient(c.id, { partner_since: c.partner_since })
+    .catch((e) => console.warn("partner_since niezapisany (kolumna z schema-rbac.sql jeszcze nie wdrożona?)", e));
+}
+// Domknięcie sprzedaży: usługi ZAZNACZONE w momencie wejścia na „Umowa podpisana"+ dostają trwały
+// status „aktywna" (services[key].sold_at) — od tej pory są zielone i nie do odznaczenia, także gdy
+// karta wróci na początek lejka (retencja). Kolejna sprzedaż stempluje kolejną porcję zaznaczonych.
+// (Inaczej niż token partnera — odpala się przy KAŻDYM wejściu na etap, nie tylko pierwszym.)
+function markServicesSold(c) {
+  if (!c || STATUSES.findIndex((s) => s.key === normStatus(c)) < SIGNED_IDX) return;
+  const sv = c.services || {};
+  let changed = false;
+  for (const k of Object.keys(sv)) {
+    const r = sv[k];
+    if (r && r.on && !r.sold_at) { r.sold_at = new Date().toISOString(); changed = true; }
+  }
+  if (!changed) return;
+  c.services = sv;
+  api.updateClient(c.id, { services: sv })
+    .catch((e) => console.warn("sold_at usług niezapisany — spróbuje się przy kolejnej zmianie", e));
+}
+// Zawartość tokena: od kiedy partner + lista sprzedanych usług (etykieta, kwota, data domknięcia).
+function tokenPopHTML(c) {
+  const sv = c.services || {};
+  const rows = Object.keys(sv).filter((k) => sv[k] && sv[k].sold_at).map((k) => {
+    const s = state.catalog.find((x) => x.key === k);
+    const r = sv[k];
+    let amount = "";
+    if (s) {
+      const price = s.price_mode === "fixed" ? (Number(s.price_fixed) || 0) : ((r.price === 0 || r.price) ? Number(r.price) : null);
+      if (price != null) amount = s.billing === "monthly" ? `${price} zł/mies. × ${okresMonths(r.period)} mies.` : `${price} zł`;
+    }
+    return `<div class="token-row"><span class="token-svc">${esc(s ? s.label : k)}</span><span class="token-meta">${amount ? esc(amount) + " · " : ""}${esc(fmtFollow(r.sold_at))}</span></div>`;
+  }).join("");
+  return `<div class="token-head">${PARTNER_BADGE} Partner od ${esc(fmtFollow(c.partner_since))}</div>` +
+    (rows || `<div class="token-empty">W tokenie nie ma jeszcze sprzedanych usług.</div>`);
+}
+// Klik w znaczek na karcie → podgląd tokena (zamykany kliknięciem gdziekolwiek indziej).
+function wirePartnerToken(c) {
+  const pm = document.querySelector("#modal-body .cm-head .partner-mark");
+  if (!pm) return;
+  pm.classList.add("clickable");
+  pm.title = "Token partnera — kliknij po szczegóły";
+  pm.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const old = pm.querySelector(".token-pop");
+    if (old) { old.remove(); return; }
+    const pop = document.createElement("div");
+    pop.className = "token-pop";
+    pop.innerHTML = tokenPopHTML(c);
+    pm.appendChild(pop);
+    const close = (ev) => { if (!pm.contains(ev.target)) { pop.remove(); document.removeEventListener("click", close); } };
+    setTimeout(() => document.addEventListener("click", close), 0);
+  });
+}
+// Zdjęcie tokena — TYLKO uprawnienie 'partners.revoke' (admin niejawnie), wołane z Bazy partnerów.
+// Czyści partner_since + stemple sold_at (usługi wracają do edycji). Zablokowane, gdy karta wciąż
+// stoi na „Umowa podpisana"+ (samonaprawa i tak by go zaraz przywróciła — najpierw cofnij etap).
+async function revokePartnerToken(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c || !can("partners.revoke")) return;
+  if (STATUSES.findIndex((s) => s.key === normStatus(c)) >= SIGNED_IDX) {
+    toast(`Karta stoi na „Umowa podpisana" lub dalej — najpierw cofnij etap, potem zdejmij token`);
+    return;
+  }
+  const prevPartner = c.partner_since, prevSv = structuredClone(c.services || {});
+  const sv = c.services || {};
+  let ch = false;
+  for (const k of Object.keys(sv)) { if (sv[k] && sv[k].sold_at) { delete sv[k].sold_at; ch = true; } }
+  c.partner_since = null;
+  try {
+    await api.updateClient(id, { partner_since: null, ...(ch ? { services: sv } : {}) });
+    flashSaved();
+  } catch (e) {
+    console.error("revokePartnerToken", e);
+    c.partner_since = prevPartner; c.services = prevSv;
+    renderKlienciRows();
+    toast("Nie udało się zdjąć tokena");
+    return;
+  }
+  renderKlienciRows(); renderTabs(); renderBoard();
+  if (String(state.openCardId) === String(id)) openModal(id);   // otwarta karta → odśwież znaczek/usługi
+  toast("Token partnera zdjęty");
+}
 function signedClients() {
   const q = (state.klienciSearch || "").trim().toLowerCase();
-  let list = rbacVisible(state.clients).filter(isSigned);   // RBAC: bez 'clients.view_all' tylko swoi klienci (owner/opiekun)
+  let list = rbacVisible(state.clients).filter((c) => !c.deleted_at && isPartner(c));   // RBAC: bez 'clients.view_all' tylko swoi klienci (owner/opiekun)
   if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
   return list.sort((a, b) => String(a.company || a.name || "").localeCompare(String(b.company || b.name || ""), "pl"));
 }
@@ -1841,26 +2148,54 @@ function renderKlienci() {
 function renderKlienciRows() {
   const wrap = $("#klienci-table"); if (!wrap) return;
   const list = signedClients();
-  if (!list.length) { wrap.innerHTML = `<div class="table-empty">Baza partnerów jest pusta — trafiają tu klienci od etapu „Umowa podpisana".</div>`; return; }
+  if (!list.length) { wrap.innerHTML = `<div class="table-empty">Baza partnerów jest pusta — trafia tu (na zawsze) każdy klient, który przeszedł przez etap „Umowa podpisana".</div>`; return; }
   const dash = `<span class="tb-empty">—</span>`;
-  const nameCell = (c) => `<div class="tb-name"><span class="tb-nm">${esc(c.name)}</span>${c.company ? `<span class="tb-co">${esc(c.company)}</span>` : ""}</div>`;
+  const nameCell = (c) => `<div class="tb-name"><span class="tb-nm">${esc(c.name)}${partnerMark(c)}</span>${c.company ? `<span class="tb-co">${esc(c.company)}</span>` : ""}</div>`;
   const statusCell = (c) => { const s = statusOf(normStatus(c)); return `<span class="status-pill" style="background:${s.bg};color:${s.fg}"><span class="dot" style="background:${s.dot}"></span>${esc(s.label)}</span>`; };
   const teamCell = (c) => `${c.opiekun ? `<span class="avatar avatar-sec" title="Opiekun: ${esc(c.opiekun)}" style="background:${ownerColor(c.opiekun)}">${initials(c.opiekun)}</span>` : ""}<span class="avatar" title="Handlowiec: ${esc(c.owner)}" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span>`;
+  const canRevoke = can("partners.revoke");   // ustawienia partnera (zdjęcie tokena) — tylko z uprawnieniem (admin niejawnie)
   const rows = list.map((c) => {
-    const val = svcTotal(c.services);
     return `<tr class="tb-row" data-id="${esc(String(c.id))}">
         <td>${nameCell(c)}</td>
         <td>${c.phone ? esc(c.phone) : dash}</td>
         <td>${statusCell(c)}</td>
-        <td class="tb-num">${val ? esc(String(val)) + " zł" : dash}</td>
         <td class="tb-team"><div class="tb-team-in">${teamCell(c)}</div></td>
+        <td class="tb-since" title="Od kiedy partner (data przyznania tokena)">${c.partner_since ? esc(fmtFollow(c.partner_since)) : dash}</td>
+        ${canRevoke ? `<td class="tb-actions"><button type="button" class="rm-act tb-gear" data-id="${esc(String(c.id))}" title="Ustawienia partnera" aria-label="Ustawienia partnera">${GEAR_ICON}</button></td>` : ""}
       </tr>`;
   }).join("");
   wrap.innerHTML = `<div class="table-wrap"><table class="crm-table">
-      <thead><tr><th>Klient</th><th>Telefon</th><th>Etap</th><th>Usługi</th><th>Zespół</th></tr></thead>
+      <thead><tr><th>Klient</th><th>Telefon</th><th>Etap</th><th>Zespół</th><th>Rejestracja</th>${canRevoke ? "<th></th>" : ""}</tr></thead>
       <tbody>${rows}</tbody>
     </table></div>`;
   wrap.querySelectorAll(".tb-row").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
+  // ⚙ → menu ustawień partnera; „Zdejmij token" wymaga DWÓCH potwierdzeń (3 kliknięcia w sumie).
+  // Menu doklejane do body (position: fixed) — .table-wrap ma overflow:hidden i by je ucięło.
+  wrap.querySelectorAll(".tb-gear").forEach((btn) => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const was = document.querySelector(".tb-gear-pop");
+    document.querySelectorAll(".tb-gear-pop").forEach((p) => p.remove());
+    if (was && was.dataset.owner === btn.dataset.id) return;   // drugi klik w ten sam ⚙ = zamknij
+    const pop = document.createElement("div");
+    pop.className = "pop-menu tb-gear-pop";
+    pop.dataset.owner = btn.dataset.id;
+    pop.innerHTML = `<button type="button" class="pop-menu-item pop-danger" data-stage="0">Zdejmij token</button>`;
+    const r = btn.getBoundingClientRect();
+    pop.style.top = (r.bottom + 4) + "px";
+    pop.style.right = (window.innerWidth - r.right) + "px";
+    document.body.appendChild(pop);
+    const item = pop.querySelector(".pop-menu-item");
+    item.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const st = Number(item.dataset.stage || 0);
+      if (st === 0) { item.dataset.stage = "1"; item.textContent = "Na pewno? — potwierdź (1/2)"; return; }
+      if (st === 1) { item.dataset.stage = "2"; item.textContent = "Potwierdź ostatecznie (2/2)"; return; }
+      pop.remove();
+      revokePartnerToken(btn.dataset.id);
+    });
+    const close = (ev2) => { if (!pop.contains(ev2.target)) { pop.remove(); document.removeEventListener("click", close); document.removeEventListener("scroll", close, true); } };
+    setTimeout(() => { document.addEventListener("click", close); document.addEventListener("scroll", close, true); }, 0);
+  }));
 }
 
 /* ============================================================
@@ -2463,6 +2798,7 @@ const DEMO_PERMISSIONS = [
   { key: "clients.view_all", label: "Widzi klientów całego zespołu", grp: "Klienci", ord: 10 },
   { key: "clients.edit_all", label: "Edytuje cudze karty", grp: "Klienci", ord: 20 },
   { key: "clients.hard_delete", label: "Usuwa trwale z archiwum", grp: "Klienci", ord: 30 },
+  { key: "partners.revoke", label: "Zdejmuje token partnera (Baza partnerów)", grp: "Klienci", ord: 40 },
   { key: "section.klienci", label: "Sekcja Baza partnerów (podpisani)", grp: "Sekcje", ord: 10 },
   { key: "section.admin", label: "Panel admina", grp: "Sekcje", ord: 20 },
   { key: "stages.dev", label: "Widzi szczegóły etapów realizacji (dev)", grp: "Sekcje", ord: 30 },
