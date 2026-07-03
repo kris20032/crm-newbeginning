@@ -15,9 +15,39 @@ Produkt jest **wykonalny**. Kluczowe odkrycie: rozpada się na dwie części o *
 | **Filar 1 — ZBIERANIE opinii** | prośba o opinię (link/QR) + licznik postępu (ocena, liczba opinii, trend) | ✅ **buduj od zaraz** | brak — zero zgód Google |
 | **Filar 2 — MONITORING + AUTO-ODPOWIEDZI** | czytanie treści nowych/negatywnych opinii + szkic odpowiedzi + odpowiadanie z panelu | ⚠️ **wymaga approval Google** | wniosek do Google (dni–tygodnie), OAuth właściciela per klient |
 
-**Konsekwencja:** MVP sprzedażowy = **Filar 1** (samowystarczalny, pełnowartościowy, buduje Fable w oknie 5–7.07). Filar 2 = Faza 2, odblokowuje się po zatwierdzeniu wniosku przez Google. **Nie da się tego kupić tokenami ani Fablem — to proces administracyjny Google.** Dlatego wniosek składamy **jak najszybciej, równolegle** do budowy Filaru 1.
+**Konsekwencja (AKTUALIZACJA 3.07 - patrz §0.5):** MVP jest **PEŁNOWARTOŚCIOWY bez approval**. Odkryliśmy legalne obejście dla Filaru 2 (odpowiadanie): monitoring przez oficjalne Places API + publikacja odpowiedzi ręcznie (my jako menedżer wizytówki) lub automatem dopiero po approval. Approval Google przestaje być blokerem - staje się bonusem, który tylko usuwa nasze ręczne wklejanie. Pełna, ustalona mechanika MVP w **§0.5** niżej.
 
 ---
+
+## 0.5 MECHANIKA MVP - jak produkt działa (ustalenia z Krzysztofem, 3.07)
+
+> To jest sedno specyfikacji dla Fable. Wizualny one-pager (do pokazania Marcelemu): Artifact `https://claude.ai/code/artifact/bddaa58f-b933-4145-aa6d-b5b4973d3cbc`.
+
+**PRZEŁOM - Filar 2 (odpowiadanie) DZIAŁA bez approval, legalnie:**
+- **Czytanie/monitoring opinii** → oficjalne **Places API** (zwraca ocenę, liczbę i treść 5 najnowszych opinii; dla lokalnego fachowca z kilkunastoma opiniami rocznie łapie każdą nową).
+- **Pisanie odpowiedzi** → nasze **AI**.
+- **Publikacja odpowiedzi** → **człowiek (my) wkleja w panelu Google jako menedżer wizytówki klienta**, LUB automat po approval.
+- ⛔ **NIGDY bot/Chrome MCP/automat klikający w panelu Google** - to obchodzenie zabezpieczeń Google, które **naraża wizytówkę KLIENTA na karę/zawieszenie** (odwrotność tego, co sprzedajemy). Odrzucone stanowczo, ta sama kategoria co scraping (SerpApi pozwany przez Google 12.2025). Publikacja jest albo ręczna (człowiek), albo automat legalnie po approval - trzeciej drogi nie ma.
+- → **Produkt jest pełnowartościowy bez approval.** Approval usuwa tylko nasze ręczne wklejanie (bonus na potem).
+
+**MODEL OBSŁUGI = B (my za klienta).** Model A (klient sam zatwierdza w panelu) ODRZUCONY - fachowcy są leniwi, nie będą klikać, opinie zostałyby bez odpowiedzi. Klient robi absolutne minimum.
+
+**KANAŁ = bot WhatsApp (klucz całego UX):**
+- **WhatsApp Business Platform (Cloud API) po NASZEJ stronie** - jeden numer firmowy obsługuje wszystkich klientów. Klient (Janek) **nic nie instaluje ani nie zakłada** - dostaje bota jako zwykły dymek na swoim **prywatnym WhatsAppie** (jak powiadomienia z InPostu/banku). Onboarding: raz pisze "cześć" do bota (to opt-in WhatsApp + otwarcie kanału). NIE mylić z aplikacją "WhatsApp Business" - tej klient NIE dotyka.
+- **Pętla 1 (zbieranie):** Janek wrzuca numer swojego klienta na WhatsApp do bota → my wysyłamy temu klientowi **SMS** (z nazwą firmy Janka jako nadawcą, przez SMSAPI.pl) z linkiem do oceny Google. *Do klientów końcowych SMS, NIE WhatsApp* - wiadomość z obcego numeru WA psułaby konwersję.
+- **Pętla 2 (odpowiadanie):** nowa opinia wykryta → **WhatsApp do Janka**: podgląd opinii + gotowa odpowiedź AI + 3 przyciski interaktywne:
+  - **Akceptuj** → do kolejki publikacji (my hurtem wieczorem / automat po approval).
+  - **Edytuj** → bot prosi o własną wersję, Janek wpisuje ją w czacie WhatsApp.
+  - **Pomiń** → zostawiamy opinię bez odpowiedzi. ⚠️ To NIE "usuń opinię" (Google nie pozwala nikomu usuwać cudzych opinii) - stąd nazwa "Pomiń", nie "Usuń".
+
+**KOSZTY I PRACA:**
+- **Nasz koszt / klient / miesiąc: ~3-5 zł** (SMS prośby ~2-4 zł + Places API monitoring ~1-2 zł + WhatsApp powiadomienia <1 zł). Abonament 49-99 zł → marża prawie w całości.
+- **Nasz czas:** publikacja zatwierdzonych odpowiedzi hurtem wieczorem = **~10-15 min na 10 klientów** (warunek: panel z listą wszystkich opinii + gotowe odpowiedzi + deep-link do opinii + kopiowanie do schowka). Rośnie z liczbą klientów → przy większej skali potrzebny approval (automat = 0 czasu). Zdejmuje to też z Krzysztofa Chrome MCP jako pomysł na publikację (odrzucony wyżej).
+- **Setup jednorazowy (nie per klient):** WhatsApp Business Platform, Google Cloud + klucz Places API, konto SMSAPI. Po naszej stronie, klient nie dotyka.
+
+**Panel/metryki:** ocena, liczba opinii, trend, wysłane prośby vs wystawione, opinie bez odpowiedzi. Uczciwość: Google nie wiąże opinii 1:1 z numerem klienta → pokazujemy agregaty (wysłano X, przybyło Y), nie "kto konkretnie wystawił".
+
+**Timing budowy:** Krzysztof skłania się, by BUDOWAĆ rdzeń Fablem w oknie 5-7.07 (Fable reset limitu 5.07). Ostateczne "idź" jeszcze nie padło - do potwierdzenia z nim.
 
 ## 1. Ustalenia techniczne z researchu (2026-07-03)
 
