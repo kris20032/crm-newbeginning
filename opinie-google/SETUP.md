@@ -2,17 +2,17 @@
 
 > Kolejność ma znaczenie. Kroki „👤 K." = klik Krzysztofa/Marcelego (nietechniczne, z instrukcją). Reszta = Claude.
 
-## Krok 0 — OSOBNY projekt Supabase (wynik audytu F1 — obowiązkowe)
-👤 K.: [supabase.com/dashboard](https://supabase.com/dashboard) → **New project** (ta sama organizacja co CRM):
-- Name: `opinie-google` · Database password: wygeneruj i zapisz w menedżerze haseł · Region: EU (Frankfurt/Central).
-- Po utworzeniu (2 min) podać Claude'owi: **Project ref** (z URL) + z Settings → API: **URL, anon key, service_role key**.
-- Claude zapisze je do `~/Library/Application Support/newbeginning/opinie-google.env` (poza repo).
-- (Auth → Settings: **wyłączyć self-signup** — konta panelowe zakłada tylko operator, jak w CRM.)
+## ✅ Krok 0 — OSOBNY projekt Supabase (WYKONANE 3.07, Claude przez Chrome)
+- Projekt **`opinie-google`**, ref: **`uzccwsmzmzcsijddbtzn`**, region eu-central-1 (Frankfurt), org krzychu.brzezi (obok CRM).
+- Slot darmowego planu zwolniony przez **pauzę martwego `bita-crm`** (org Marcelego; 0 realnego ruchu, tylko zapomniana karta). Odwracalne: Restore w dashboardzie. ⚠️ Po **~1.10.2026** (90 dni) wznowienie już nie 1-klik, tylko pobranie backupu — jeśli BITA ma być kiedyś wskrzeszona, wznowić przed tą datą.
+- Ustawienia bezpieczeństwa przy tworzeniu: „Automatically expose new tables" **OFF**, „Enable automatic RLS" **ON**, self-signup **OFF** (konta zakłada tylko operator).
+- Hasło DB: wygenerowane przez formularz, nie zapisywane (niepotrzebne przy pracy przez dashboard/API; reset w Settings → Database w razie potrzeby).
+- ⏳ Klucze API (anon/service_role) — pobrać do `~/Library/Application Support/newbeginning/opinie-google.env` przy Kroku 3 (deploy funkcji).
 
-## Krok 1 — Schemat + izolacja (Claude, SQL Editor nowego projektu)
-1. `db/001_schema.sql` → Run.
-2. `db/002_rls.sql` → Run.
-3. **BRAMKA:** `tests/test-izolacja.sql` → Run → musi wyjść `IZOLACJA: WSZYSTKIE TESTY OK ✅ (14 testow)`. Czerwone = STOP, nie idziemy dalej.
+## ✅ Krok 1 — Schemat + izolacja (WYKONANE 3.07, SQL Editor)
+1. `db/001_schema.sql` → Run ✅
+2. `db/002_rls.sql` → Run ✅
+3. **BRAMKA:** `tests/test-izolacja.sql` → **`IZOLACJA: WSZYSTKIE 14 TESTOW OK` ✅** (3.07, po rollbacku zero śladu).
 
 ## Krok 2 — Klucze zewnętrzne (jednorazowo, nie per klient)
 - **Google Places API (New):** 👤 K.: console.cloud.google.com → nowy projekt `opinie-google` → włączyć „Places API (New)" → klucz API (restrykcja: tylko Places API New). Uwaga: wymaga konta rozliczeniowego Google Cloud (darmowy kredyt $200/mies na Maps pokrywa nas z ogromnym zapasem).

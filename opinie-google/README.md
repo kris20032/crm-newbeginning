@@ -13,10 +13,11 @@ Wieloklientowy system zbierania i obsługi opinii Google dla lokalnych fachowcó
 | **Audyt izolacji (Fable)** | ✅ zrobiony — 10 znalezisk, wszystkie fixy wprowadzone → [`AUDYT-IZOLACJI.md`](AUDYT-IZOLACJI.md) |
 | Schemat bazy `og_*` (`db/001`) v2 | ✅ po audycie (composite FK, retencja, koszt SMS) |
 | Izolacja: granty + RLS (`db/002`) v2 | ✅ po audycie (2 warstwy: granty kolumnowe + force RLS) |
-| Test izolacji (`tests/test-izolacja.sql`) | ✅ napisany (14 testów, samoczyszczący) — ⏳ uruchomienie po Kroku 0 |
-| Moduł 2 — funkcje (onboard, request, dispatch, snapshot) | ✅ kod gotowy (`functions/`) — ⏳ deploy po Kroku 0 |
-| Harmonogram cronów (`db/004`) | ✅ szablon |
-| **⛔ BRAMKA: osobny projekt Supabase (F1)** | ⏳ **klik Krzysztofa — [`SETUP.md`](SETUP.md) Krok 0** |
+| **Osobny projekt Supabase (F1)** | ✅ **`opinie-google` ref `uzccwsmzmzcsijddbtzn`** (3.07, Frankfurt; slot po pauzie martwego bita-crm) |
+| **Schemat + RLS na żywej bazie** | ✅ zaaplikowane 3.07 (SQL Editor) |
+| **Test izolacji (`tests/test-izolacja.sql`)** | ✅ **PRZESZEDŁ 14/14 na żywej bazie (3.07)** |
+| Moduł 2 — funkcje (onboard, request, dispatch, snapshot) | ✅ kod gotowy (`functions/`) — ⏳ deploy (wymaga kluczy: Places, SMSAPI) |
+| Harmonogram cronów (`db/004`) | ✅ szablon — ⏳ po deployu funkcji |
 | Moduł 3 (bot WhatsApp) + Moduł 4 (monitoring+AI) | ⏳ następna tura Fable |
 | Panel + widget (Moduł 5) | ⏳ Opus/Sonnet po 7.07 |
 
