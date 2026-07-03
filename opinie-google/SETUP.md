@@ -17,15 +17,20 @@
 ## Krok 2 — Klucze zewnętrzne (jednorazowo, nie per klient)
 - **Google Places API (New):** 👤 K.: console.cloud.google.com → nowy projekt `opinie-google` → włączyć „Places API (New)" → klucz API (restrykcja: tylko Places API New). Uwaga: wymaga konta rozliczeniowego Google Cloud (darmowy kredyt $200/mies na Maps pokrywa nas z ogromnym zapasem).
 - **SMSAPI.pl:** 👤 K.: założyć konto → doładować (np. 50 zł) → wygenerować token API (OAuth) → **zarejestrować pole nadawcy** (nazwa firmy pierwszego klienta; zatwierdzenie 1-3 dni robocze — zacząć od razu przy pilocie!).
-- **WhatsApp Business Platform:** dopiero przy Module 3 (bot) — nie blokuje Pętli 1.
+- **WhatsApp Business Platform (Meta):** numer firmowy + token + `WA_VERIFY_TOKEN`/`WA_APP_SECRET` (webhook) + **message template** na powiadomienie o opinii (Meta zatwierdza szablony business-initiated poza oknem 24 h — złożyć przy konfiguracji). Do czasu skonfigurowania bot działa w trybie na sucho (outbox).
+- **Anthropic API (Claude Haiku):** klucz do szkiców odpowiedzi. Bez klucza działa szablon zapasowy (sensowny, ale sztywny).
 
 ## Krok 3 — Sekrety i deploy funkcji (Claude, wymaga `supabase` CLI: `brew install supabase/tap/supabase`)
 ```bash
 supabase login                       # 👤 K. klika autoryzację raz
-supabase link --project-ref <REF>
-supabase secrets set OG_SERVICE_KEY=$(openssl rand -hex 32) \
-  GOOGLE_PLACES_KEY=... SMSAPI_TOKEN=... SMS_TEST_MODE=1     # najpierw tryb testowy!
-cd opinie-google && supabase functions deploy og-onboard og-request-review og-dispatch og-snapshot
+supabase link --project-ref uzccwsmzmzcsijddbtzn
+supabase secrets set OG_SERVICE_KEY=$(openssl rand -hex 32) OG_DRY_MODE=1   # start NA SUCHO
+# realne klucze dokładamy stopniowo (każdy brakujący = dany kanał zostaje na sucho):
+#   GOOGLE_PLACES_KEY=...  SMSAPI_TOKEN=...  SMS_TEST_MODE=1
+#   WA_TOKEN=... WA_PHONE_NUMBER_ID=... WA_VERIFY_TOKEN=... WA_APP_SECRET=...
+#   ANTHROPIC_API_KEY=...
+cd opinie-google && supabase functions deploy og-onboard og-request-review og-dispatch og-snapshot og-monitor og-wa-webhook
+# realny start = OG_DRY_MODE=0 (wysyłki idą w świat) — dopiero po teście na sucho
 ```
 
 ## Krok 4 — Crony (Claude, SQL Editor)

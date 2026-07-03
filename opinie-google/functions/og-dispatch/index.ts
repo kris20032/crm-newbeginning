@@ -3,18 +3,10 @@
 // z scheduled_at<=now i od razu przestawia na 'sent'/'failed'.
 // Bezpieczniki: STOP sprawdzany tuż przed wysyłką, dzienny limit per konto,
 // max 1 przypomnienie (po 3 dniach), nadawca musi być ustawiony.
-import { serviceClient, json, requireServiceKey, sendSms, computeScheduledAt } from "../_shared/util.ts";
+import { serviceClient, json, requireServiceKey, sendSms, computeScheduledAt, fillTemplate } from "../_shared/util.ts";
 
 const DAILY_LIMIT_PER_ACCOUNT = 30; // bezpiecznik kosztowy (F: rate-limit z audytu)
 const REMINDER_AFTER_DAYS = 3;
-
-function fillTemplate(tpl: string, name: string | null, link: string): string {
-  return tpl
-    .replaceAll("{imie}", name ? ` ${name}` : "")
-    .replaceAll("{ imie}", name ? ` ${name}` : "") // odporność na spacje w szablonie
-    .replaceAll("{link}", link)
-    .replace(/\s+/g, " ").trim();
-}
 
 Deno.serve(async (req) => {
   const denied = requireServiceKey(req);
@@ -63,7 +55,7 @@ Deno.serve(async (req) => {
     }
 
     const msg = fillTemplate(acc.message_template ?? "Ocen nas w Google: {link}", cust.name, acc.review_link);
-    const res = await sendSms(cust.phone, acc.sms_sender_name, msg);
+    const res = await sendSms(db, cust.phone, acc.sms_sender_name, msg);
     if (res.ok) {
       await db.from("og_review_requests").update({
         status: "sent", sent_at: new Date().toISOString(), provider_msg_id: res.id,
@@ -99,7 +91,7 @@ Deno.serve(async (req) => {
       "Przypominajka: " + (acc.message_template ?? "Ocen nas w Google: {link}"),
       cust.name, acc.review_link,
     );
-    const res = await sendSms(cust.phone, acc.sms_sender_name, msg);
+    const res = await sendSms(db, cust.phone, acc.sms_sender_name, msg);
     // reminder_count=1 NIEZALEŻNIE od wyniku — nigdy nie próbujemy drugi raz (anty-spam).
     await db.from("og_review_requests").update({
       reminder_count: 1, ...(res.ok ? {} : { error: `reminder fail: ${res.error}` }),

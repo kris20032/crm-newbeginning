@@ -32,6 +32,9 @@ select cron.schedule('og-dispatch', '*/15 * * * *', $$select og_call_edge('og-di
 -- Snapshot metryk + retencja treści opinii: codziennie 06:10 UTC (=8:10 PL latem).
 select cron.schedule('og-snapshot', '10 6 * * *', $$select og_call_edge('og-snapshot')$$);
 
+-- Monitoring nowych opinii + szkice AI + powiadomienia WA: co 6 h.
+select cron.schedule('og-monitor', '20 5,11,17,23 * * *', $$select og_call_edge('og-monitor')$$);
+
 -- Podgląd/wyłączenie:
 --   select * from cron.job;
---   select cron.unschedule('og-dispatch'); select cron.unschedule('og-snapshot');
+--   select cron.unschedule('og-dispatch'); select cron.unschedule('og-snapshot'); select cron.unschedule('og-monitor');

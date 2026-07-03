@@ -16,9 +16,14 @@ Wieloklientowy system zbierania i obsługi opinii Google dla lokalnych fachowcó
 | **Osobny projekt Supabase (F1)** | ✅ **`opinie-google` ref `uzccwsmzmzcsijddbtzn`** (3.07, Frankfurt; świeży, dedykowany produktowi) |
 | **Schemat + RLS na żywej bazie** | ✅ zaaplikowane 3.07 (SQL Editor) |
 | **Test izolacji (`tests/test-izolacja.sql`)** | ✅ **PRZESZEDŁ 14/14 na żywej bazie (3.07)** |
-| Moduł 2 — funkcje (onboard, request, dispatch, snapshot) | ✅ kod gotowy (`functions/`) — ⏳ deploy (wymaga kluczy: Places, SMSAPI) |
-| Harmonogram cronów (`db/004`) | ✅ szablon — ⏳ po deployu funkcji |
-| Moduł 3 (bot WhatsApp) + Moduł 4 (monitoring+AI) | ⏳ następna tura Fable |
+| Moduł 2 — funkcje (onboard, request, dispatch, snapshot) | ✅ kod gotowy (`functions/`) |
+| **Moduł 3 — bot WhatsApp (`og-wa-webhook`)** | ✅ kod gotowy (3.07): opt-in, numer→kolejka, 3 przyciski, tryb Edytuj, podpis Meta |
+| **Moduł 4 — monitoring+AI (`og-monitor`)** | ✅ kod gotowy (3.07): detekcja nowych (baseline bez spamu), szkic AI (Haiku + fallback), powiadomienie z przyciskami, retencja |
+| **Tryb NA SUCHO (og_outbox)** | ✅ LIVE (005): bez kluczy każda wysyłka ląduje w skrzynce zamiast iść w świat — pełne testy bez kont |
+| Kolejka publikacji (`og_publish_queue`) | ✅ LIVE (005) — przetestowana na żywej bazie |
+| Testy: logika (Node) + baza | ✅ 31/31 pure.test + izolacja 14/14 + test Pętli 2 na żywo |
+| Harmonogram cronów (`db/004`) | ✅ szablon (dispatch, snapshot, monitor) — ⏳ przy deployu |
+| Deploy funkcji + klucze (Places, SMSAPI, WhatsApp, Anthropic) | ⏳ ostatni krok przed realnym startem (SETUP Krok 2-4) |
 | Panel + widget (Moduł 5) | ⏳ Opus/Sonnet po 7.07 |
 
 ## Struktura
