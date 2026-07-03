@@ -1,0 +1,7 @@
+# Sekrety produktu Opinie Google — NIGDY do repo
+.env
+.env.*
+*secret*
+*.key
+functions/**/.env
+supabase/.env
