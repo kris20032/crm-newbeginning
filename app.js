@@ -16,11 +16,14 @@
 /* ---------- Etapy lejka (1:1 z Notion) ---------- */
 const STATUSES = [
   { key: "lead",          label: "Lead",                  dot: "#9b9a97", bg: "#e8e8e6", fg: "#5a594f", tint: "#f8f8f7" },
-  { key: "zainteresowany",label: "Wysłane demo",           dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f", tint: "#f4f9fc" },
+  { key: "zainteresowany",label: "Demo wysłane",           dot: "#529cca", bg: "#ddebf1", fg: "#2c6e8f", tint: "#f4f9fc" },
   { key: "umowiony",      label: "Zainteresowany",        dot: "#9a6dd7", bg: "#ede1f7", fg: "#6940a5", tint: "#faf7fd" },
   { key: "po_spotkaniu",  label: "Sprzedaż",               dot: "#e0837d", bg: "#fbe4e2", fg: "#a8362f", tint: "#fdf6f5" },
-  { key: "oferta",        label: "Oferta/umowa",           dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a", tint: "#fdfbf2" },
-  { key: "konwersja",     label: "Konwersja",              dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e", tint: "#f5faf4" },
+  { key: "oferta",        label: "Umowa wysłana",          dot: "#d9b54a", bg: "#faf3dd", fg: "#8a6d1a", tint: "#fdfbf2" },
+  { key: "konwersja",     label: "Umowa podpisana",        dot: "#6aa84f", bg: "#dbeddb", fg: "#3d6b2e", tint: "#f5faf4" },
+  { key: "checklista",    label: "Checklista gotowa",      dot: "#4ba39a", bg: "#d9efec", fg: "#2b6b63", tint: "#f3faf9" },
+  { key: "w_realizacji",  label: "W trakcie realizacji",   dot: "#d98c3f", bg: "#f8e6d3", fg: "#8a561a", tint: "#fdf8f2" },
+  { key: "zrealizowane",  label: "Realizacja ukończona",   dot: "#2f8f4e", bg: "#cfe9d6", fg: "#1f5e33", tint: "#f1f9f3" },
 ];
 const statusOf = (k) => STATUSES.find((s) => s.key === k) || STATUSES[0];
 // status spoza lejka (np. dawny etap 'archiwum') traktuj jak 'lead' — żeby karta nigdy nie zniknęła z tablicy
@@ -37,6 +40,27 @@ const ownerColor = (name) => {
 };
 const initials = (name) => (name || "?").trim().charAt(0).toUpperCase();
 
+/* ---------- RBAC: role i uprawnienia zalogowanego ---------- */
+// Admini awaryjni na czas, gdy backend RBAC (schema-rbac.sql) nie jest jeszcze wdrożony:
+// appka działa wtedy jak dotąd (wszyscy widzą wszystko), a ci dwaj dostają panel admina z instrukcją.
+const BOOTSTRAP_ADMIN_EMAILS = ["krzychu.brzezi@gmail.com", "kozakiewicz.marceli@gmail.com"];
+// Tryb zgodności (brak tabel RBAC w bazie) = zachowanie sprzed ról: każdy widzi wszystko jak dziś.
+const COMPAT_PERMS = ["clients.view_all", "clients.hard_delete", "section.klienci"];
+const EF_MISSING_MSG = "Funkcja admin-users nie jest jeszcze wdrożona — instrukcja w HANDOVER-lejek-realizacja.md";
+// Czy zalogowany ma uprawnienie: admin ma ZAWSZE wszystko, reszta wg role_permissions swojej roli.
+function can(perm) {
+  if (state.me && state.me.role === "admin") return true;
+  return state.perms instanceof Set && state.perms.has(perm);
+}
+// CENTRALNY filtr widoczności kart: bez 'clients.view_all' widzisz WYŁĄCZNIE karty, gdzie jesteś
+// handlowcem (owner) lub opiekunem. Wpięty w oba źródła list: visibleClients (tablica/tabela/Na dziś/
+// Archiwum/szukajka), renderTabs (liczniki) i signedClients (sekcja Klienci).
+function rbacVisible(list) {
+  if (can("clients.view_all")) return list;
+  const me = (state.me && state.me.name) || state.currentUser;
+  return (list || []).filter((c) => c.owner === me || c.opiekun === me);
+}
+
 /* ---------- Stan ---------- */
 const state = {
   clients: [], commentsByClient: {}, team: [],
@@ -47,6 +71,18 @@ const state = {
   ownerPopOpen: false,      // czy rozwinięty panel zespołu (poza DOM, by przeżyć przebudowę #tabs przez realtime)
   currentUser: "Krzysztof", search: "", live: false, openCardId: null, openCardWasArchived: false, newCardIds: new Set(), skipFlipId: null, animateNextRender: false,
   suppressUntil: 0, lastSnap: "",
+  section: "sprzedaz",      // aktywna sekcja z menu: "sprzedaz" (lejek) | "klienci" (tabela podpisanych) | "admin" (panel admina)
+  klienciSearch: "",        // pole szukania w sekcji Klienci (osobne od głównej wyszukiwarki)
+  me: null,                 // mój wiersz zespołu: { email, name, role, user_id, active }
+  perms: new Set(),         // klucze uprawnień mojej roli (dla admina nieistotne — can() zwraca zawsze true)
+  rbacReady: false,         // czy backend RBAC (tabele roles/permissions/role_permissions) jest wdrożony
+  rbacAt: 0,                // kiedy ostatnio odświeżono uprawnienia (throttle w refreshData)
+  roles: [],                // lista ról do selectów panelu admina
+  teamRows: [],             // pełne wiersze team_members (panel admina)
+  adminTab: "users",        // pod-zakładka panelu admina: "users" | "roles" | "oferta"
+  catalog: [],              // katalog usług (service_catalog) — jedyne źródło prawdy zakładki „Usługi" i panelu „Oferta"
+  catalogReady: false,      // czy backend katalogu (schema-uslugi.sql) jest wdrożony; false = tryb zgodności (wbudowane 2 usługi)
+  catalogAt: 0,             // kiedy ostatnio wczytano katalog (throttle w refreshData — jak RBAC)
 };
 
 /* ---------- Panel zespołu: czyje karty widać (domyślnie tylko moje) ---------- */
@@ -92,13 +128,17 @@ let sb = null;
 const cfg = window.CRM_CONFIG || {};
 const LIVE = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY);
 
+// błąd zapisu katalogu usług odbity przez RLS (brak 'services.manage') → komunikat po polsku dla toasta
+const svcWriteError = (error) => (error && (error.code === "42501" || /row-level security/i.test(error.message || "")))
+  ? new Error("Brak uprawnień do zarządzania ofertą") : error;
+
 const api = {
   isLive: () => LIVE,
   async init() { if (LIVE) sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY); },
   async getUser() { if (!LIVE) return { email: "demo@local" }; const { data } = await sb.auth.getUser(); return data.user; },
   async signIn(email, password) { const { error } = await sb.auth.signInWithPassword({ email, password }); if (error) throw error; },
   async signOut() { if (LIVE) await sb.auth.signOut(); },
-  async resetPassword(email) { const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }); if (error) throw error; },
+  async resetPassword(email) { if (!LIVE) return; const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }); if (error) throw error; },
   async updatePassword(pw) { const { error } = await sb.auth.updateUser({ password: pw }); if (error) throw error; },
 
   async getClients() {
@@ -140,7 +180,9 @@ const api = {
     const by = {}; (data || []).forEach((c) => { (by[c.client_id] = by[c.client_id] || []).push(c); }); return by;
   },
   async getComments(clientId) {
-    if (!LIVE) return structuredClone(DEMO_COMMENTS[clientId] || []);
+    // DEMO: źródłem prawdy jest bieżący stan (addComment dopisuje tam) — seedy tylko przed pierwszym załadowaniem.
+    // (Wcześniej zwracało zawsze seedy, przez co sendComment nadpisywał świeżo dodany komentarz i czat "nie działał".)
+    if (!LIVE) return structuredClone(state.commentsByClient[clientId] || DEMO_COMMENTS[clientId] || []);
     const { data, error } = await sb.from("comments").select("*").eq("client_id", clientId).order("created_at", { ascending: true });
     if (error) throw error; return data;
   },
@@ -152,7 +194,7 @@ const api = {
   },
 
   async getTeam() {
-    if (!LIVE) return DEMO_OWNERS.map((name) => ({ email: name.toLowerCase() + "@demo", name }));
+    if (!LIVE) return structuredClone(DEMO_TEAM);
     const { data, error } = await sb.from("team_members").select("*").order("created_at", { ascending: true });
     if (error) throw error; return data || [];
   },
@@ -160,6 +202,84 @@ const api = {
     if (!LIVE) return { email, name };
     const { data, error } = await sb.from("team_members").upsert({ email, name }, { onConflict: "email" }).select().single();
     if (error) throw error; return data;
+  },
+
+  /* ---- RBAC + panel admina ---- */
+  async getRoles() {
+    if (!LIVE) return structuredClone(DEMO_ROLES);
+    const { data, error } = await sb.from("roles").select("*");
+    if (error) throw error; return data || [];
+  },
+  async getPermissions() {
+    if (!LIVE) return structuredClone(DEMO_PERMISSIONS);
+    const { data, error } = await sb.from("permissions").select("*").order("ord", { ascending: true });
+    if (error) throw error; return data || [];
+  },
+  async getRolePerms() {
+    if (!LIVE) return structuredClone(DEMO_ROLE_PERMS);
+    const { data, error } = await sb.from("role_permissions").select("*");
+    if (error) throw error; return data || [];
+  },
+  // włącz/wyłącz uprawnienie roli (matryca w panelu admina); LIVE pisze wprost do role_permissions (RLS przepuszcza tylko admina)
+  async setRolePerm(role, perm, on) {
+    if (!LIVE) {
+      const i = DEMO_ROLE_PERMS.findIndex((r) => r.role_key === role && r.perm_key === perm);
+      if (on && i < 0) DEMO_ROLE_PERMS.push({ role_key: role, perm_key: perm });
+      if (!on && i >= 0) DEMO_ROLE_PERMS.splice(i, 1);
+      return;
+    }
+    if (on) { const { error } = await sb.from("role_permissions").upsert({ role_key: role, perm_key: perm }); if (error) throw error; }
+    else { const { error } = await sb.from("role_permissions").delete().eq("role_key", role).eq("perm_key", perm); if (error) throw error; }
+  },
+
+  /* ---- Katalog usług (service_catalog) — zakładka „Usługi" na karcie + panel „Oferta" ---- */
+  async getServiceCatalog() {
+    if (!LIVE) return structuredClone(DEMO_SERVICE_CATALOG);
+    const { data, error } = await sb.from("service_catalog").select("*");
+    if (error) throw error; return data || [];
+  },
+  // dodanie / edycja usługi (upsert po key); RLS przepuszcza tylko 'services.manage' (admin niejawnie)
+  async upsertService(row) {
+    if (!LIVE) {
+      const i = DEMO_SERVICE_CATALOG.findIndex((s) => s.key === row.key);
+      if (i >= 0) DEMO_SERVICE_CATALOG[i] = { ...DEMO_SERVICE_CATALOG[i], ...row };
+      else DEMO_SERVICE_CATALOG.push({ ...row, created_at: new Date().toISOString() });
+      return;
+    }
+    const { error } = await sb.from("service_catalog").upsert(row, { onConflict: "key" });
+    if (error) throw svcWriteError(error);
+  },
+  // pokaż/ukryj usługę w ofercie (ukryta nie znika ze starych kart — patrz servicesForClient)
+  async setServiceVisible(key, visible) {
+    if (!LIVE) { const s = DEMO_SERVICE_CATALOG.find((x) => x.key === key); if (s) s.visible = visible; return; }
+    // .select() celowo: UPDATE odbity przez RLS wraca „cicho" z 0 wierszy — zamień to na czytelny błąd
+    const { data, error } = await sb.from("service_catalog").update({ visible }).eq("key", key).select();
+    if (error) throw svcWriteError(error);
+    if (!data || !data.length) throw new Error("Brak uprawnień do zarządzania ofertą");
+  },
+  // Operacje na kontach (utworzenie / blokada / usunięcie / zmiana roli) — Edge Function 'admin-users'
+  // (wymagają klucza service-role, dlatego NIE idą z klienta). W DEMO działają na mockach w pamięci.
+  // Błędy zamieniamy na Error z czytelnym po polsku message — callery robią toast(err.message).
+  async adminUsers(action, payload = {}) {
+    if (!LIVE) return demoAdminUsers(action, payload);
+    const { data: { session } } = await sb.auth.getSession();
+    let res;
+    try {
+      res = await fetch(`${cfg.SUPABASE_URL}/functions/v1/admin-users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session ? session.access_token : ""}`, apikey: cfg.SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action, ...payload }),
+      });
+    } catch (e) { console.error("admin-users fetch", e); throw new Error("Brak połączenia z funkcją admin-users — spróbuj ponownie"); }
+    let body = null;
+    try { body = await res.json(); } catch {}                       // 404 z HTML-em itp. → body zostaje null
+    if (!res.ok) {
+      if (body && body.error) throw new Error(body.error);          // kontrakt: błędy 4xx jako {error: "..."}
+      if (res.status === 404) throw new Error(EF_MISSING_MSG);      // funkcja nie wdrożona
+      throw new Error((body && body.message) || `Funkcja admin-users: błąd ${res.status}`);
+    }
+    if (body && body.error) throw new Error(body.error);
+    return body;
   },
 
   async requestDemo(clientId, note) {
@@ -211,7 +331,6 @@ const api = {
    POMOCNICZE
    ============================================================ */
 const $ = (sel) => document.querySelector(sel);
-const fmtDate = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return d; return dt.toLocaleDateString("pl-PL", { day: "numeric", month: "short", year: "numeric" }); };
 const fmtDateTime = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return d; return dt.toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
 // follow_up = timestamp; pole datetime-local chce "YYYY-MM-DDTHH:MM"
 const toDTLocal = (v) => { if (!v) return ""; let s = String(v).replace(" ", "T"); if (s.length === 10) s += "T00:00"; return s.slice(0, 16); };
@@ -257,8 +376,9 @@ const linkify = (text) => {
   out += esc(text.slice(last));
   return out;
 };
-// edytować lead może handlowiec (owner) ORAZ opiekun — opiekun działa na karcie tak jak właściciel
-const canEdit = (client) => client.owner === state.currentUser || client.opiekun === state.currentUser;
+// edytować lead może handlowiec (owner) ORAZ opiekun — opiekun działa na karcie tak jak właściciel;
+// uprawnienie 'clients.edit_all' (np. admin) pozwala edytować karty wszystkich
+const canEdit = (client) => client.owner === state.currentUser || client.opiekun === state.currentUser || can("clients.edit_all");
 const isDueSoon = (d) => { if (!d) return false; const dt = new Date(d); if (isNaN(dt)) return false; const t = new Date(); t.setHours(23, 59, 59, 999); return dt <= t; };
 const dueState = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return ""; const t = new Date(); t.setHours(0,0,0,0); const day = new Date(dt); day.setHours(0,0,0,0); if (day < t) return "overdue"; if (day.getTime() === t.getTime()) return "today"; return ""; };
 const safeUrl = (u) => { try { const x = new URL(u); return (x.protocol === "http:" || x.protocol === "https:") ? u : ""; } catch { return ""; } };
@@ -317,13 +437,14 @@ function renderTabs() {
   const tabs = $("#tabs");
   const me = state.currentUser;
   const sel = selectedOwnersSet();
-  const mine = state.clients.filter((c) => sel.has(c.owner));      // wybrani w „Pokaż" — zakres „Na dziś"/„Archiwum"
+  const pool = rbacVisible(state.clients);                         // RBAC: liczniki tylko z kart, które wolno mi widzieć
+  const mine = pool.filter((c) => sel.has(c.owner));               // wybrani w „Pokaż" — zakres „Na dziś"/„Archiwum"
   const active = mine.filter((c) => !c.deleted_at);
   const dueCount = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up)).length;
   const archiveCount = mine.length - active.length;
   // „Wszystkie" = suma po ZAZNACZONYCH: ich lidy + lidy, gdzie są opiekunem
-  const allCount = state.clients.filter((c) => !c.deleted_at && (sel.has(c.owner) || sel.has(c.opiekun))).length;
-  const ownerCount = (n) => state.clients.filter((c) => !c.deleted_at && c.owner === n).length;
+  const allCount = pool.filter((c) => !c.deleted_at && (sel.has(c.owner) || sel.has(c.opiekun))).length;
+  const ownerCount = (n) => pool.filter((c) => !c.deleted_at && c.owner === n).length;
   // zakładki per-osoba = KAŻDY zaznaczony (ja pierwszy, potem reszta wg kolejności zespołu); moja zakładka = moje imię
   const personTabs = [me, ...(allOwners().length ? allOwners() : [me]).filter((n) => n !== me)].filter((n) => sel.has(n));
   // legacy/martwy viewMode → mapuj; gdy stoisz na zakładce osoby, która zniknęła z zaznaczenia → „Wszystkie"
@@ -336,7 +457,7 @@ function renderTabs() {
     { key: "archive", label: "🗄 Archiwum",           count: archiveCount },
   ];
   const showSwitch = state.viewMode !== "archive";       // Archiwum ma własny widok-listę — przełącznik nie dotyczy
-  const showOwnerPanel = true;                           // „Pokaż" steruje teraz i „Wszystkie", i zakładkami osób — zawsze widoczny
+  const showOwnerPanel = can("clients.view_all");        // „Pokaż" tylko dla widzących cudze karty — sprzedawca nie ma wyboru
   const vsBtn = (key, icon, label) =>
     `<button class="vs-btn ${state.layout === key ? "on" : ""}" data-layout="${key}" title="Widok: ${label}" aria-pressed="${state.layout === key}">${icon}<span>${label}</span></button>`;
   tabs.innerHTML =
@@ -408,17 +529,19 @@ const activeClients = () => state.clients.filter((c) => !c.deleted_at);   // kar
 const qStars = (c) => Math.max(0, Math.min(3, parseInt(c.quality, 10) || 0));   // ocena 0–3 gwiazdek (kolumna quality)
 function visibleClients() {
   const q = state.search.trim().toLowerCase();
+  const pool = rbacVisible(state.clients);                        // RBAC: bez 'clients.view_all' tylko karty, gdzie jestem ownerem/opiekunem
   const sel = selectedOwnersSet();
-  const mine = state.clients.filter((c) => sel.has(c.owner));     // tylko wybrani właściciele (domyślnie: ja)
+  const mine = pool.filter((c) => sel.has(c.owner));              // tylko wybrani właściciele (domyślnie: ja)
   let list;
-  // SZUKANIE jest GLOBALNE — po wszystkich właścicielach (łatwo wykryć, że kolega ma już danego klienta);
-  // filtr właścicieli z panelu działa tylko przy pustym polu szukania.
-  if (state.viewMode === "archive") list = (q ? state.clients : mine).filter((c) => c.deleted_at);   // Archiwum (szukasz → globalnie)
+  // SZUKANIE jest GLOBALNE w obrębie widocznych kart — po wszystkich właścicielach, których wolno mi widzieć
+  // (łatwo wykryć, że kolega ma już danego klienta); filtr właścicieli z panelu działa tylko przy pustym polu szukania.
+  if (state.viewMode === "archive") list = (q ? pool : mine).filter((c) => c.deleted_at);   // Archiwum (szukasz → globalnie)
   else {
+    const activePool = pool.filter((c) => !c.deleted_at);
     let active;
-    if (q) active = activeClients();                                              // szukasz → wszyscy
-    else if (state.viewMode === "all") active = activeClients().filter((c) => sel.has(c.owner) || sel.has(c.opiekun));  // Wszystkie = zaznaczeni: ich lidy + gdzie są opiekunem
-    else if (state.viewMode.startsWith("owner:")) { const n = state.viewMode.slice(6); active = activeClients().filter((c) => c.owner === n); }  // zakładka osoby = jej lidy (owner)
+    if (q) active = activePool;                                                  // szukasz → wszyscy widoczni
+    else if (state.viewMode === "all") active = activePool.filter((c) => sel.has(c.owner) || sel.has(c.opiekun));  // Wszystkie = zaznaczeni: ich lidy + gdzie są opiekunem
+    else if (state.viewMode.startsWith("owner:")) { const n = state.viewMode.slice(6); active = activePool.filter((c) => c.owner === n); }  // zakładka osoby = jej lidy (owner)
     else active = mine.filter((c) => !c.deleted_at);                             // „Na dziś" → wybrani właściciele (Pokaż)
     if (state.viewMode === "due" && !q) list = active.filter((c) => !c.follow_up_done && isDueSoon(c.follow_up));
     else list = active;
@@ -495,7 +618,7 @@ function renderTable(board, list, opts = {}) {
     return;
   }
   const dash = `<span class="tb-empty">—</span>`;
-  const nameCell = (c) => `<div class="tb-name"><span class="tb-nm">${esc(c.name)}</span>${c.company ? `<span class="tb-co">${esc(c.company)}</span>` : ""}</div>`;
+  const nameCell = (c) => `<div class="tb-name"><span class="tb-nm">${esc(c.name)}${partnerMark(c)}</span>${c.company ? `<span class="tb-co">${esc(c.company)}</span>` : ""}</div>`;
   const statusCell = (c) => { const s = statusOf(normStatus(c)); return `<span class="status-pill" style="background:${s.bg};color:${s.fg}"><span class="dot" style="background:${s.dot}"></span>${esc(s.label)}</span>`; };
   const teamCell = (c) => `${c.opiekun ? `<span class="avatar avatar-sec" title="Opiekun: ${esc(c.opiekun)}" style="background:${ownerColor(c.opiekun)}">${initials(c.opiekun)}</span>` : ""}<span class="avatar" title="Handlowiec: ${esc(c.owner)}" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span>`;
 
@@ -547,7 +670,7 @@ function renderCardInner(c) {
   const ds = c.follow_up_done ? "" : dueState(c.follow_up);   // zrobiony follow-up nie świeci jako „dziś/zaległe"
   const stars = qStars(c);
   const starsHtml = stars ? `<span class="card-stars" title="Ocena ${stars}/3">${"★".repeat(stars)}</span>` : "";
-  return `<div class="card-title"><span class="card-ic">👤</span>${esc(c.name)}${starsHtml}</div>
+  return `<div class="card-title"><span class="card-ic">👤</span>${esc(c.name)}${partnerMark(c)}${starsHtml}</div>
     ${c.company ? `<div class="card-company">${esc(c.company)}</div>` : ""}
     <div class="card-meta">${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}</div>
     <div class="card-foot">
@@ -631,13 +754,186 @@ function wireDragAndDrop() {
       const prevStatus = c.status, prevPos = c.position;
       const newPos = positionForDrop(zone, e.clientY, c.id);
       if (c.status === newStatus && newPos === c.position) return;        // nic się nie zmienia
+      const block = stageChangeBlocked(c, newStatus);                     // bramki lejka (usługa / tylko admin)
+      if (block) { toast(block); return; }
       c.status = newStatus; c.position = newPos; state.skipFlipId = c.id; renderBoard(); flashCard(c.id);
       const patch = (prevStatus !== newStatus) ? { status: newStatus, position: newPos } : { position: newPos };
-      try { await api.updateClient(c.id, patch); }
+      try {
+        await api.updateClient(c.id, patch);
+        maybeMarkPartner(c); markServicesSold(c);   // stemple DOPIERO po udanym zapisie (inaczej zostają na cofniętej karcie)
+      }
       catch (err) { console.error(err); c.status = prevStatus; c.position = prevPos; state.animateNextRender = true; renderBoard(); toast("Nie zapisano — przywrócono poprzednią kolejność"); }
     });
   });
 }
+
+// Telefon PL → "+48 XXX XXX XXX" przy wpisywaniu/wklejaniu. Puste zostaje puste (placeholder działa).
+// Wiodące +48 / 0048 / 48 traktuj jak prefiks kraju i odetnij; krajowy numer = 9 cyfr, grupowany po 3.
+function formatPhonePL(raw) {
+  let d = String(raw || "").replace(/\D/g, "");
+  if (!d) return "";
+  if (d.startsWith("0048")) d = d.slice(4);
+  else if (d.startsWith("48")) d = d.slice(2);
+  if (!d) return "";                               // został sam prefiks (np. po skasowaniu numeru)
+  d = d.slice(0, 9);
+  return "+48 " + (d.match(/.{1,3}/g) || []).join(" ");
+}
+
+// Stepper statusu: strzałki ‹ › przesuwają kartę o jeden etap w lejku (te same klucze co select „Status").
+// saveField("status") przerysowuje kartę (openModal) → stepper sam się odświeży z nowym indeksem.
+function wireStageArrows(c) {
+  const prev = document.getElementById("stage-prev"), next = document.getElementById("stage-next");
+  const idx = STATUSES.findIndex((s) => s.key === normStatus(c));
+  // idx liczony w handlerze ze ŚWIEŻEGO etapu (ktoś mógł przesunąć kartę realtime) — nie z zamrożonego renderu
+  const step = (dir) => { const cur = STATUSES.findIndex((s) => s.key === normStatus(c)); const t = STATUSES[cur + dir]; if (t) saveField(c.id, "status", t.key); };
+  if (prev) { prev.disabled = idx <= 0; prev.addEventListener("click", () => step(-1)); }
+  if (next) { next.disabled = idx >= STATUSES.length - 1; next.addEventListener("click", () => step(1)); }
+}
+
+// Pole nazwiska dopasowuje szerokość do treści (pomiar niewidocznym spanem o tej samej czcionce) —
+// dzięki temu znaczek partnera siedzi TUŻ przy nazwisku, a nie na końcu rozciągniętego inputu.
+function wireNameAutosize() {
+  const inp = document.querySelector('#modal-body input.cm-name');
+  if (!inp) return;
+  const fit = () => {
+    const cs = getComputedStyle(inp);
+    const m = document.createElement("span");
+    m.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${cs.font};letter-spacing:${cs.letterSpacing}`;
+    m.textContent = inp.value || inp.placeholder || "";
+    document.body.appendChild(m);
+    const max = (inp.parentElement ? inp.parentElement.clientWidth : 400) - 30;   // zostaw miejsce na znaczek
+    inp.style.width = Math.min(max, m.offsetWidth + 20) + "px";                   // +padding pola i kursor
+    m.remove();
+  };
+  fit();
+  inp.addEventListener("input", fit);
+}
+
+// Telefon: auto-format PL przy wpisywaniu i wklejaniu → "+48 XXX XXX XXX".
+function wirePhoneInput() {
+  const el = document.querySelector('#modal-body input[data-key="phone"]');
+  if (!el) return;
+  const fmt = () => { el.value = formatPhonePL(el.value); };
+  el.addEventListener("input", fmt);
+  el.addEventListener("paste", () => setTimeout(fmt, 0));   // po wstawieniu wklejonej treści
+}
+
+/* ---------- Belka follow-upu nad czatem: klik rozwija termin + notatkę; ✓ zamyka ---------- */
+const CHEV_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`;
+
+function fuBarLabel(c) {
+  const active = c && c.follow_up && !c.follow_up_done;
+  if (!active) return `<span class="fu-bar-empty">Follow-up</span>`;
+  const ds = dueState(c.follow_up);
+  const badge = ds === "overdue" ? `<span class="rm-badge rm-overdue">zaległe</span>`
+              : ds === "today"   ? `<span class="rm-badge rm-today">dziś</span>` : "";
+  const note = (c.follow_up_note || "").trim();
+  return `<span class="fu-bar-line"><strong>${esc(fmtFollow(c.follow_up))}</strong>${badge}</span>${note ? `<span class="fu-bar-note">${esc(note)}</span>` : ""}`;
+}
+// Belka nad feedem: dla edytującego zawsze (planowanie), dla oglądającego tylko gdy follow-up aktywny.
+function fuBarHTML(c, editable) {
+  const active = c.follow_up && !c.follow_up_done;
+  if (!editable && !active) return "";
+  const ds = active ? dueState(c.follow_up) : "";
+  return `<div class="fu-bar${active ? " is-set" : ""}${ds ? " is-" + ds : ""}" id="fu-bar">
+      <div class="fu-bar-head${editable ? "" : " ro"}" id="fu-bar-head" ${editable ? `role="button" tabindex="0" aria-expanded="false" title="Kliknij, aby ${active ? "edytować" : "zaplanować"} follow-up"` : ""}>
+        <span class="fu-bar-ic">${CARD_ICON.followup}</span>
+        <span class="fu-bar-label" id="fu-bar-label">${fuBarLabel(c)}</span>
+        ${editable ? `<button type="button" class="rm-act rm-done" id="fu-done" title="Oznacz jako zrobione" aria-label="Zrobione" ${active ? "" : "hidden"}>${CHECK_ICON}</button>
+        <span class="fu-bar-chev">${CHEV_ICON}</span>` : ""}
+      </div>
+      ${editable ? `<div class="fu-bar-body" id="fu-bar-body" hidden>
+        <div class="fu-bar-row">
+          <input type="date" id="fu-date" />
+          <input type="time" id="fu-time" title="Godzina (opcjonalnie)" />
+          <button type="button" class="rm-act" id="fu-del" title="Usuń przypomnienie" aria-label="Usuń przypomnienie" ${active ? "" : "hidden"}>${TRASH_ICON}</button>
+        </div>
+        <input type="text" id="fu-note" placeholder="Notatka (opcjonalnie)" autocomplete="off" maxlength="200" />
+      </div>` : ""}
+    </div>`;
+}
+// Odśwież belkę po zmianie follow-upu (bez przebudowy DOM — pola nie znikają w trakcie edycji).
+function updateFuBar(c) {
+  const bar = document.getElementById("fu-bar");
+  if (!bar || !c || String(state.openCardId) !== String(c.id)) return;
+  const active = c.follow_up && !c.follow_up_done;
+  const ds = active ? dueState(c.follow_up) : "";
+  bar.classList.toggle("is-set", !!active);
+  bar.classList.toggle("is-today", ds === "today");
+  bar.classList.toggle("is-overdue", ds === "overdue");
+  const lbl = document.getElementById("fu-bar-label"); if (lbl) lbl.innerHTML = fuBarLabel(c);
+  const done = document.getElementById("fu-done"); if (done) done.hidden = !active;
+  const del = document.getElementById("fu-del"); if (del) del.hidden = !active;
+  const sync = (id, val) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = val; };
+  sync("fu-date", toDateInput(c.follow_up));
+  sync("fu-time", toTimeInput(c.follow_up));
+  sync("fu-note", c.follow_up_note || "");
+}
+function wireFuBar(clientId) {
+  const c = state.clients.find((x) => String(x.id) === String(clientId));
+  const bar = document.getElementById("fu-bar"), head = document.getElementById("fu-bar-head"), body = document.getElementById("fu-bar-body");
+  const fuDate = document.getElementById("fu-date"), fuTime = document.getElementById("fu-time"), fuNote = document.getElementById("fu-note");
+  if (!bar || !body || !fuDate) return;
+  fuDate.value = toDateInput(c ? c.follow_up : "");
+  if (fuTime) fuTime.value = toTimeInput(c ? c.follow_up : "");
+  if (fuNote) fuNote.value = (c && c.follow_up_note) || "";
+  const toggle = (open) => {
+    const willOpen = open != null ? open : body.hidden;
+    body.hidden = !willOpen;
+    bar.classList.toggle("open", willOpen);
+    head.setAttribute("aria-expanded", String(willOpen));
+    if (willOpen) fuDate.focus();
+  };
+  head.addEventListener("click", (e) => { if (!e.target.closest(".rm-act")) toggle(); });
+  head.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === head) { e.preventDefault(); toggle(); } });
+  // Enter w edytorze = zatwierdź (blur → zapis) i zwiń belkę
+  body.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (e.target && typeof e.target.blur === "function") e.target.blur();
+    toggle(false);
+  });
+  const save = () => {
+    const d = fuDate.value, t = fuTime ? fuTime.value : "";
+    if (!d) {                                       // brak daty → czyścimy follow-up (termin + notatkę)
+      saveField(clientId, "follow_up", "");
+      saveField(clientId, "follow_up_note", "");
+      if (fuTime) fuTime.value = ""; if (fuNote) fuNote.value = "";
+    } else {
+      saveField(clientId, "follow_up", t ? `${d}T${t}` : d);
+      if (c && c.follow_up_done) setFollowDone(clientId, false);   // nowy termin → znów „do zrobienia"
+    }
+    updateFuBar(c);
+  };
+  fuDate.addEventListener("change", save);
+  if (fuTime) fuTime.addEventListener("change", save);
+  if (fuNote) {
+    const saveNote = () => { saveField(clientId, "follow_up_note", fuNote.value.trim()); updateFuBar(c); };
+    fuNote.addEventListener("change", saveNote);
+    fuNote.addEventListener("input", debounce(saveNote, 600));
+  }
+  const done = document.getElementById("fu-done"); if (done) done.addEventListener("click", () => completeReminder(clientId));
+  const del = document.getElementById("fu-del"); if (del) del.addEventListener("click", () => { deleteReminder(clientId); toggle(false); });
+}
+
+// Ikony pól karty (liniowe) — zamiast etykiet tekstowych; nazwa pola w title/aria.
+const CI_ATTRS = `viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"`;
+const CARD_ICON = {
+  firma:      `<svg ${CI_ATTRS}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>`,
+  telefon:    `<svg ${CI_ATTRS}><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>`,
+  email:      `<svg ${CI_ATTRS}><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>`,
+  maps:       `<svg ${CI_ATTRS}><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`,
+  handlowiec: `<svg ${CI_ATTRS}><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+  opiekun:    `<svg ${CI_ATTRS}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>`,
+  followup:   `<svg ${CI_ATTRS}><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`,
+  demo:       `<svg ${CI_ATTRS}><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`,
+};
+// odznaka z ptaszkiem — wiersz „Nadaj token" na karcie (admin, etap „Umowa wysłana")
+const BADGE_CHECK_ICON = `<svg ${CI_ATTRS}><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></svg>`;
+// zębatka — ustawienia partnera w Bazie partnerów (menu z opcją zdjęcia tokena)
+const GEAR_ICON = `<svg ${CI_ATTRS}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
+// wiersz pola: ikonka z podpowiedzią (title) zamiast etykiety tekstowej
+const cmRow = (icon, label, v, vClass = "", vId = "") => `<div class="cm-row"><span class="k" title="${label}" aria-label="${label}">${CARD_ICON[icon]}</span><div class="v${vClass ? " " + vClass : ""}"${vId ? ` id="${vId}"` : ""}>${v}</div></div>`;
 
 /* ============================================================
    MODAL — karta (auto-zapis, bez przycisku "Zapisz")
@@ -678,26 +974,23 @@ async function openModal(id) {
       <div class="notes-label">Komentarze</div>
       <div class="comments-wrap" id="comments-wrap">${renderComments(comments)}</div>
       <div class="save-row archive-actions">
-        <button class="primary-btn" id="restore-card">↩ Przywróć kartę</button>
-        <button class="ghost-btn danger-btn" id="purge-card">Usuń trwale</button>
+        ${canEdit(c) ? `<button class="primary-btn" id="restore-card">↩ Przywróć kartę</button>` : `<span class="readonly-note">To karta: ${esc(c.owner)} — przywrócić może właściciel/opiekun.</span>`}
+        ${can("clients.hard_delete") ? `<button class="ghost-btn danger-btn" id="purge-card">Usuń trwale</button>` : ""}
       </div>`;
     $(".modal").classList.remove("modal-full");   // Archiwum = mały modal
     $("#modal-overlay").hidden = false;
-    $("#restore-card").addEventListener("click", () => doRestoreCard(c.id));
-    $("#purge-card").addEventListener("click", (e) => askPurgeCard(c.id, e.target));
+    const restoreBtn = $("#restore-card");        // przywrócenie tylko dla właściciela/opiekuna (canEdit)
+    if (restoreBtn) restoreBtn.addEventListener("click", () => doRestoreCard(c.id));
+    const purgeBtn = $("#purge-card");            // przycisk tylko z uprawnieniem 'clients.hard_delete'
+    if (purgeBtn) purgeBtn.addEventListener("click", (e) => askPurgeCard(c.id, e.target));
     updateNavButtons();
     return;
   }
 
   const editable = canEdit(c);
 
-  const field = (label, icon, key, type = "text") => {
-    const val = c[key] || "";
-    const input = editable ? `<input type="${type}" data-key="${key}" value="${esc(val)}" />` : `<div class="prop-value readonly">${esc(val) || "—"}</div>`;
-    return `<div class="prop-label">${icon} ${label}</div><div class="prop-value">${input}</div>`;
-  };
   const statusSelect = editable
-    ? `<select data-key="status">${STATUSES.map((s) => `<option value="${s.key}" ${normStatus(c) === s.key ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select>`
+    ? `<select data-key="status" class="stage-select">${STATUSES.map((s) => `<option value="${s.key}" ${normStatus(c) === s.key ? "selected" : ""}>${esc(s.label)}</option>`).join("")}</select>`
     : `<div class="prop-value readonly"><span class="status-pill" style="background:${statusOf(normStatus(c)).bg};color:${statusOf(normStatus(c)).fg}"><span class="dot" style="background:${statusOf(normStatus(c)).dot}"></span>${esc(statusOf(normStatus(c)).label)}</span></div>`;
   const ownerOpts = Array.from(new Set([...state.team, c.owner].filter(Boolean)));
   const ownerSelect = editable
@@ -709,66 +1002,81 @@ async function openModal(id) {
     : `<div class="prop-value readonly">${esc(c.opiekun) || "—"}</div>`;
   const safe = safeUrl(c.google_maps);
   const stars = Math.max(0, Math.min(3, parseInt(c.quality, 10) || 0));   // ocena 1–3 (w kolumnie quality)
+  // Zakładka „Usługi": od etapu „Sprzedaż" (po_spotkaniu) w górę — a dla PARTNERA zawsze (retencja:
+  // karta wraca na początek lejka, ale sprzedane usługi mają być widoczne i można dokładać nowe).
+  const stageIdx = STATUSES.findIndex((s) => s.key === normStatus(c));
+  const showServices = stageIdx >= STATUSES.findIndex((s) => s.key === "po_spotkaniu") || isPartner(c);
+  // Usługi zamrożone (zielone, bez edycji) już od „Umowa wysłana" (oferta) w górę.
+  // Zakładka Checklista pojawia się tak samo jak Usługi — od etapu „Sprzedaż" (i dla partnera zawsze).
+  const lockedIdx = STATUSES.findIndex((s) => s.key === "oferta");
+  const svcLocked = stageIdx >= lockedIdx;
+  const showChecklist = showServices;
+
+  const starsHTML = editable
+    ? `<div class="stars" id="stars" title="Ocena leada">${[1,2,3].map((n) => `<button type="button" class="star${n <= stars ? " on" : ""}" data-val="${n}" title="${n}/3" aria-label="Ocena ${n} z 3">★</button>`).join("")}</div>`
+    : `<div class="stars readonly">${[1,2,3].map((n) => `<span class="star${n <= stars ? " on" : ""}">★</span>`).join("")}</div>`;
 
   $("#modal-body").innerHTML = `
     <div class="cm">
       <div class="cm-left">
-        ${editable ? `<input class="title-input cm-name" data-key="name" value="${esc(c.name)}" placeholder="Imię i nazwisko" />` : `<h2 class="cm-name">${esc(c.name)}</h2>`}
+        <div class="cm-head">
+          <div class="cm-name-wrap">
+            ${editable ? `<input class="title-input cm-name" data-key="name" value="${esc(c.name)}" placeholder="Imię i nazwisko" />` : `<h2 class="cm-name">${esc(c.name)}</h2>`}
+            ${partnerMark(c)}
+          </div>
+          ${starsHTML}
+          <div class="cm-stage${editable ? "" : " cm-stage-ro"}">${editable
+              ? `<button type="button" class="stage-arrow" id="stage-prev" title="Cofnij etap" aria-label="Cofnij etap">‹</button>${statusSelect}<button type="button" class="stage-arrow" id="stage-next" title="Następny etap" aria-label="Następny etap">›</button>`
+              : statusSelect}</div>
+        </div>
         ${!editable ? `<div class="readonly-note">To karta: ${esc(c.owner)}. Pól nie edytujesz, ale możesz dodać komentarz (z @oznaczeniem).</div>` : ""}
 
         <div class="cm-props">
           <div class="cm-group">
-            <div class="cm-gh">Kontakt</div>
-            <div class="cm-row"><span class="k">Firma</span><div class="v">${editable ? `<input data-key="company" value="${esc(c.company || "")}" placeholder="—" />` : `<div class="prop-value readonly">${esc(c.company) || "—"}</div>`}</div></div>
-            <div class="cm-row"><span class="k">Telefon</span><div class="v">${editable ? `<input data-key="phone" value="${esc(c.phone || "")}" placeholder="—" />` : `<div class="prop-value readonly">${esc(c.phone) || "—"}</div>`}</div></div>
-            <div class="cm-row"><span class="k">Email</span><div class="v">${editable ? `<input data-key="email" value="${esc(c.email || "")}" placeholder="—" />` : `<div class="prop-value readonly">${esc(c.email) || "—"}</div>`}</div></div>
-            <div class="cm-row"><span class="k">Maps</span><div class="v maps-cell">${editable
-                  ? `<input data-key="google_maps" id="maps-input" value="${esc(c.google_maps || "")}" placeholder="link" />`
+            ${cmRow("firma", "Firma", editable ? `<input data-key="company" value="${esc(c.company || "")}" placeholder="Firma" />` : `<div class="prop-value readonly">${esc(c.company) || "—"}</div>`)}
+            ${cmRow("telefon", "Telefon", editable ? `<input data-key="phone" inputmode="tel" value="${esc(c.phone || "")}" placeholder="Telefon" />` : `<div class="prop-value readonly">${esc(c.phone) || "—"}</div>`)}
+            ${cmRow("email", "Email", editable ? `<input data-key="email" value="${esc(c.email || "")}" placeholder="Email" />` : `<div class="prop-value readonly">${esc(c.email) || "—"}</div>`)}
+            ${cmRow("maps", "Google Maps", `${editable
+                  ? `<input data-key="google_maps" id="maps-input" value="${esc(c.google_maps || "")}" placeholder="Google Maps" />`
                   : (safe ? `<a class="maps-link" href="${esc(safe)}" target="_blank" rel="noopener">otwórz</a>` : `<span class="readonly">—</span>`)}${(c.google_maps || "").trim()
                   ? `${editable ? `<button type="button" class="maps-btn" id="maps-open" title="Otwórz wizytówkę Google">↗</button>` : ""}<button type="button" class="maps-btn" id="maps-copy" title="Kopiuj link">⧉</button>`
-                  : ""}</div></div>
+                  : ""}`, "maps-cell")}
           </div>
 
           <div class="cm-group">
-            <div class="cm-gh">Sprzedaż</div>
-            <div class="cm-row"><span class="k">Ocena</span><div class="v">${editable
-                ? `<div class="stars" id="stars">${[1,2,3].map((n) => `<button type="button" class="star${n <= stars ? " on" : ""}" data-val="${n}" title="${n}/3" aria-label="Ocena ${n} z 3">★</button>`).join("")}</div>`
-                : `<div class="stars readonly">${[1,2,3].map((n) => `<span class="star${n <= stars ? " on" : ""}">★</span>`).join("")}</div>`}</div></div>
-            <div class="cm-row"><span class="k">Status</span><div class="v">${statusSelect}</div></div>
-            <div class="cm-row"><span class="k">Handlowiec</span><div class="v">${ownerSelect}</div></div>
-            <div class="cm-row"><span class="k">Opiekun</span><div class="v">${opiekunSelect}</div></div>
-            <div class="cm-row"><span class="k">Demo</span><div class="v demo-cell maps-cell" id="demo-cell">${demoFieldHTML(c, editable)}</div></div>
+            ${cmRow("handlowiec", "Handlowiec", ownerSelect)}
+            ${cmRow("opiekun", "Opiekun", opiekunSelect)}
+            ${cmRow("demo", "Demo", demoFieldHTML(c, editable), "demo-cell maps-cell", "demo-cell")}
+            ${(editable && isAdminUser() && stageIdx >= lockedIdx && stageIdx < SIGNED_IDX)
+              ? `<div class="cm-row"><span class="k" title="Token partnera" aria-label="Token partnera">${BADGE_CHECK_ICON}</span><div class="v"><button type="button" class="ghost-btn grant-token" id="grant-token" title="Przenosi kartę na „Umowa podpisana" i nadaje token partnera (widzi tylko admin)">Nadaj token</button></div></div>`
+              : ""}
           </div>
         </div>
 
         <div class="cm-notes">
-          <div class="notes-label">Notatki</div>
-          ${editable
-            ? `<div class="notes-view" id="notes-view" tabindex="0" title="Kliknij, aby edytować">${c.notes ? linkify(c.notes) : `<span class="notes-empty">${esc(NOTE_PLACEHOLDER)}</span>`}</div>
-               <textarea class="notes" data-key="notes" id="notes-edit" hidden>${esc(c.notes || "")}</textarea>`
-            : `<div class="notes-view readonly">${c.notes ? linkify(c.notes) : "—"}</div>`}
+          <div class="notes-tabs">
+            <button type="button" class="notes-tab on" id="tab-notes">Notatki</button>
+            ${showServices ? `<button type="button" class="notes-tab" id="tab-services">Usługi</button>` : ""}
+            ${showChecklist ? `<button type="button" class="notes-tab" id="tab-checklist">Checklista</button>` : ""}
+          </div>
+          <div class="notes-pane" id="pane-notes">
+            ${editable
+              ? `<div class="notes-view" id="notes-view" tabindex="0" title="Kliknij, aby edytować">${c.notes ? linkify(c.notes) : `<span class="notes-empty">${esc(NOTE_PLACEHOLDER)}</span>`}</div>
+                 <textarea class="notes" data-key="notes" id="notes-edit" hidden>${esc(c.notes || "")}</textarea>`
+              : `<div class="notes-view readonly">${c.notes ? linkify(c.notes) : "—"}</div>`}
+          </div>
+          ${showServices ? `<div class="notes-pane services-pane${svcLocked ? " locked" : ""}" id="pane-services" hidden>${servicesHTML(c, editable && !svcLocked)}</div>` : ""}
+          ${showChecklist ? `<div class="notes-pane checklist-pane" id="pane-checklist" hidden>${checklistHTML(c, editable)}</div>` : ""}
         </div>
 
         ${editable ? `<div class="save-row"><button class="ghost-btn" id="delete-card">Przenieś do archiwum</button></div>` : ""}
       </div>
 
       <aside class="cm-right">
+        ${fuBarHTML(c, editable)}
         <div class="comments-wrap" id="comments-wrap">${renderActivity(c, comments)}</div>
         <div class="composer">
-          ${editable ? `<div class="fu-setter" id="fu-setter" hidden>
-            <div class="fu-setter-row">
-              <input type="date" id="fu-date" />
-              <input type="time" id="fu-time" title="Godzina (opcjonalnie)" />
-            </div>
-            <div class="fu-quick">
-              <button type="button" class="fu-chip" data-days="1">Jutro</button>
-              <button type="button" class="fu-chip" data-days="3">+3 dni</button>
-              <button type="button" class="fu-chip" data-days="7">+tydzień</button>
-              <button type="button" class="fu-chip fu-chip-clear" data-clear="1">Wyczyść</button>
-            </div>
-          </div>` : ""}
           <div class="add-comment">
-            ${editable ? `<button type="button" class="fu-mode" id="fu-mode" title="Zaplanuj follow-up" aria-pressed="false">${FU_ICON}<span>Follow-up</span></button>` : ""}
             <div class="hl-wrap"><div id="comment-hl" class="hl-backdrop" aria-hidden="true"></div><input id="new-comment" placeholder="Dodaj komentarz...  (@ aby oznaczyć osobę)" autocomplete="off" /></div>
             <button id="send-comment">Wyślij</button>
             <div id="mention-pop" class="mention-pop" hidden></div>
@@ -805,7 +1113,58 @@ async function openModal(id) {
   };
   wireLink("maps-open", "maps-copy", "maps-input", c.google_maps);
 
+  // Przełącznik zakładek: Notatki | Usługi | Checklista (dwie ostatnie zależnie od etapu)
+  const noteTabs = [
+    { btn: "#tab-notes", pane: "#pane-notes" },
+    { btn: "#tab-services", pane: "#pane-services" },
+    { btn: "#tab-checklist", pane: "#pane-checklist" },
+  ].filter((t) => $(t.btn) && $(t.pane));
+  if (noteTabs.length > 1) {
+    const showTab = (active) => {
+      noteTabs.forEach((t) => {
+        $(t.btn).classList.toggle("on", t.btn === active.btn);
+        $(t.pane).hidden = t.btn !== active.btn;
+      });
+      if (active.btn === "#tab-checklist") sizeChecklistAreas();   // schowany panel ma scrollHeight 0 — dopasuj po pokazaniu
+    };
+    noteTabs.forEach((t) => $(t.btn).addEventListener("click", () => showTab(t)));
+  }
+
   if (editable) {
+    // Usługi (z katalogu): checkbox / kwota / okres per usługa — klucz w data-svc, zapis do clients.services[key]
+    const svcRow = (k) => { c.services = c.services || {}; return (c.services[k] = c.services[k] || {}); };
+    document.querySelectorAll("#pane-services .svc-cb").forEach((cb) => cb.addEventListener("change", () => {
+      const k = cb.dataset.svc;
+      if (svcRow(k).sold_at) { cb.checked = true; return; }   // sprzedana = nie do odznaczenia (checkbox i tak disabled — pas bezpieczeństwa)
+      svcRow(k).on = cb.checked;   // rekomendowaną cenę podpowiada placeholder pola — kwotę handlowiec wpisuje sam
+      const item = cb.closest(".svc-item"); if (item) item.classList.toggle("on", cb.checked);
+      updateSvcTotal(c);
+      saveServices(c.id);
+    }));
+    document.querySelectorAll("#pane-services .svc-price-input").forEach((inp) => {
+      const k = inp.dataset.svc;
+      const savePrice = () => {
+        const raw = inp.value.trim();
+        const val = raw === "" ? null : Number(raw);
+        // poniżej minimum: pole na czerwono + limit obok, wartości NIE zapisujemy (zostaje ostatnia poprawna)
+        const min = svcMin(state.catalog.find((s) => s.key === k));
+        const bad = val != null && !Number.isNaN(val) && min != null && val < min;
+        const warn = document.querySelector(`#pane-services .svc-min-warn[data-svc="${CSS.escape(k)}"]`);
+        inp.classList.toggle("bad", bad);
+        if (warn) { warn.hidden = !bad; if (bad) warn.textContent = `minimalnie ${min} zł`; }
+        if (bad) return;
+        svcRow(k).price = val;
+        updateSvcTotal(c);
+        saveServices(c.id);
+      };
+      inp.addEventListener("input", debounce(savePrice, 600));
+      inp.addEventListener("change", savePrice);
+    });
+    document.querySelectorAll("#pane-services .svc-period").forEach((sel) => sel.addEventListener("change", () => {
+      svcRow(sel.dataset.svc).period = sel.value;
+      updateSvcTotal(c);
+      saveServices(c.id);
+    }));
     const saveDeb = debounce((el) => saveField(c.id, el.dataset.key, el.value), 600);
     document.querySelectorAll("#modal-body [data-key]").forEach((el) => {
       if (el.id === "demo-input") return;   // pole demo ma własne wiązanie (wireDemoCell) — bez podwójnego zapisu
@@ -845,15 +1204,246 @@ async function openModal(id) {
   const delBtn = $("#delete-card"); if (delBtn) delBtn.addEventListener("click", () => askArchiveCard(c.id, delBtn));
   wireDemoCell(c.id);
   wireComposer(c.id);
+  wirePartnerToken(c);
+  if (editable) { wireStageArrows(c); wireFuBar(c.id); wirePhoneInput(); wireNameAutosize(); wireChecklist(c); }
+  const grantBtn = document.getElementById("grant-token");   // JEDYNA droga na „Umowa podpisana": admin klika → token + przeniesienie
+  if (grantBtn) grantBtn.addEventListener("click", () => {
+    if (!isAdminUser()) return;                              // pas bezpieczeństwa (przycisk i tak renderuje się tylko adminowi)
+    saveField(c.id, "status", "konwersja", { bypassGate: true });
+  });
   updateNavButtons();
 }
 
-async function saveField(id, key, value) {
+// Usługi sprzedawane klientowi (widok w karcie od etapu „Sprzedaż"; dla partnera zawsze). Zapis w clients.services (jsonb):
+// { "<key>": { on, price?, period?, sold_at? } } — klucze z katalogu (service_catalog), kompatybilne wstecz.
+// sold_at = data domknięcia sprzedaży (markServicesSold) → usługa trwale „aktywna", zielona, nie do odznaczenia.
+// KATALOG = jedyne źródło prawdy o ofercie (etykiety, ceny, tryb rozliczenia); zarządzany w panelu admina → „Oferta".
+const OKRESY = [{ key: "6m", label: "6 mies.", months: 6 }, { key: "1y", label: "1 rok", months: 12 }, { key: "2y", label: "2 lata", months: 24 }];
+const DEF_OKRES = "6m";
+const okresMonths = (k) => (OKRESY.find((o) => o.key === k) || OKRESY[0]).months;
+// Tryb zgodności (schema-uslugi.sql nie wykonany): wbudowany katalog = dokładnie seed SQL — appka działa jak dotąd.
+const DEFAULT_CATALOG = [
+  { key: "strona",  label: "Strona internetowa", visible: true, price_mode: "custom", price_fixed: null, price_min: null, price_rec: null, billing: "one_time", ord: 10 },
+  { key: "obsluga", label: "Obsługa techniczna", visible: true, price_mode: "fixed",  price_fixed: 49,   price_min: null, price_rec: null, billing: "monthly",  ord: 20 },
+];
+const sortCatalog = (rows) => [...rows].sort((a, b) => ((a.ord || 0) - (b.ord || 0)) || String(a.label || "").localeCompare(String(b.label || ""), "pl"));
+// Wczytaj katalog usług. ODPORNE na brak backendu (jak RBAC): błąd (brak tabeli) NIE wywala appki →
+// tryb zgodności = wbudowane strona+obsługa, a zakładka „Oferta" pokazuje baner-instrukcję.
+async function loadCatalog() {
+  state.catalogAt = Date.now();
+  try {
+    state.catalog = sortCatalog(await api.getServiceCatalog());
+    state.catalogReady = true;
+  } catch (e) {
+    console.warn("Katalog usług niedostępny — tryb zgodności (wbudowane: strona + obsługa)", e);
+    if (state.catalogReady) return;            // chwilowy błąd (np. sieć) — zostaw ostatnio wczytany katalog
+    state.catalog = structuredClone(DEFAULT_CATALOG);
+  }
+}
+// Usługi do pokazania na TEJ karcie: widoczne z katalogu + ukryte-a-już-zaznaczone (stare wybory nie znikają).
+function servicesForClient(sv) {
+  sv = sv || {};
+  return state.catalog.filter((s) => s.visible !== false || (sv[s.key] && sv[s.key].on));
+}
+const svcMin = (s) => (s && (s.price_min === 0 || s.price_min) ? Number(s.price_min) : null);
+const svcRec = (s) => (s && (s.price_rec === 0 || s.price_rec) ? Number(s.price_rec) : null);
+// Wpisana cena poniżej minimum z katalogu → przytnij do minimum (toast informuje handlowca).
+// Suma kwot ZAZNACZONYCH usług wg katalogu (fixed → cena z katalogu; custom → kwota od handlowca;
+// monthly → × miesiące wybranego okresu). Używane w karcie (wiersz „Razem" zakładki Usługi).
+function svcTotal(sv) {
+  sv = sv || {};
+  let t = 0;
+  for (const s of state.catalog) {
+    const row = sv[s.key];
+    if (!row || !row.on) continue;
+    const price = s.price_mode === "fixed"
+      ? (Number(s.price_fixed) || 0)
+      : ((row.price === 0 || row.price) ? (Number(row.price) || 0) : null);   // custom bez kwoty → nie licz (jak dotąd)
+    if (price == null) continue;
+    t += s.billing === "monthly" ? price * okresMonths(row.period) : price;
+  }
+  return t;
+}
+function updateSvcTotal(c) {
+  const el = document.getElementById("svc-total-val");
+  if (el) el.textContent = svcTotal(c.services);
+}
+// Jeden wiersz na usługę z katalogu: checkbox + (okres przy monthly) + cena (stała / input handlowca).
+// Usługa z sold_at (sprzedana — patrz markServicesSold) jest TRWALE zielona i zablokowana per-wiersz,
+// niezależnie od etapu karty; pozostałe wiersze podlegają zwykłym regułom (edycja do „Umowa wysłana").
+function servicesHTML(c, editable) {
+  const sv = c.services || {};
+  const cur = (s) => s.billing === "monthly" ? "zł/mies." : "zł";
+  const items = servicesForClient(sv).map((s) => {
+    const row = sv[s.key] || {};
+    const sold = !!row.sold_at;
+    const dis = (editable && !sold) ? "" : "disabled";
+    const k = esc(s.key);
+    // usługa wycofana z oferty (ukryta), ale na tej karcie zaznaczona — pokaż z dyskretnym dopiskiem
+    const retired = s.visible === false ? ` <span class="svc-retired">(wycofana z oferty)</span>` : "";
+    const activeTag = sold ? ` <span class="svc-active-tag" title="Sprzedana — klient ją ma, nie do odznaczenia">aktywna</span>` : "";
+    const period = s.billing === "monthly" ? `<select class="svc-period" data-svc="${k}" ${dis}>
+          ${OKRESY.map((o) => `<option value="${o.key}" ${(row.period || DEF_OKRES) === o.key ? "selected" : ""}>${o.label}</option>`).join("")}
+        </select>` : "";
+    let priceHtml;
+    if (s.price_mode === "fixed") {
+      priceHtml = `<span class="svc-fixed">${esc(String(Number(s.price_fixed) || 0))}</span> <span class="svc-cur">${cur(s)}</span>`;
+    } else {
+      const price = (row.price === 0 || row.price) ? row.price : "";
+      const min = svcMin(s), rec = svcRec(s);
+      // rekomendowana = szary placeholder w polu; minimum NIGDZIE nie widać — dopiero wpis poniżej
+      // świeci pole na czerwono i odsłania limit (.svc-min-warn, wiązanie w openModal)
+      priceHtml = `<span class="svc-min-warn" data-svc="${k}" hidden></span><input type="number" class="svc-price-input" data-svc="${k}" min="${min != null ? min : 0}" step="10" inputmode="numeric" value="${esc(String(price))}" placeholder="${rec != null ? esc(String(rec)) : ""}" ${dis} />
+        <span class="svc-cur">${cur(s)}</span>`;
+    }
+    return `<div class="svc-item${row.on ? " on" : ""}${sold ? " sold" : ""}" data-svc="${k}">
+      <label class="svc-check">
+        <input type="checkbox" class="svc-cb" data-svc="${k}" ${row.on ? "checked" : ""} ${dis} />
+        <span class="svc-name">${esc(s.label)}${activeTag}${retired}</span>
+      </label>
+      <div class="svc-price">${period}${priceHtml}</div>
+    </div>`;
+  }).join("");
+  return items + `
+    <div class="svc-total"><span class="svc-total-lbl">Razem</span><span class="svc-total-amt"><b id="svc-total-val">${svcTotal(sv)}</b> zł</span></div>`;
+}
+
+async function saveServices(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  try { await api.updateClient(id, { services: c.services || {} }); flashSaved(); }
+  catch (e) { console.error("saveServices", e); toast("Nie zapisano usług — spróbuj ponownie"); }
+}
+
+/* ---------- Checklista wdrożeniowa (zakładka na karcie, obok Notatek/Usług) ----------
+   Zapis w clients.checklist (jsonb): { paid: 'full'|'deposit'|'other'|null, materials: bool,
+   notes: { <key>: tekst } }. „Zapłacił" = segment 3 przycisków (drugi klik odznacza), „materiały" =
+   ptaszek, a pod KAŻDĄ pozycją podłużna linijka na odpowiedź rosnąca razem z tekstem (auto-grow). */
+const CHK_PAID = [
+  { key: "full",    label: "pełna kwota" },
+  { key: "deposit", label: "zadatek" },
+  { key: "other",   label: "inne" },
+];
+const CHECKLIST_ITEMS = [
+  { key: "dane",        label: "Dane kontaktowe",               hint: "adres, numer telefonu, e-mail" },
+  { key: "oferta",      label: "Pełna oferta / menu" },
+  { key: "social",      label: "Linki do social",               hint: "IG / FB / TikTok" },
+  { key: "domena",      label: "Domena" },
+  { key: "podstrony",   label: "Podstrony",                     hint: "ile, tytuły, tematyka", sep: true },
+  { key: "uslugi",      label: "Najważniejsze usługi",          hint: "które usługi strona ma najbardziej promować" },
+  { key: "wyrozniki",   label: "Czym firma się charakteryzuje", hint: "obsługa klienta, wyróżniki na tle konkurencji, uprawnienia, certyfikaty, osiągnięcia, gwarancje, doświadczenie" },
+  { key: "o_nas",       label: "Sekcja „O nas”",      hint: "historia firmy, od kiedy działa, dlaczego powstała, kto tam pracuje" },
+  { key: "preferencje", label: "Preferencje klienta",           hint: "co chce na stronie, kolorystyka, estetyka, funkcjonalności" },
+];
+// Checklista KOMPLETNA = zapłacił (ptaszek + wybrany typ) + materiały dotarły + odpowiedź pod każdym
+// pytaniem. Notatki pod „zapłacił"/„materiały" są opcjonalne (to uwagi, nie pytania).
+function checklistComplete(c) {
+  const ch = (c && c.checklist) || {};
+  if (!ch.paid_ok || !ch.paid || !ch.materials) return false;
+  const notes = ch.notes || {};
+  return CHECKLIST_ITEMS.every((it) => (notes[it.key] || "").trim());
+}
+function checklistHTML(c, editable) {
+  const ch = c.checklist || {};
+  const notes = ch.notes || {};
+  const dis = editable ? "" : "disabled";
+  const noteArea = (k, ph) => `<textarea class="chk-answer" data-chk="${k}" rows="1" placeholder="${ph || "Wpisz odpowiedź…"}" ${dis}>${esc(notes[k] || "")}</textarea>`;
+  const paidBtns = CHK_PAID.map((o) => `<button type="button" class="chk-seg-btn${ch.paid === o.key ? " on" : ""}" data-paid="${o.key}" ${dis}>${o.label}</button>`).join("");
+  const items = CHECKLIST_ITEMS.map((it) => `${it.sep ? `<div class="chk-sep"></div>` : ""}
+    <div class="chk-item">
+      <div class="chk-label">${esc(it.label)}${it.hint ? ` <span class="chk-hint">${esc(it.hint)}</span>` : ""}</div>
+      ${noteArea(it.key)}
+    </div>`).join("");
+  return `
+    <div class="chk-item">
+      <div class="chk-row">
+        <label class="chk-check"><input type="checkbox" id="chk-paid" ${ch.paid_ok ? "checked" : ""} ${dis} /><span>Klient zapłacił</span></label>
+        <div class="chk-seg" id="chk-paid-seg" ${ch.paid_ok ? "" : "hidden"}>${paidBtns}</div>
+      </div>
+      ${noteArea("paid", "Szczegóły płatności — kwota, terminy…")}
+    </div>
+    <div class="chk-item">
+      <label class="chk-check"><input type="checkbox" id="chk-materials" ${ch.materials ? "checked" : ""} ${dis} /><span>Komplet materiałów dotarł</span></label>
+      ${noteArea("materials", "Czego brakuje / uwagi…")}
+    </div>
+    <div class="chk-sep"></div>
+    ${items}
+    ${(editable && normStatus(c) === "konwersja")
+      ? `<div class="chk-done-row"><button type="button" class="chk-done-btn" id="chk-done" ${checklistComplete(c) ? "" : "disabled"}>Checklista gotowa</button></div>`
+      : ""}`;
+}
+async function saveChecklist(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c) return;
+  try { await api.updateClient(id, { checklist: c.checklist || {} }); flashSaved(); }
+  catch (e) { console.error("saveChecklist", e); toast("Nie zapisano checklisty — spróbuj ponownie"); }
+}
+// Dopasuj wysokość linijek do tekstu (wołane też przy pokazaniu zakładki — schowany panel ma scrollHeight 0)
+function sizeChecklistAreas() {
+  document.querySelectorAll("#pane-checklist .chk-answer").forEach((ta) => { ta.style.height = "auto"; ta.style.height = Math.max(34, ta.scrollHeight) + "px"; });
+}
+function wireChecklist(c) {
+  const pane = document.getElementById("pane-checklist");
+  if (!pane) return;
+  const ch = () => (c.checklist = c.checklist || {});
+  const saveDeb = debounce(() => saveChecklist(c.id), 600);
+  // przycisk „Checklista gotowa" (tylko na „Umowa podpisana"): odblokowuje się, gdy WSZYSTKO wypełnione
+  const doneBtn = document.getElementById("chk-done");
+  const updateDone = () => {
+    if (!doneBtn) return;
+    const ok = checklistComplete(c);
+    doneBtn.disabled = !ok;
+    doneBtn.title = ok ? `Przenosi kartę na etap „Checklista gotowa"` : `Uzupełnij całą checklistę (płatność, materiały i wszystkie odpowiedzi), żeby przejść dalej`;
+  };
+  updateDone();
+  if (doneBtn) doneBtn.addEventListener("click", () => {
+    if (!checklistComplete(c)) return;
+    saveField(c.id, "status", "checklista");   // konwersja → „Checklista gotowa" (za progiem — bramka przepuszcza)
+  });
+  // „Klient zapłacił": checkbox jak przy materiałach — dopiero po zaznaczeniu wysuwa się segment wyboru
+  const paidCb = document.getElementById("chk-paid");
+  if (paidCb) paidCb.addEventListener("change", () => {
+    const cur = ch();
+    cur.paid_ok = paidCb.checked;
+    if (!paidCb.checked) { cur.paid = null; pane.querySelectorAll(".chk-seg-btn").forEach((x) => x.classList.remove("on")); }   // odznaczenie czyści wybór
+    const seg = document.getElementById("chk-paid-seg");
+    if (seg) seg.hidden = !paidCb.checked;
+    saveChecklist(c.id); updateDone();
+  });
+  pane.querySelectorAll(".chk-seg-btn").forEach((b) => b.addEventListener("click", () => {
+    const cur = ch();
+    cur.paid = cur.paid === b.dataset.paid ? null : b.dataset.paid;   // drugi klik w to samo = odznacz
+    pane.querySelectorAll(".chk-seg-btn").forEach((x) => x.classList.toggle("on", x.dataset.paid === cur.paid));
+    saveChecklist(c.id); updateDone();
+  }));
+  const mat = document.getElementById("chk-materials");
+  if (mat) mat.addEventListener("change", () => { ch().materials = mat.checked; saveChecklist(c.id); updateDone(); });
+  pane.querySelectorAll(".chk-answer").forEach((ta) => {
+    ta.addEventListener("input", () => {
+      ta.style.height = "auto"; ta.style.height = Math.max(34, ta.scrollHeight) + "px";   // auto-grow przy zawijaniu
+      const cur = ch(); cur.notes = cur.notes || {};
+      cur.notes[ta.dataset.chk] = ta.value;
+      saveDeb(); updateDone();
+    });
+    ta.addEventListener("change", () => saveChecklist(c.id));
+  });
+}
+
+async function saveField(id, key, value, opts) {
   const c = state.clients.find((x) => String(x.id) === String(id));
   if (!c) return;
   const v = value === "" ? null : value;
   const prev = c[key];
   if (prev === v) return;            // nic się nie zmieniło — nie strzelaj zbędnym zapisem (m.in. data+Esc)
+  if (key === "status" && !(opts && opts.bypassGate)) {
+    const block = stageChangeBlocked(c, v);   // bramki lejka; bypassGate ma TYLKO przycisk „Nadaj token"
+    if (block) {
+      toast(block);
+      const el = document.querySelector(`#modal-body [data-key="status"]`);
+      if (el) el.value = normStatus(c);       // cofnij select na karcie do faktycznego etapu
+      return;
+    }
+  }
   c[key] = v;
   try {
     await api.updateClient(id, { [key]: v });
@@ -878,7 +1468,14 @@ async function saveField(id, key, value) {
       if (!canEdit(c) && state.openCardId === id) closeModal();   // karta przeszła do innej osoby → zamknij
       return;
     }
-    if (key === "status" || key === "follow_up") { renderTabs(); state.animateNextRender = true; renderBoard(); return; }
+    if (key === "status" || key === "follow_up") {
+      if (key === "status") { maybeMarkPartner(c); markServicesSold(c); }   // wejście na „Umowa podpisana"+ → trwały token partnera + usługi „aktywne"
+      renderTabs(); state.animateNextRender = true; renderBoard();
+      if (state.section === "klienci") renderKlienciRows();          // zmiana etapu może dodać/usunąć klienta z tabeli podpisanych
+      // Zmiana etapu może zmienić stan usług (niebieskie → zielone/zamrożone) i zakładkę Checklista — przerysuj otwartą kartę.
+      if (key === "status" && state.openCardId === id) openModal(id);
+      return;
+    }
     if (key === "name" || key === "company" || key === "phone" || key === "opiekun") { updateCardInPlace(c); return; }
   } catch (err) {
     console.error(err);
@@ -893,29 +1490,9 @@ async function saveField(id, key, value) {
 }
 
 /* ---------- Feed aktywności: follow-up + demo jako wpisy „jak komentarz" ---------- */
-const FU_ICON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`;
-const EDIT_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
-const TRASH_ICON = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>`;
+const TRASH_ICON =`<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M10 11v6M14 11v6"/></svg>`;
 const CHECK_ICON = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
 
-// Pojedyncze przypomnienie (aktywny follow-up) — układ jak komentarz, z akcjami: edytuj / usuń / zrobione
-function reminderHTML(c, editable) {
-  const ds = dueState(c.follow_up);                  // "" | "today" | "overdue"
-  const badge = ds === "overdue" ? `<span class="rm-badge rm-overdue">zaległe</span>`
-              : ds === "today"   ? `<span class="rm-badge rm-today">dziś</span>` : "";
-  const actions = editable ? `<div class="reminder-actions">
-        <button type="button" class="rm-act rm-edit" title="Edytuj" aria-label="Edytuj przypomnienie">${EDIT_ICON}</button>
-        <button type="button" class="rm-act rm-del" title="Usuń" aria-label="Usuń przypomnienie">${TRASH_ICON}</button>
-        <button type="button" class="rm-act rm-done" title="Oznacz jako zrobione" aria-label="Zrobione">${CHECK_ICON}</button>
-      </div>` : "";
-  return `<div class="comment feed-item feed-followup reminder${ds ? " is-" + ds : ""}">
-      <span class="avatar feed-ic">${FU_ICON}</span>
-      <div class="comment-main">
-        <div class="comment-head"><span class="c-author">${esc(fmtFollow(c.follow_up))}</span>${badge}${actions}</div>
-        <div class="comment-body">${c.follow_up_note ? esc(c.follow_up_note) : `<span class="feed-muted">— bez treści —</span>`}</div>
-      </div>
-    </div>`;
-}
 function commentHTML(c) {
   return `<div class="comment">
       <span class="avatar" style="background:${ownerColor(c.author)}">${initials(c.author)}</span>
@@ -925,22 +1502,13 @@ function commentHTML(c) {
       </div>
     </div>`;
 }
-// Prawy panel = opcjonalna sekcja „Przypomnienia" (gdy jest aktywny follow-up) + zawsze „Komentarze"
+// Prawy panel = „Komentarze" (follow-up ma własną belkę nad feedem — fuBarHTML)
 function renderActivity(c, comments) {
-  const editable = canEdit(c);
-  let html = "";
-  if (c.follow_up && !c.follow_up_done) {            // aktywny follow-up → sekcja Przypomnienia
-    html += `<section class="feed-section">
-        <div class="feed-section-head">Przypomnienia</div>
-        ${reminderHTML(c, editable)}
-      </section>`;
-  }
   const n = comments.length;
-  html += `<section class="feed-section">
+  return `<section class="feed-section">
       <div class="feed-section-head">Komentarze${n ? ` <span class="cm-cc">${n}</span>` : ""}</div>
       ${n ? comments.map(commentHTML).join("") : `<div class="no-comments">Brak komentarzy.</div>`}
     </section>`;
-  return html;
 }
 // Przerysuj prawy panel w otwartej (pełnej) karcie
 function refreshFeed(id) {
@@ -978,7 +1546,7 @@ async function completeReminder(id) {
   await saveField(id, "follow_up_note", "");         // → null
   await saveField(id, "follow_up", "");              // → null (saveField odświeża tablicę; chip znika)
   if (wasDone) { c.follow_up_done = false; try { await api.updateClient(id, { follow_up_done: false }); } catch (e) { console.error(e); } }
-  refreshFeed(id); updateCardInPlace(c); renderTabs();
+  refreshFeed(id); updateCardInPlace(c); renderTabs(); updateFuBar(c);
   toast("Follow-up wykonany");
 }
 // Usuń przypomnienie: kasuje termin + treść follow-upu (chip na tablicy też znika)
@@ -988,7 +1556,7 @@ async function deleteReminder(id) {
   await saveField(id, "follow_up_note", "");        // → null
   await saveField(id, "follow_up", "");             // → null (saveField odświeża tablicę)
   if (c.follow_up_done) { c.follow_up_done = false; try { await api.updateClient(id, { follow_up_done: false }); } catch (e) { console.error(e); } }
-  refreshFeed(id);
+  refreshFeed(id); updateFuBar(c);
   toast("Usunięto przypomnienie");
 }
 function renderComments(list) {
@@ -1004,10 +1572,8 @@ function highlightMentions(text) {
 function wireComposer(clientId) {
   const c = state.clients.find((x) => String(x.id) === String(clientId));
   const inp = $("#new-comment"), pop = $("#mention-pop");
-  const modeBtn = $("#fu-mode"), setter = $("#fu-setter"), sendBtn = $("#send-comment");
-  const fuDate = $("#fu-date"), fuTime = $("#fu-time");
+  const sendBtn = $("#send-comment");
   const PH_COMMENT = "Dodaj komentarz...  (@ aby oznaczyć osobę)";
-  let fuMode = false;
 
   // podświetlanie @claude WPISYWANEGO w polu (nakładka: realny input nietknięty, pod spodem warstwa z pomarańczowym tłem)
   const hl = $("#comment-hl");
@@ -1029,21 +1595,6 @@ function wireComposer(clientId) {
   inp.addEventListener("input", syncHL);
   inp.addEventListener("scroll", syncHL);
 
-  const setMode = (on) => {                                    // przełącz pole między „komentarz" a „follow-up"
-    fuMode = on && !!modeBtn;
-    if (modeBtn) { modeBtn.classList.toggle("on", fuMode); modeBtn.setAttribute("aria-pressed", fuMode ? "true" : "false"); }
-    if (setter) setter.hidden = !fuMode;
-    inp.placeholder = fuMode ? "Treść follow-upu (opcjonalnie)…" : PH_COMMENT;
-    if (sendBtn) sendBtn.textContent = fuMode ? "Zaplanuj" : "Wyślij";
-    if (fuMode && c) {                                          // wejście w tryb → prefill bieżącym follow-upem
-      if (fuDate) fuDate.value = toDateInput(c.follow_up);
-      if (fuTime) fuTime.value = toTimeInput(c.follow_up);
-      inp.value = c.follow_up_note || "";
-    }
-    syncHL();
-    inp.focus();
-  };
-
   const sendComment = async () => {
     const body = inp.value.trim();
     if (!body) return;
@@ -1057,47 +1608,7 @@ function wireComposer(clientId) {
     } catch (err) { console.error(err); toast("Nie udało się dodać komentarza"); }
   };
 
-  const saveFollowUp = () => {                                  // „Zaplanuj": data(+godz) + treść → follow_up na karcie, pojawia się w feedzie
-    const d = fuDate ? fuDate.value : "", t = fuTime ? fuTime.value : "";
-    if (!d) { toast("Ustaw datę follow-upu"); return; }
-    saveField(clientId, "follow_up_note", inp.value.trim());
-    saveField(clientId, "follow_up", t ? `${d}T${t}` : d);
-    if (c && c.follow_up_done) setFollowDone(clientId, false);  // nowy termin → znów „do zrobienia"
-    inp.value = ""; syncHL();
-    setMode(false);
-    refreshFeed(clientId);
-  };
-
-  const submit = () => { if (fuMode) saveFollowUp(); else sendComment(); };
-
-  if (modeBtn) modeBtn.addEventListener("click", () => setMode(!fuMode));
-  if (sendBtn) sendBtn.addEventListener("click", submit);
-  // szybkie terminy w setterze (Jutro / +3 dni / +tydzień / Wyczyść)
-  if (setter) setter.querySelectorAll(".fu-chip").forEach((ch) => ch.addEventListener("click", () => {
-    if (ch.dataset.clear) { if (fuDate) fuDate.value = ""; if (fuTime) fuTime.value = ""; }
-    else {
-      const dt = new Date(); dt.setHours(0, 0, 0, 0); dt.setDate(dt.getDate() + (Number(ch.dataset.days) || 0));
-      const y = dt.getFullYear(), m = String(dt.getMonth() + 1).padStart(2, "0"), dd = String(dt.getDate()).padStart(2, "0");
-      if (fuDate) fuDate.value = `${y}-${m}-${dd}`;
-    }
-    inp.focus();
-  }));
-  // akcje przypomnienia (delegacja — panel się przerysowuje): zrobione / edytuj / usuń (2 kliki)
-  const wrap = $("#comments-wrap");
-  if (wrap) wrap.addEventListener("click", (e) => {
-    if (!c) return;
-    if (e.target.closest(".rm-done")) { completeReminder(clientId); return; }      // zrobione → wpis „wykonany" w komentarzach + czyści follow-up
-    if (e.target.closest(".rm-edit")) { setMode(true); return; }                   // edytuj → otwórz pole follow-upu z prefillem
-    if (e.target.closest(".rm-del-yes")) { deleteReminder(clientId); return; }
-    if (e.target.closest(".rm-del-no")) { refreshFeed(clientId); return; }
-    const del = e.target.closest(".rm-del");
-    if (del) {                                                                     // pierwszy klik kosza → potwierdzenie inline
-      const box = del.closest(".reminder-actions");
-      if (box) box.innerHTML = `<span class="rm-confirm">Usunąć?</span>
-        <button type="button" class="rm-act rm-del-yes" title="Tak, usuń">Tak</button>
-        <button type="button" class="rm-act rm-del-no" title="Anuluj">Nie</button>`;
-    }
-  });
+  if (sendBtn) sendBtn.addEventListener("click", sendComment);
 
   inp.addEventListener("keydown", (e) => {
     if (!pop.hidden) {
@@ -1111,7 +1622,7 @@ function wireComposer(clientId) {
       }
       if (e.key === "Escape") { pop.hidden = true; return; }
     }
-    if (e.key === "Enter") submit();
+    if (e.key === "Enter") sendComment();
   });
   inp.addEventListener("input", () => {
     const m = inp.value.slice(0, inp.selectionStart).match(/@([\wĄĆĘŁŃÓŚŹŻąćęłńóśźż]*)$/);
@@ -1193,16 +1704,18 @@ async function askArchiveCard(id, btn) {
 
 async function doRestoreCard(id) {
   const c = state.clients.find((x) => String(x.id) === String(id));
-  if (!c) return;
+  if (!c || !canEdit(c)) return;                  // przywraca tylko właściciel/opiekun
   try {
     await api.restoreClient(id);
     c.deleted_at = null;
+    maybeMarkPartner(c); markServicesSold(c);      // samonaprawa pomija zarchiwizowane — nadrób token/stemple po przywróceniu
     closeModal(); renderTabs(); state.animateNextRender = true; renderBoard();
     toast("Przywrócono kartę");
   } catch (err) { console.error(err); toast("Nie udało się przywrócić"); }
 }
 
 function askPurgeCard(id, btn) {
+  if (!can("clients.hard_delete")) return;        // pas bezpieczeństwa — bez uprawnienia nie ma trwałego usuwania
   const c = state.clients.find((x) => String(x.id) === String(id));
   const nazwa = c && c.name ? `„${esc(c.name)}" ` : "";
   const row = btn.parentElement;
@@ -1274,6 +1787,7 @@ function teardownModal() {
   state.modalHistoryPushed = false;
   $("#modal-overlay").hidden = true;
   $(".modal").classList.remove("modal-full");   // reset pełnego ekranu
+  $("#modal-prev").hidden = false; $("#modal-next").hidden = false;   // przywróć ‹ › (małe modale panelu admina je chowają)
   $("#modal-body").innerHTML = "";
   // sprzątnij porzuconą, pustą nową kartę (żeby nie zaśmiecać lejka „Nowymi klientami")
   if (id && state.newCardIds.has(String(id))) cleanupEmptyNewCard(id);
@@ -1306,6 +1820,8 @@ function cleanupEmptyNewCard(id) {
 
 async function newCard(status) {
   const st = status || "lead";
+  const block = stageChangeBlocked({ status: "lead", services: {} }, st);   // nowa karta = bez usług — te same bramki
+  if (block) { toast(block); return; }
   // nowa karta jest MOJA — upewnij się, że widzę siebie i jestem na tablicy (inaczej zostałaby odfiltrowana)
   if (!selectedOwnersSet().has(state.currentUser)) { const s = new Set(selectedOwnersSet()); s.add(state.currentUser); state.owners = s; persistOwners(); }
   state.viewMode = "owner:" + state.currentUser;   // pokaż nową kartę na MOJEJ zakładce
@@ -1316,7 +1832,7 @@ async function newCard(status) {
   try {
     const saved = await api.addClient(obj);
     state.newCardIds.add(String(saved.id));
-    state.clients.push(saved); renderTabs(); state.animateNextRender = true; renderBoard();
+    state.clients.push(saved); maybeMarkPartner(saved); markServicesSold(saved); renderTabs(); state.animateNextRender = true; renderBoard();
     openModal(saved.id);
   } catch (err) { console.error(err); toast("Nie udało się dodać karty"); }
 }
@@ -1327,7 +1843,7 @@ function toast(msg) {
   t.textContent = msg; t.classList.add("show");
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
 }
-function flashSaved() { const w = $("#who"); if (w) { w.classList.add("saved"); setTimeout(() => w.classList.remove("saved"), 600); } }
+function flashSaved() { const w = $("#account-btn"); if (w) { w.classList.add("saved"); setTimeout(() => w.classList.remove("saved"), 600); } }
 
 /* ---------- Realtime → odśwież (debounced) ---------- */
 let refreshTimer = null, refreshInFlight = false, refreshPending = false;
@@ -1346,7 +1862,40 @@ async function refreshData() {
     // oba niezależne pobrania równolegle (jeden round-trip mniej na każde odświeżenie)
     const [clients, comments] = await Promise.all([api.getClients(), api.getAllComments()]);
     let team = state.team;
-    if (state.live) { try { team = (await api.getTeam()).map((t) => t.name); } catch {} }
+    if (state.live) {
+      try {
+        const rows = await api.getTeam();
+        team = rows.map((t) => t.name);
+        // moja rola/aktywność mogła się zmienić w panelu admina u kogoś innego — trzymaj state.me świeże
+        const meRow = state.me ? rows.find((t) => t.email === state.me.email) : null;
+        if (meRow) {
+          if (meRow.role != null) state.me.role = meRow.role;
+          state.me.active = meRow.active !== false;
+          if (meRow.user_id) state.me.user_id = meRow.user_id;
+        }
+      } catch {}
+      // katalog usług odświeżaj tym samym rytmem co RBAC (zmiany oferty nie muszą być realtime)
+      if (Date.now() - (state.catalogAt || 0) > 60000) await loadCatalog();
+      // uprawnienia roli odświeżaj rzadko (tabele RBAC nie mają realtime; backstop refreshData co 60 s wystarcza)
+      if (Date.now() - (state.rbacAt || 0) > 60000) {
+        state.rbacAt = Date.now();
+        const before = rbacFingerprint();
+        await loadMyPerms();
+        if (rbacFingerprint() !== before) {
+          applyRbacGating(); renderTabs(); renderBoard();
+          if (state.section === "klienci") renderKlienciRows();
+        }
+      }
+    }
+    // ZACHOWAJ IDENTYCZNOŚĆ obiektu otwartej karty: closury modala (usługi/checklista/follow-up/strzałki)
+    // trzymają referencję do `c`; podmiana na nowy obiekt odłączyłaby je i zapisy szłyby do stale danych,
+    // a saveChecklist/saveServices (re-find po id) wysyłałyby do bazy STARY stan → cicha utrata wpisów.
+    // Aktualizujemy więc pola w miejscu i podmieniamy nowy obiekt na zachowany (ten sam z modala).
+    if (state.openCardId != null) {
+      const keep = state.clients.find((c) => String(c.id) === String(state.openCardId));
+      const i = clients.findIndex((c) => String(c.id) === String(state.openCardId));
+      if (keep && i !== -1) { Object.assign(keep, clients[i]); clients[i] = keep; }
+    }
     state.clients = clients; state.commentsByClient = comments; state.team = team;
     // nie przerysowuj, jeśli nic WIDOCZNEGO się nie zmieniło (koniec migania) — tani odcisk bez serializacji notatek
     const snap = clients.map((c) => c.id + ":" + c.updated_at).join("|") + "#" +
@@ -1355,6 +1904,7 @@ async function refreshData() {
     if (snap === state.lastSnap) return;
     state.lastSnap = snap;
     renderTabs(); renderBoard();
+    if (state.section === "klienci") renderKlienciRows();            // sekcja Klienci odświeża się na żywo jak tablica
     if (state.openCardId) {
       const fresh = state.clients.find((c) => String(c.id) === String(state.openCardId));
       if (!fresh) {
@@ -1368,8 +1918,9 @@ async function refreshData() {
         openModal(state.openCardId);
       } else {
         // NIGDY nie przebudowuj całego modala (gubi wpisywany komentarz, scroll, podpowiedź @) —
-        // odśwież tylko feed (komentarze + status follow-up/demo) i licznik
+        // odśwież tylko feed (komentarze), belkę follow-upu i licznik ‹ ›
         refreshFeed(state.openCardId);
+        updateFuBar(fresh);   // ktoś inny mógł zmienić termin follow-upu — belka to pokaże (obiekt jest ten sam)
         updateNavButtons();   // lista/kolejność mogła się zmienić → odśwież stan ‹ ›
       }
     }
@@ -1390,12 +1941,18 @@ function startSafetyRefresh() {
 /* ---------- Start ---------- */
 async function showApp() {
   $("#login-view").hidden = true; $("#app-view").hidden = false;
-  $("#who").textContent = (state.live ? "" : "demo: ") + state.currentUser;
-  $("#logout-btn").hidden = !state.live;
+  const acc = $("#account-name"); if (acc) acc.textContent = (state.live ? "" : "demo: ") + state.currentUser;
+  const li = $("#logout-item"); if (li) li.hidden = !state.live;
   state.clients = await api.getClients();
   state.commentsByClient = await api.getAllComments();
+  await loadCatalog();   // katalog usług — potrzebny karcie (zakładka „Usługi") i Bazie partnerów (kolumna Usługi)
+  // SAMONAPRAWA TOKENÓW: karty będące już na „Umowa podpisana"+ (sprzed wprowadzenia tokena albo po
+  // ręcznych zmianach w bazie) dostają token + stemple sprzedanych usług. Dzięki temu token jest
+  // jedynym źródłem prawdy dla widoków (isPartner), a stare dane nie znikają z Bazy partnerów.
+  state.clients.forEach((cl) => { if (!cl.deleted_at) { maybeMarkPartner(cl); markServicesSold(cl); } });
   // DOMYŚLNIE: każdy widzi tylko SWOJE karty; przez panel zespołu może dobrać innych / wszystkich
   const loaded = loadOwners(); state.ownersAll = loaded.all; state.owners = loaded.owners;
+  applyRbacGating();   // pozycje menu Sekcje wg uprawnień + przycięcie „Pokaż" do siebie, gdy brak podglądu cudzych
   migrateArchiwumStatus();
   renderTabs(); renderBoard();
   wireNotif(); renderBell();
@@ -1424,6 +1981,650 @@ async function loadTeamAndMe(user) {
   if (!me) { me = await api.upsertMe(user.email, desired); team = await api.getTeam(); }
   else if (me.name !== desired && KNOWN_NAMES[user.email]) { me = await api.upsertMe(user.email, desired); team = await api.getTeam(); }
   state.team = team.map((t) => t.name); state.currentUser = me.name;
+  // RBAC: mój wiersz zespołu (rola/aktywność) + uprawnienia mojej roli
+  state.me = { email: me.email, name: me.name, role: me.role, user_id: me.user_id, active: me.active !== false };
+  await loadMyPerms();
+  state.rbacAt = Date.now();
+}
+
+/* ---------- RBAC: wczytanie roli i uprawnień zalogowanego ---------- */
+// DEMO: rola z mocków zespołu (Krzysztof/Marceli = admin), uprawnienia z DEMO_ROLE_PERMS.
+function loadDemoRbac() {
+  const row = DEMO_TEAM.find((t) => t.name === state.currentUser) || DEMO_TEAM[0];
+  state.me = { email: row.email, name: row.name, role: row.role, user_id: row.user_id, active: row.active !== false };
+  state.perms = new Set(DEMO_ROLE_PERMS.filter((rp) => rp.role_key === row.role).map((rp) => rp.perm_key));
+  state.rbacReady = true;
+  state.rbacAt = Date.now();
+}
+// LIVE: uprawnienia mojej roli z role_permissions. ODPORNE na brak backendu RBAC (SQL nie wykonany):
+// błąd (brak tabel/kolumn) NIE wywala appki → tryb zgodności = wszyscy widzą wszystko jak dotąd,
+// a admini awaryjni (BOOTSTRAP_ADMIN_EMAILS) dostają panel admina z banerem-instrukcją.
+async function loadMyPerms() {
+  const me = state.me;
+  if (!LIVE || !me) return;
+  try {
+    if (me.role == null) throw new Error("team_members bez kolumny role — schema-rbac.sql nie wykonany");
+    const { data, error } = await sb.from("role_permissions").select("perm_key").eq("role_key", me.role);
+    if (error) throw error;
+    state.perms = new Set((data || []).map((r) => r.perm_key));
+    state.rbacReady = true;
+  } catch (e) {
+    console.warn("RBAC niedostępny — tryb zgodności (wszyscy widzą wszystko)", e);
+    state.rbacReady = false;
+    if (me.role == null) me.role = BOOTSTRAP_ADMIN_EMAILS.includes(me.email) ? "admin" : "sprzedawca";
+    state.perms = new Set(COMPAT_PERMS);
+  }
+}
+// odcisk roli+uprawnień — do wykrycia zmiany przy okresowym odświeżaniu w refreshData
+function rbacFingerprint() {
+  return ((state.me && state.me.role) || "") + "|" + [...(state.perms || [])].sort().join(",") + "|" + (state.rbacReady ? "1" : "0");
+}
+// Zastosuj uprawnienia w „chrome" aplikacji: pozycje menu Sekcje + zakres panelu „Pokaż".
+function applyRbacGating() {
+  const nm = $("#nav-menu");
+  if (nm) {
+    const kl = nm.querySelector('[data-section="klienci"]'); if (kl) kl.hidden = !can("section.klienci");
+    const ad = nm.querySelector('[data-section="admin"]'); if (ad) ad.hidden = !can("section.admin");
+  }
+  // user stracił prawo do sekcji, w której właśnie jest → wróć do Sprzedaży
+  if ((state.section === "klienci" && !can("section.klienci")) || (state.section === "admin" && !can("section.admin"))) showSection("sprzedaz");
+  // bez podglądu cudzych kart nie ma wyboru „Pokaż" — przytnij zaznaczenie do siebie
+  // (celowo BEZ persistOwners: zapisany wybór wróci, gdyby odzyskał uprawnienie)
+  if (!can("clients.view_all")) { state.ownersAll = false; state.owners = new Set([state.currentUser]); }
+}
+
+/* ============================================================
+   Sekcje (hamburger): „Sprzedaż" (lejek) ↔ „Development" (na razie pusta).
+   Przełączenie chowa/pokazuje elementy sprzedażowe; #board renderuje się
+   dalej w tle (realtime), więc powrót do Sprzedaży jest natychmiastowy.
+   ============================================================ */
+// Zamknij wszystkie rozwijane menu topbaru (konto, sekcje, dzwonek)
+function closeTopMenus() {
+  ["#account-menu", "#nav-menu", "#notif-panel"].forEach((sel) => { const el = $(sel); if (el) el.hidden = true; });
+}
+function showSection(name) {
+  // wejście do sekcji bez uprawnienia (np. prawo odebrane w międzyczasie) → Sprzedaż
+  if (name === "klienci" && !can("section.klienci")) name = "sprzedaz";
+  if (name === "admin" && !can("section.admin")) name = "sprzedaz";
+  state.section = name;
+  const sprzedaz = name === "sprzedaz";
+  $("#tabs").hidden = !sprzedaz;
+  $("#board").hidden = !sprzedaz;
+  $("#klienci-view").hidden = name !== "klienci";
+  $("#admin-view").hidden = name !== "admin";
+  const nb = $("#new-card-btn"); if (nb) nb.hidden = !sprzedaz;      // „+ Nowa karta" dotyczy lejka
+  // wspólna szukajka topbaru obsługuje Sprzedaż i Klientów; w panelu admina jest zbędna → schowana
+  const search = $("#search"); if (search) { search.hidden = name === "admin"; search.value = name === "klienci" ? (state.klienciSearch || "") : (state.search || ""); }
+  document.querySelectorAll("#nav-menu .pop-menu-item").forEach((b) => b.classList.toggle("active", b.dataset.section === name));
+  if (name === "klienci") renderKlienci();
+  if (name === "admin") renderAdmin();
+  closeTopMenus();
+}
+
+/* ---------- Sekcja „Baza partnerów" (klucz „klienci"): tabela klientów z podpisaną umową ---------- */
+// „Podpisali umowę" = przeszli przez etap „Umowa podpisana" (konwersja): są na nim LUB dalej w lejku.
+const SIGNED_IDX = STATUSES.findIndex((s) => s.key === "konwersja");
+const OFERTA_IDX = STATUSES.findIndex((s) => s.key === "oferta");
+const CHECKLIST_IDX = STATUSES.findIndex((s) => s.key === "checklista");
+const REALIZACJA_IDX = STATUSES.findIndex((s) => s.key === "w_realizacji");
+const isAdminUser = () => !!(state.me && state.me.role === "admin");
+// próg „Umowa wysłana" wymaga NOWEJ (jeszcze niesprzedanej) usługi — partner na retencji musi dołożyć
+// świeżą, samo posiadanie starych sprzedanych (on=true, sold_at) nie przepuszcza kolejnej sprzedaży
+const hasSelectedService = (c) => { const sv = (c && c.services) || {}; return Object.keys(sv).some((k) => sv[k] && sv[k].on && !sv[k].sold_at); };
+/* Bramki przejść W PRZÓD w lejku (cofanie zawsze wolno) — pilnowane we WSZYSTKICH drogach zmiany
+   etapu: select na karcie, strzałki steppera, drag&drop na tablicy, tworzenie karty w kolumnie:
+   1) na „Umowa wysłana"+ dopiero, gdy karta ma zaznaczoną min. 1 usługę (handlowiec wybiera, co sprzedaje);
+   2) na „Umowa podpisana"+ NIKT nie przenosi ręcznie — ani handlowiec, ani admin. JEDYNA droga to
+      przycisk „Nadaj token" na karcie (widzi go tylko admin), który przechodzi z flagą bypassGate.
+   Zwraca komunikat blokady albo null. */
+function stageChangeBlocked(c, targetKey) {
+  const to = STATUSES.findIndex((s) => s.key === targetKey);
+  const from = STATUSES.findIndex((s) => s.key === normStatus(c));
+  if (to < 0 || to <= from) return null;
+  // KAŻDA reguła pilnuje PRZEKROCZENIA swojego progu (nie strefy) — cofanie zawsze wolne:
+  // 1) próg „Umowa wysłana": wymagana min. 1 zaznaczona usługa
+  if (to >= OFERTA_IDX && from < OFERTA_IDX && !hasSelectedService(c)) return `Najpierw zaznacz usługę w zakładce Usługi — dopiero wtedy karta może przejść na „Umowa wysłana"`;
+  // 2) próg „Umowa podpisana": wyłącznie przycisk „Nadaj token" (bypassGate), nikt ręcznie
+  if (to >= SIGNED_IDX && from < SIGNED_IDX) return `Na „Umowa podpisana" karta przechodzi WYŁĄCZNIE przyciskiem „Nadaj token" (widzi go admin na karcie z etapem „Umowa wysłana")`;
+  // 3) próg „Checklista gotowa": tylko z KOMPLETNIE wypełnioną checklistą (dotyczy każdego, admina też)
+  if (to >= CHECKLIST_IDX && from < CHECKLIST_IDX && !checklistComplete(c)) return `Na „Checklista gotowa" przejdziesz dopiero z kompletnie wypełnioną checklistą (płatność, materiały i wszystkie odpowiedzi)`;
+  // 4) etapy realizacji (od „W trakcie realizacji"): tylko admin lub rola z uprawnieniem 'stages.realizacja'
+  if (to >= REALIZACJA_IDX && !can("stages.realizacja")) return `Etapy realizacji przenosi tylko admin (albo rola z uprawnieniem „Przenosi karty przez etapy realizacji")`;
+  return null;
+}
+/* ---------- TOKEN PARTNERA ----------
+   Klient, który przeszedł przez „Umowa podpisana", dostaje TOKEN (clients.partner_since) — zielony
+   znaczek weryfikacyjny przy imieniu, niezależnie od tego, na jaki etap później trafi (retencja).
+   Token = JEDYNE źródło prawdy o partnerstwie; jego zawartość to partner_since + sprzedane usługi
+   (services[key].sold_at — patrz markServicesSold), podgląd po kliknięciu znaczka na karcie.
+   Stare karty (sprzed tokena) dostają go automatycznie przy starcie appki (samonaprawa w showApp).
+   Zdjęcie tokena: tylko uprawnienie 'partners.revoke' (admin niejawnie), tylko z Bazy partnerów. */
+const isPartner = (c) => !!(c && c.partner_since);
+const PARTNER_BADGE = `<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#1a9950"/><path d="m7.5 12.6 3 3 6-6.4" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const partnerMark = (c) => (isPartner(c) ? `<span class="partner-mark" title="Partner — przeszedł przez etap Umowa podpisana">${PARTNER_BADGE}</span>` : "");
+// Nadaj token przy KAŻDEJ drodze na etap >= „Umowa podpisana" (select/strzałki, drag&drop, nowa karta).
+function maybeMarkPartner(c) {
+  if (!c || c.partner_since) return;
+  if (STATUSES.findIndex((s) => s.key === normStatus(c)) < SIGNED_IDX) return;
+  c.partner_since = new Date().toISOString();
+  api.updateClient(c.id, { partner_since: c.partner_since })
+    .catch((e) => console.warn("partner_since niezapisany (kolumna z schema-rbac.sql jeszcze nie wdrożona?)", e));
+}
+// Domknięcie sprzedaży: usługi ZAZNACZONE w momencie wejścia na „Umowa podpisana"+ dostają trwały
+// status „aktywna" (services[key].sold_at) — od tej pory są zielone i nie do odznaczenia, także gdy
+// karta wróci na początek lejka (retencja). Kolejna sprzedaż stempluje kolejną porcję zaznaczonych.
+// (Inaczej niż token partnera — odpala się przy KAŻDYM wejściu na etap, nie tylko pierwszym.)
+function markServicesSold(c) {
+  if (!c || STATUSES.findIndex((s) => s.key === normStatus(c)) < SIGNED_IDX) return;
+  const sv = c.services || {};
+  let changed = false;
+  for (const k of Object.keys(sv)) {
+    const r = sv[k];
+    if (r && r.on && !r.sold_at) { r.sold_at = new Date().toISOString(); changed = true; }
+  }
+  if (!changed) return;
+  c.services = sv;
+  api.updateClient(c.id, { services: sv })
+    .catch((e) => console.warn("sold_at usług niezapisany — spróbuje się przy kolejnej zmianie", e));
+}
+// Zawartość tokena: od kiedy partner + lista sprzedanych usług (etykieta, kwota, data domknięcia).
+function tokenPopHTML(c) {
+  const sv = c.services || {};
+  const rows = Object.keys(sv).filter((k) => sv[k] && sv[k].sold_at).map((k) => {
+    const s = state.catalog.find((x) => x.key === k);
+    const r = sv[k];
+    let amount = "";
+    if (s) {
+      const price = s.price_mode === "fixed" ? (Number(s.price_fixed) || 0) : ((r.price === 0 || r.price) ? Number(r.price) : null);
+      if (price != null) amount = s.billing === "monthly" ? `${price} zł/mies. × ${okresMonths(r.period)} mies.` : `${price} zł`;
+    }
+    return `<div class="token-row"><span class="token-svc">${esc(s ? s.label : k)}</span><span class="token-meta">${amount ? esc(amount) + " · " : ""}${esc(fmtFollow(r.sold_at))}</span></div>`;
+  }).join("");
+  return `<div class="token-head">${PARTNER_BADGE} Partner od ${esc(fmtFollow(c.partner_since))}</div>` +
+    (rows || `<div class="token-empty">W tokenie nie ma jeszcze sprzedanych usług.</div>`);
+}
+// Klik w znaczek na karcie → podgląd tokena (zamykany kliknięciem gdziekolwiek indziej).
+function wirePartnerToken(c) {
+  const pm = document.querySelector("#modal-body .cm-head .partner-mark");
+  if (!pm) return;
+  pm.classList.add("clickable");
+  pm.title = "Token partnera — kliknij po szczegóły";
+  pm.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const old = pm.querySelector(".token-pop");
+    if (old) { old.remove(); return; }
+    const pop = document.createElement("div");
+    pop.className = "token-pop";
+    pop.innerHTML = tokenPopHTML(c);
+    pm.appendChild(pop);
+    const close = (ev) => { if (!pm.contains(ev.target)) { pop.remove(); document.removeEventListener("click", close); } };
+    setTimeout(() => document.addEventListener("click", close), 0);
+  });
+}
+// Zdjęcie tokena — TYLKO uprawnienie 'partners.revoke' (admin niejawnie), wołane z Bazy partnerów.
+// Czyści partner_since + stemple sold_at (usługi wracają do edycji). Zablokowane, gdy karta wciąż
+// stoi na „Umowa podpisana"+ (samonaprawa i tak by go zaraz przywróciła — najpierw cofnij etap).
+async function revokePartnerToken(id) {
+  const c = state.clients.find((x) => String(x.id) === String(id));
+  if (!c || !can("partners.revoke")) return;
+  if (STATUSES.findIndex((s) => s.key === normStatus(c)) >= SIGNED_IDX) {
+    toast(`Karta stoi na „Umowa podpisana" lub dalej — najpierw cofnij etap, potem zdejmij token`);
+    return;
+  }
+  const prevPartner = c.partner_since, prevSv = structuredClone(c.services || {});
+  const sv = c.services || {};
+  let ch = false;
+  for (const k of Object.keys(sv)) { if (sv[k] && sv[k].sold_at) { delete sv[k].sold_at; ch = true; } }
+  c.partner_since = null;
+  try {
+    await api.updateClient(id, { partner_since: null, ...(ch ? { services: sv } : {}) });
+    flashSaved();
+  } catch (e) {
+    console.error("revokePartnerToken", e);
+    c.partner_since = prevPartner; c.services = prevSv;
+    renderKlienciRows();
+    toast("Nie udało się zdjąć tokena");
+    return;
+  }
+  renderKlienciRows(); renderTabs(); renderBoard();
+  if (String(state.openCardId) === String(id)) openModal(id);   // otwarta karta → odśwież znaczek/usługi
+  toast("Token partnera zdjęty");
+}
+function signedClients() {
+  const q = (state.klienciSearch || "").trim().toLowerCase();
+  let list = rbacVisible(state.clients).filter((c) => !c.deleted_at && isPartner(c));   // RBAC: bez 'clients.view_all' tylko swoi klienci (owner/opiekun)
+  if (q) list = list.filter((c) => [c.name, c.company, c.phone, c.email].filter(Boolean).join(" ").toLowerCase().includes(q));
+  return list.sort((a, b) => String(a.company || a.name || "").localeCompare(String(b.company || b.name || ""), "pl"));
+}
+function renderKlienci() {
+  const v = $("#klienci-view"); if (!v) return;
+  // Szukanie obsługuje wspólna szukajka w topbarze (state.klienciSearch) — bez osobnego pola tutaj.
+  v.innerHTML = `<div id="klienci-table"></div>`;
+  renderKlienciRows();
+}
+function renderKlienciRows() {
+  const wrap = $("#klienci-table"); if (!wrap) return;
+  const list = signedClients();
+  if (!list.length) { wrap.innerHTML = `<div class="table-empty">Baza partnerów jest pusta — trafia tu (na zawsze) każdy klient, który przeszedł przez etap „Umowa podpisana".</div>`; return; }
+  const dash = `<span class="tb-empty">—</span>`;
+  const nameCell = (c) => `<div class="tb-name"><span class="tb-nm">${esc(c.name)}${partnerMark(c)}</span>${c.company ? `<span class="tb-co">${esc(c.company)}</span>` : ""}</div>`;
+  const statusCell = (c) => { const s = statusOf(normStatus(c)); return `<span class="status-pill" style="background:${s.bg};color:${s.fg}"><span class="dot" style="background:${s.dot}"></span>${esc(s.label)}</span>`; };
+  const teamCell = (c) => `${c.opiekun ? `<span class="avatar avatar-sec" title="Opiekun: ${esc(c.opiekun)}" style="background:${ownerColor(c.opiekun)}">${initials(c.opiekun)}</span>` : ""}<span class="avatar" title="Handlowiec: ${esc(c.owner)}" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span>`;
+  const canRevoke = can("partners.revoke");   // ustawienia partnera (zdjęcie tokena) — tylko z uprawnieniem (admin niejawnie)
+  const rows = list.map((c) => {
+    return `<tr class="tb-row" data-id="${esc(String(c.id))}">
+        <td>${nameCell(c)}</td>
+        <td>${c.phone ? esc(c.phone) : dash}</td>
+        <td>${statusCell(c)}</td>
+        <td class="tb-team"><div class="tb-team-in">${teamCell(c)}</div></td>
+        <td class="tb-since" title="Od kiedy partner (data przyznania tokena)">${c.partner_since ? esc(fmtFollow(c.partner_since)) : dash}</td>
+        ${canRevoke ? `<td class="tb-actions"><button type="button" class="rm-act tb-gear" data-id="${esc(String(c.id))}" title="Ustawienia partnera" aria-label="Ustawienia partnera">${GEAR_ICON}</button></td>` : ""}
+      </tr>`;
+  }).join("");
+  wrap.innerHTML = `<div class="table-wrap"><table class="crm-table">
+      <thead><tr><th>Klient</th><th>Telefon</th><th>Etap</th><th>Zespół</th><th>Rejestracja</th>${canRevoke ? "<th></th>" : ""}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  wrap.querySelectorAll(".tb-row").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
+  // ⚙ → menu ustawień partnera; „Zdejmij token" wymaga DWÓCH potwierdzeń (3 kliknięcia w sumie).
+  // Menu doklejane do body (position: fixed) — .table-wrap ma overflow:hidden i by je ucięło.
+  wrap.querySelectorAll(".tb-gear").forEach((btn) => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const was = document.querySelector(".tb-gear-pop");
+    document.querySelectorAll(".tb-gear-pop").forEach((p) => p.remove());
+    if (was && was.dataset.owner === btn.dataset.id) return;   // drugi klik w ten sam ⚙ = zamknij
+    const pop = document.createElement("div");
+    pop.className = "pop-menu tb-gear-pop";
+    pop.dataset.owner = btn.dataset.id;
+    pop.innerHTML = `<button type="button" class="pop-menu-item pop-danger" data-stage="0">Zdejmij token</button>`;
+    const r = btn.getBoundingClientRect();
+    pop.style.top = (r.bottom + 4) + "px";
+    pop.style.right = (window.innerWidth - r.right) + "px";
+    document.body.appendChild(pop);
+    const item = pop.querySelector(".pop-menu-item");
+    item.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const st = Number(item.dataset.stage || 0);
+      if (st === 0) { item.dataset.stage = "1"; item.textContent = "Na pewno? — potwierdź (1/2)"; return; }
+      if (st === 1) { item.dataset.stage = "2"; item.textContent = "Potwierdź ostatecznie (2/2)"; return; }
+      pop.remove();
+      revokePartnerToken(btn.dataset.id);
+    });
+    const close = (ev2) => { if (!pop.contains(ev2.target)) { pop.remove(); document.removeEventListener("click", close); document.removeEventListener("scroll", close, true); } };
+    setTimeout(() => { document.addEventListener("click", close); document.addEventListener("scroll", close, true); }, 0);
+  }));
+}
+
+/* ============================================================
+   Sekcja „PANEL ADMINA" — użytkownicy (konta) + role i uprawnienia.
+   Wzorzec jak sekcja Klienci: showSection → renderAdmin → render do #admin-view.
+   Operacje na kontach idą przez Edge Function 'admin-users' (w DEMO: mocki).
+   ============================================================ */
+const sortRolesAdminFirst = (roles) => [...roles].sort((a, b) => (a.key === "admin" ? -1 : b.key === "admin" ? 1 : 0));
+
+function renderAdmin() {
+  const v = $("#admin-view"); if (!v) return;
+  const banner = state.rbacReady ? "" : `<div class="admin-banner">⚠️ Backend RBAC nie wdrożony — wykonaj <b>schema-rbac.sql</b> i wgraj funkcję <b>admin-users</b> (instrukcja w HANDOVER-lejek-realizacja.md). Do tego czasu appka działa po staremu: wszyscy widzą wszystko.</div>`;
+  v.innerHTML = `
+    <h2 class="admin-title">Panel admina</h2>
+    ${banner}
+    <div class="notes-tabs admin-tabs">
+      <button type="button" class="notes-tab ${state.adminTab === "users" ? "on" : ""}" data-atab="users">Użytkownicy</button>
+      <button type="button" class="notes-tab ${state.adminTab === "roles" ? "on" : ""}" data-atab="roles">Role i uprawnienia</button>
+      <button type="button" class="notes-tab ${state.adminTab === "oferta" ? "on" : ""}" data-atab="oferta">Oferta</button>
+    </div>
+    <div id="admin-body"></div>`;
+  v.querySelectorAll("[data-atab]").forEach((b) => b.addEventListener("click", () => {
+    if (state.adminTab === b.dataset.atab) return;
+    state.adminTab = b.dataset.atab; renderAdmin();
+  }));
+  if (state.adminTab === "roles") renderAdminRoles();
+  else if (state.adminTab === "oferta") renderAdminOferta();
+  else renderAdminUsers();
+}
+
+/* ---------- Pod-zakładka „Użytkownicy": tabela kont + akcje ---------- */
+async function renderAdminUsers() {
+  const wrap = $("#admin-body"); if (!wrap) return;
+  wrap.innerHTML = `<div class="table-empty">Wczytuję zespół…</div>`;
+  let rows = [], roles = null;
+  try { [rows, roles] = await Promise.all([api.getTeam(), api.getRoles().catch(() => null)]); }
+  catch (e) { console.error("admin users", e); wrap.innerHTML = `<div class="table-empty">Nie udało się wczytać zespołu — spróbuj ponownie.</div>`; return; }
+  if (state.section !== "admin" || state.adminTab !== "users") return;   // user przełączył widok w trakcie wczytywania
+  state.teamRows = rows;
+  state.roles = sortRolesAdminFirst((roles && roles.length) ? roles : structuredClone(DEMO_ROLES));   // fallback: role z kontraktu
+  // skład zespołu mógł się zmienić (dodane/usunięte konto) → odśwież listę imion i taby lejka
+  const names = rows.map((t) => t.name);
+  if (names.join("|") !== state.team.join("|")) { state.team = names; renderTabs(); }
+
+  const dash = `<span class="tb-empty">—</span>`;
+  const roleName = (k) => { const r = state.roles.find((x) => x.key === k); return r ? (r.label || r.key) : (k || "—"); };
+  const bodyRows = rows.map((r) => {
+    const isSelf = state.me && r.email === state.me.email;
+    const active = r.active !== false;                      // brak kolumny (stara baza) = traktuj jak aktywnego
+    const role = r.role || "sprzedawca";
+    const roleSel = `<select class="admin-role" data-email="${esc(r.email)}" ${isSelf ? `disabled title="Własnej roli nie zmienisz samemu"` : ""}>
+        ${state.roles.map((ro) => `<option value="${esc(ro.key)}" ${role === ro.key ? "selected" : ""}>${esc(ro.label || ro.key)}</option>`).join("")}
+      </select>`;
+    const actions = isSelf
+      ? `<span class="tb-empty" title="Operacje na własnym koncie są zablokowane">—</span>`
+      : `<div class="admin-actions" data-email="${esc(r.email)}">
+          <button type="button" class="maps-btn" data-act="reset" title="Wyślij e-mail z linkiem do ustawienia nowego hasła">Reset hasła</button>
+          <button type="button" class="maps-btn" data-act="${active ? "deactivate" : "reactivate"}">${active ? "Zablokuj" : "Odblokuj"}</button>
+          <button type="button" class="maps-btn tb-danger" data-act="remove">Usuń trwale</button>
+        </div>`;
+    return `<tr>
+        <td><div class="admin-person"><span class="avatar" style="background:${ownerColor(r.name)}">${initials(r.name)}</span><span class="tb-nm">${esc(r.name)}</span>${isSelf ? `<span class="owner-me">(ja)</span>` : ""}</div></td>
+        <td>${r.email ? esc(r.email) : dash}</td>
+        <td>${roleSel}</td>
+        <td>${active ? `<span class="chip chip-demo-done">Aktywny</span>` : `<span class="chip chip-blocked">Zablokowany</span>`}</td>
+        <td>${actions}</td>
+      </tr>`;
+  }).join("");
+
+  wrap.innerHTML = `
+    <div class="admin-toolbar"><button type="button" class="primary-btn sm" id="admin-add-user">+ Dodaj użytkownika</button></div>
+    <div class="table-wrap"><table class="crm-table">
+      <thead><tr><th>Osoba</th><th>E-mail</th><th>Rola</th><th>Status</th><th>Akcje</th></tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table></div>`;
+
+  $("#admin-add-user").addEventListener("click", openAddUserModal);
+  // zmiana roli → EF set_role (w DEMO mock); przy błędzie select wraca do poprzedniej wartości
+  wrap.querySelectorAll(".admin-role").forEach((sel) => sel.addEventListener("change", async () => {
+    const row = state.teamRows.find((t) => t.email === sel.dataset.email); if (!row) return;
+    const prev = row.role || "sprzedawca";
+    sel.disabled = true;
+    try {
+      await api.adminUsers("set_role", { user_id: row.user_id, role: sel.value });
+      row.role = sel.value; flashSaved(); toast(`Zmieniono rolę: ${row.name} → ${roleName(sel.value)}`);
+    } catch (err) { console.error("set_role", err); sel.value = prev; toast(err.message || "Nie udało się zmienić roli"); }
+    finally { sel.disabled = false; }
+  }));
+  // akcje kont — delegacja, bo „Usuń trwale" podmienia zawartość komórki na potwierdzenie (wzorzec z przypomnień).
+  // Po każdej udanej operacji pełny renderAdmin() → świeże dane i zero podwójnych listenerów.
+  wrap.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-act]"); if (!btn) return;
+    const box = btn.closest(".admin-actions"); if (!box) return;
+    const row = state.teamRows.find((t) => t.email === box.dataset.email); if (!row) return;
+    const act = btn.dataset.act;
+    if (act === "remove") {
+      box.innerHTML = `<span class="confirm-del">Usunąć konto ${esc(row.name)} na zawsze?</span>
+        <button type="button" class="maps-btn" data-act="remove-no">Anuluj</button>
+        <button type="button" class="maps-btn tb-danger" data-act="remove-yes">Tak, usuń</button>`;
+      return;
+    }
+    if (act === "remove-no") { renderAdmin(); return; }
+    btn.disabled = true;
+    try {
+      if (act === "reset") { await api.resetPassword(row.email); toast(`Wysłano link do resetu hasła: ${row.email}`); btn.disabled = false; return; }
+      if (act === "deactivate") { await api.adminUsers("deactivate", { user_id: row.user_id }); toast(`Zablokowano: ${row.name}`); }
+      else if (act === "reactivate") { await api.adminUsers("reactivate", { user_id: row.user_id }); toast(`Odblokowano: ${row.name}`); }
+      else if (act === "remove-yes") { await api.adminUsers("remove", { user_id: row.user_id }); toast(`Usunięto konto: ${row.name}`); }
+      else { btn.disabled = false; return; }
+      renderAdmin();
+    } catch (err) { console.error("admin akcja", err); toast(err.message || "Nie udało się wykonać akcji"); btn.disabled = false; }
+  });
+}
+
+// Czytelne hasło startowe: 3 krótkie słowa + liczba (łatwo podyktować; bez polskich znaków)
+const PW_WORDS = ["sowa", "kawa", "lipa", "most", "wilk", "fala", "brzeg", "klon", "mewa", "step", "biwak", "orzel", "sosna", "malwa", "trawa", "ogien", "burza", "krab"];
+// hasło startowe z CSPRNG (crypto) — nie Math.random (przewidywalny); pobieramy z zapasem i odrzucamy modulo-bias
+function rand(n) { const a = new Uint32Array(1); const lim = Math.floor(0x100000000 / n) * n; let x; do { crypto.getRandomValues(a); x = a[0]; } while (x >= lim); return x % n; }
+function genPassword() {
+  const parts = new Set();
+  while (parts.size < 3) parts.add(PW_WORDS[rand(PW_WORDS.length)]);
+  return [...parts].join("-") + (10 + rand(90));
+}
+
+// Mały modal wielokrotnego użytku (panel admina): bez trybu pełnoekranowego i bez nawigacji ‹ ›
+function openSmallModal(html) {
+  state.openCardId = null;
+  $("#modal-body").innerHTML = html;
+  $(".modal").classList.remove("modal-full");
+  $("#modal-prev").hidden = true; $("#modal-next").hidden = true;   // ‹ › dotyczą kart klientów
+  $("#modal-overlay").hidden = false;
+}
+
+// „+ Dodaj użytkownika": mały modal → EF create (konto od razu z hasłem startowym do przekazania)
+function openAddUserModal() {
+  const roles = state.roles.length ? state.roles : sortRolesAdminFirst(structuredClone(DEMO_ROLES));
+  openSmallModal(`
+    <h2>Dodaj użytkownika</h2>
+    <p class="modal-sub">Konto działa od razu — przekaż nowej osobie e-mail i hasło startowe.</p>
+    <form id="au-form" class="admin-form">
+      <label class="admin-field"><span>Imię (widoczne w CRM)</span><input id="au-name" required maxlength="40" placeholder="np. Ania" /></label>
+      <label class="admin-field"><span>E-mail (login)</span><input id="au-email" type="email" required placeholder="np. ania@firma.pl" /></label>
+      <label class="admin-field"><span>Rola</span><select id="au-role">${roles.map((r) => `<option value="${esc(r.key)}" ${r.key === "sprzedawca" ? "selected" : ""}>${esc(r.label || r.key)}</option>`).join("")}</select></label>
+      <label class="admin-field"><span>Hasło startowe (możesz nadpisać)</span>
+        <span class="maps-cell"><input id="au-pass" required minlength="6" value="${esc(genPassword())}" autocomplete="off" />
+        <button type="button" class="maps-btn" id="au-copy" title="Kopiuj hasło">⧉</button></span>
+      </label>
+      <div class="save-row">
+        <button type="button" class="ghost-btn" id="au-cancel">Anuluj</button>
+        <button type="submit" class="primary-btn" id="au-submit">Dodaj użytkownika</button>
+      </div>
+    </form>`);
+  $("#au-cancel").addEventListener("click", closeModal);
+  const cp = $("#au-copy");                                          // wzorzec maps-copy (⧉ → „✓")
+  cp.addEventListener("click", async () => {
+    const inp = $("#au-pass");
+    try { await navigator.clipboard.writeText(inp.value); } catch { inp.focus(); inp.select(); }
+    const old = cp.textContent; cp.textContent = "✓"; cp.classList.add("ok");
+    setTimeout(() => { cp.textContent = old; cp.classList.remove("ok"); }, 1300);
+  });
+  $("#au-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("#au-name").value.trim();
+    const email = $("#au-email").value.trim().toLowerCase();
+    const role = $("#au-role").value;
+    const password = $("#au-pass").value;
+    if (!name || !email || password.length < 6) { toast("Uzupełnij imię, e-mail i hasło (min. 6 znaków)"); return; }
+    const btn = $("#au-submit"); btn.disabled = true; btn.textContent = "Dodaję…";
+    try {
+      await api.adminUsers("create", { email, name, password, role });
+      closeModal();
+      toast(`Dodano użytkownika: ${name}`);
+      renderAdmin();
+    } catch (err) {
+      console.error("create user", err);
+      btn.disabled = false; btn.textContent = "Dodaj użytkownika";
+      toast(err.message || "Nie udało się dodać użytkownika");
+    }
+  });
+}
+
+/* ---------- Pod-zakładka „Role i uprawnienia": matryca rola × uprawnienie ---------- */
+async function renderAdminRoles() {
+  const wrap = $("#admin-body"); if (!wrap) return;
+  wrap.innerHTML = `<div class="table-empty">Wczytuję role…</div>`;
+  let roles, perms, rolePerms;
+  try { [roles, perms, rolePerms] = await Promise.all([api.getRoles(), api.getPermissions(), api.getRolePerms()]); }
+  catch (e) {
+    console.error("admin roles", e);
+    wrap.innerHTML = `<div class="table-empty">Nie udało się wczytać ról i uprawnień${state.rbacReady ? " — spróbuj ponownie" : " — backend RBAC nie wdrożony (schema-rbac.sql)"}.</div>`;
+    return;
+  }
+  if (state.section !== "admin" || state.adminTab !== "roles") return;   // user przełączył widok w trakcie wczytywania
+  roles = sortRolesAdminFirst(roles);
+  state.roles = roles;
+  const on = new Set(rolePerms.map((r) => r.role_key + "|" + r.perm_key));
+  // uprawnienia pogrupowane po grp (w kolejności ord)
+  const groups = [];
+  [...perms].sort((a, b) => (a.ord || 0) - (b.ord || 0)).forEach((p) => {
+    const key = p.grp || "Inne";
+    let g = groups.find((x) => x.grp === key);
+    if (!g) { g = { grp: key, items: [] }; groups.push(g); }
+    g.items.push(p);
+  });
+  const head = `<th>Uprawnienie</th>` + roles.map((r) =>
+    `<th class="admin-th-role">${esc(r.label || r.key)}${r.key === "admin" ? `<span class="admin-note">ma zawsze wszystko</span>` : ""}</th>`).join("");
+  const rows = groups.map((g) =>
+    `<tr class="admin-grp-row"><td colspan="${roles.length + 1}">${esc(g.grp)}</td></tr>` +
+    g.items.map((p) => `<tr>
+        <td>${esc(p.label || p.key)}</td>
+        ${roles.map((r) => {
+          const isAdmin = r.key === "admin";                 // kolumna admin: zawsze ✓ i bez edycji
+          const checked = isAdmin || on.has(r.key + "|" + p.key);
+          return `<td class="admin-cb-cell"><input type="checkbox" class="svc-cb" data-role="${esc(r.key)}" data-perm="${esc(p.key)}" ${checked ? "checked" : ""} ${isAdmin ? "disabled" : ""} /></td>`;
+        }).join("")}
+      </tr>`).join("")).join("");
+  wrap.innerHTML = `
+    <div class="table-wrap"><table class="crm-table admin-matrix">
+      <thead><tr>${head}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+  wrap.querySelectorAll(".admin-matrix .svc-cb:not(:disabled)").forEach((cb) => cb.addEventListener("change", async () => {
+    const role = cb.dataset.role, perm = cb.dataset.perm, want = cb.checked;
+    cb.disabled = true;
+    try {
+      await api.setRolePerm(role, perm, want);
+      flashSaved();
+      if (state.me && state.me.role === role) {              // zmieniono uprawnienia MOJEJ roli → przelicz gating od razu
+        if (want) state.perms.add(perm); else state.perms.delete(perm);
+        applyRbacGating(); renderTabs(); renderBoard();
+      }
+    } catch (err) { console.error("setRolePerm", err); cb.checked = !want; toast("Nie zapisano uprawnienia — spróbuj ponownie"); }
+    finally { cb.disabled = false; }
+  }));
+}
+
+/* ---------- Pod-zakładka „Oferta": katalog usług (dodawanie, edycja, ukrywanie) ---------- */
+// klucz-slug z nazwy: małe litery, bez diakrytyków (ł ręcznie — NFD go nie rozkłada), znaki → '_', unikalny w katalogu
+function slugifyKey(name) {
+  const s = String(name || "").toLowerCase().replace(/ł/g, "l")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "usluga";
+  let key = s, n = 2;
+  while (state.catalog.some((x) => x.key === key)) key = s + "_" + n++;
+  return key;
+}
+const nextCatalogOrd = () => state.catalog.reduce((m, s) => Math.max(m, Number(s.ord) || 0), 0) + 10;
+
+async function renderAdminOferta() {
+  const wrap = $("#admin-body"); if (!wrap) return;
+  wrap.innerHTML = `<div class="table-empty">Wczytuję ofertę…</div>`;
+  await loadCatalog();                                                   // świeży katalog przy każdym wejściu w zakładkę
+  if (state.section !== "admin" || state.adminTab !== "oferta") return;  // user przełączył widok w trakcie wczytywania
+  // edycja tylko z uprawnieniem (admin niejawnie) I wdrożonym backendem — inaczej tabela read-only
+  const manage = can("services.manage") && state.catalogReady;
+  const banner = state.catalogReady ? "" : `<div class="admin-banner">⚠️ Backend katalogu nie wdrożony — wykonaj <b>schema-uslugi.sql</b> (instrukcja w HANDOVER-lejek-realizacja.md). Do tego czasu karta pokazuje wbudowaną ofertę (strona + obsługa), tylko podgląd.</div>`;
+  const dash = `<span class="tb-empty">—</span>`;
+  const rows = state.catalog.map((s) => {
+    const visible = s.visible !== false;
+    let priceCell;
+    if (s.price_mode === "fixed") priceCell = `${esc(String(Number(s.price_fixed) || 0))} zł`;
+    else {
+      const min = svcMin(s), rec = svcRec(s);   // pokazuj tylko ustawione granice
+      const sub = [min != null ? `min. ${min} zł` : "", rec != null ? `rek. ${rec} zł` : ""].filter(Boolean).join(" · ");
+      priceCell = `<div class="tb-name"><span>wpisz</span>${sub ? `<span class="tb-co">${esc(sub)}</span>` : ""}</div>`;
+    }
+    // celowo BEZ usuwania: stare karty trzymają klucz usługi w clients.services — ukrycie wystarcza
+    const actions = manage ? `<div class="admin-actions" data-key="${esc(s.key)}">
+        <button type="button" class="maps-btn" data-act="edit">Edytuj</button>
+        <button type="button" class="maps-btn" data-act="toggle">${visible ? "Ukryj" : "Pokaż"}</button>
+      </div>` : dash;
+    return `<tr>
+        <td><div class="tb-name"><span class="tb-nm">${esc(s.label)}</span><span class="tb-co">${esc(s.key)}</span></div></td>
+        <td>${s.billing === "monthly" ? "miesięcznie" : "jednorazowo"}</td>
+        <td>${priceCell}</td>
+        <td>${visible ? `<span class="chip chip-demo-done">Widoczna</span>` : `<span class="chip chip-blocked">Ukryta</span>`}</td>
+        <td>${actions}</td>
+      </tr>`;
+  }).join("");
+  wrap.innerHTML = `
+    ${banner}
+    ${manage ? `<div class="admin-toolbar"><button type="button" class="primary-btn sm" id="admin-add-svc">+ Dodaj usługę</button></div>` : ""}
+    <div class="table-wrap"><table class="crm-table">
+      <thead><tr><th>Usługa</th><th>Rozliczenie</th><th>Cena</th><th>Widoczność</th><th>Akcje</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="5"><div class="table-empty">Katalog jest pusty — dodaj pierwszą usługę.</div></td></tr>`}</tbody>
+    </table></div>`;
+  const addBtn = $("#admin-add-svc");
+  if (addBtn) addBtn.addEventListener("click", () => openServiceModal(null));
+  wrap.querySelectorAll(".admin-actions [data-act]").forEach((btn) => btn.addEventListener("click", async () => {
+    const key = btn.closest(".admin-actions").dataset.key;
+    const svc = state.catalog.find((s) => s.key === key); if (!svc) return;
+    if (btn.dataset.act === "edit") { openServiceModal(svc); return; }
+    btn.disabled = true;                                        // toggle widoczności (Ukryj ↔ Pokaż)
+    try { await api.setServiceVisible(key, svc.visible === false); flashSaved(); renderAdminOferta(); }
+    catch (err) { console.error("setServiceVisible", err); btn.disabled = false; toast(err.message || "Nie zapisano widoczności"); }
+  }));
+}
+
+// „+ Dodaj usługę" / „Edytuj" → mały modal (wzorzec „Dodaj użytkownika"); edycja = upsert po niezmiennym key
+function openServiceModal(svc) {
+  const isEdit = !!svc;
+  const s = svc || { label: "", billing: "one_time", price_mode: "fixed", price_fixed: null, price_min: null, price_rec: null, visible: true };
+  const num = (v) => (v === 0 || v ? esc(String(Number(v))) : "");
+  openSmallModal(`
+    <h2>${isEdit ? "Edytuj usługę" : "Dodaj usługę"}</h2>
+    <p class="modal-sub">${isEdit ? `Klucz usługi jest stały — zapisane karty rozpoznają po nim swoje wybory.` : `Usługa pojawi się na kartach klientów w zakładce „Usługi".`}</p>
+    <form id="sv-form" class="admin-form">
+      <label class="admin-field"><span>Nazwa</span><input id="sv-label" required maxlength="60" value="${esc(s.label || "")}" /></label>
+      ${isEdit ? `<label class="admin-field"><span>Klucz</span><input id="sv-key" value="${esc(s.key)}" disabled /></label>` : ""}
+      <label class="admin-field"><span>Rozliczenie</span><select id="sv-billing">
+        <option value="one_time" ${s.billing !== "monthly" ? "selected" : ""}>jednorazowo</option>
+        <option value="monthly" ${s.billing === "monthly" ? "selected" : ""}>miesięcznie (cena × wybrany okres)</option>
+      </select></label>
+      <label class="admin-field"><span>Tryb ceny</span><select id="sv-mode">
+        <option value="fixed" ${s.price_mode !== "custom" ? "selected" : ""}>stała</option>
+        <option value="custom" ${s.price_mode === "custom" ? "selected" : ""}>wpisz</option>
+      </select></label>
+      <label class="admin-field" id="sv-f-fixed"><span>Cena</span><input id="sv-fixed" type="number" min="0" step="1" inputmode="numeric" value="${num(s.price_fixed)}" /></label>
+      <label class="admin-field" id="sv-f-min" hidden><span>Cena minimalna</span><input id="sv-min" type="number" min="0" step="1" inputmode="numeric" value="${num(s.price_min)}" /></label>
+      <label class="admin-field" id="sv-f-rec" hidden><span>Cena rekomendowana</span><input id="sv-rec" type="number" min="0" step="1" inputmode="numeric" value="${num(s.price_rec)}" /></label>
+      <label class="svc-check"><input type="checkbox" class="svc-cb" id="sv-visible" ${s.visible !== false ? "checked" : ""} /><span>Widoczna dla handlowców</span></label>
+      <div class="save-row">
+        <button type="button" class="ghost-btn" id="sv-cancel">Anuluj</button>
+        <button type="submit" class="primary-btn" id="sv-submit">${isEdit ? "Zapisz zmiany" : "Dodaj usługę"}</button>
+      </div>
+    </form>`);
+  $("#sv-cancel").addEventListener("click", closeModal);
+  // pola ceny przełączają się na żywo wg trybu: stała → Cena; wpisywana → Minimalna + Rekomendowana
+  const modeSel = $("#sv-mode");
+  const syncMode = () => {
+    const custom = modeSel.value === "custom";
+    $("#sv-f-fixed").hidden = custom;
+    $("#sv-f-min").hidden = !custom;
+    $("#sv-f-rec").hidden = !custom;
+  };
+  modeSel.addEventListener("change", syncMode);
+  syncMode();
+  $("#sv-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const label = $("#sv-label").value.trim();
+    if (!label) { toast("Podaj nazwę usługi"); return; }
+    const mode = modeSel.value;
+    const numVal = (sel) => { const raw = $(sel).value.trim(); return raw === "" ? null : Number(raw); };
+    let price_fixed = null, price_min = null, price_rec = null;
+    if (mode === "fixed") {
+      price_fixed = numVal("#sv-fixed");
+      if (price_fixed == null || Number.isNaN(price_fixed) || price_fixed < 0) { toast("Podaj cenę — liczba ≥ 0"); return; }
+    } else {
+      price_min = numVal("#sv-min"); price_rec = numVal("#sv-rec");
+      if ((price_min != null && (Number.isNaN(price_min) || price_min < 0)) ||
+          (price_rec != null && (Number.isNaN(price_rec) || price_rec < 0))) { toast("Ceny minimalna i rekomendowana muszą być liczbami ≥ 0"); return; }
+      if (price_min != null && price_rec != null && price_rec < price_min) { toast("Cena rekomendowana nie może być niższa od minimalnej"); return; }
+    }
+    const row = {
+      key: isEdit ? svc.key : slugifyKey(label),               // key niezmienny; przy kolizji slug dostaje liczbę
+      label, visible: $("#sv-visible").checked,
+      price_mode: mode, price_fixed, price_min, price_rec,
+      billing: $("#sv-billing").value,
+      ord: isEdit ? (svc.ord == null ? 0 : svc.ord) : nextCatalogOrd(),   // nowa usługa na koniec listy
+    };
+    const btn = $("#sv-submit"); btn.disabled = true; btn.textContent = "Zapisuję…";
+    try {
+      await api.upsertService(row);
+      closeModal(); flashSaved();
+      toast(isEdit ? `Zapisano usługę: ${label}` : `Dodano usługę: ${label}`);
+      renderAdmin();                                            // odświeża state.catalog (renderAdminOferta → loadCatalog)
+    } catch (err) {
+      console.error("upsertService", err);
+      btn.disabled = false; btn.textContent = isEdit ? "Zapisz zmiany" : "Dodaj usługę";
+      toast(err.message || "Nie udało się zapisać usługi");
+    }
+  });
 }
 
 function wireChrome() {
@@ -1442,6 +2643,8 @@ function wireChrome() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       if (!$("#modal-overlay").hidden) { closeModal(); return; }
+      const am = $("#account-menu"), nm = $("#nav-menu");
+      if ((am && !am.hidden) || (nm && !nm.hidden)) { closeTopMenus(); return; }
       const pop = $("#owner-pop");
       if (pop && !pop.hidden) { closeOwnerPanel(); const t = $("#owner-toggle"); if (t) t.focus(); return; }
     }
@@ -1454,8 +2657,29 @@ function wireChrome() {
     if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); const s = $("#search"); if (s) { s.focus(); s.select(); } }
   });
   const renderBoardDeb = debounce(renderBoard, 140);
-  const s = $("#search"); if (s) s.addEventListener("input", () => { state.search = s.value; renderBoardDeb(); });
+  const s = $("#search"); if (s) s.addEventListener("input", () => {
+    if (state.section === "klienci") { state.klienciSearch = s.value; renderKlienciRows(); }
+    else if (state.section === "sprzedaz") { state.search = s.value; renderBoardDeb(); }   // panel admina nie używa szukajki
+  });
   const nb = $("#new-card-btn"); if (nb) nb.addEventListener("click", () => newCard("lead"));
+  // Rozwijane menu w topbarze: Konto (ludzik) i Sekcje (hamburger)
+  const toggleMenu = (btnSel, menuSel) => {
+    const btn = $(btnSel), menu = $(menuSel);
+    if (!btn || !menu) return;
+    btn.addEventListener("click", (e) => { e.stopPropagation(); const show = menu.hidden; closeTopMenus(); menu.hidden = !show; });
+  };
+  toggleMenu("#nav-toggle", "#nav-menu");
+  toggleMenu("#account-btn", "#account-menu");
+  document.querySelectorAll("#nav-menu .pop-menu-item").forEach((b) => b.addEventListener("click", () => showSection(b.dataset.section)));
+  const logoutItem = $("#logout-item");
+  if (logoutItem) logoutItem.addEventListener("click", async () => { closeTopMenus(); await api.signOut(); location.reload(); });
+  // klik poza menami topbaru je zamyka
+  document.addEventListener("click", (e) => {
+    if (e.target.closest(".menu-wrap")) return;
+    const am = $("#account-menu"), nm = $("#nav-menu");
+    if (am && !am.hidden) am.hidden = true;
+    if (nm && !nm.hidden) nm.hidden = true;
+  });
   // klik poza panelem zespołu zamyka jego rozwijaną listę
   document.addEventListener("click", (e) => {
     const pop = $("#owner-pop");
@@ -1532,7 +2756,7 @@ function wireNotif() {
   const bell = $("#notif-bell"); const panel = $("#notif-panel");
   if (!bell || !panel || bell.dataset.wired) return;
   bell.dataset.wired = "1";
-  bell.addEventListener("click", (e) => { e.stopPropagation(); const show = panel.hidden; panel.hidden = !show; if (show) renderNotifPanel(); });
+  bell.addEventListener("click", (e) => { e.stopPropagation(); const show = panel.hidden; closeTopMenus(); panel.hidden = !show; if (show) renderNotifPanel(); });
   document.addEventListener("click", (e) => { if (!panel.hidden && !panel.contains(e.target) && e.target !== bell) panel.hidden = true; });
 }
 
@@ -1582,8 +2806,8 @@ function showRecoveryForm() {
 }
 async function init() {
   await api.init(); state.live = api.isLive(); wireChrome();
-  if (!state.live) { $("#demo-banner").hidden = false; state.team = [...DEMO_OWNERS]; state.currentUser = "Krzysztof"; await showApp(); return; }
-  $("#logout-btn").addEventListener("click", async () => { await api.signOut(); location.reload(); });
+  if (!state.live) { $("#demo-banner").hidden = false; state.team = [...DEMO_OWNERS]; state.currentUser = "Krzysztof"; loadDemoRbac(); await showApp(); return; }
+  // (Wyloguj wpięte w wireChrome jako pozycja menu konta — #logout-item.)
   // POWRÓT Z LINKU RESETU HASŁA: pokaż ekran „ustaw nowe hasło", nie wpuszczaj od razu do appki
   sb.auth.onAuthStateChange((event) => { if (event === "PASSWORD_RECOVERY") showRecoveryForm(); });
   if (location.hash.includes("type=recovery")) { showRecoveryForm(); return; }
@@ -1614,5 +2838,62 @@ const DEMO_COMMENTS = {
     { author: "Krzysztof", body: "Spoko, biorę.", created_at: "2026-06-19T14:30:00" },
   ],
 };
+
+/* ---------- DANE DEMO: zespół + RBAC (spójne z kontraktem backendu) ---------- */
+const DEMO_TEAM = DEMO_OWNERS.map((name, i) => ({
+  id: "demo-tm-" + i, user_id: "demo-uid-" + i,
+  email: name.toLowerCase() + "@demo", name,
+  role: (name === "Krzysztof" || name === "Marceli") ? "admin" : "sprzedawca",
+  active: true, created_at: "2026-06-20T10:0" + i + ":00",
+}));
+const DEMO_ROLES = [
+  { key: "admin", label: "Administrator", editable: false },
+  { key: "sprzedawca", label: "Sprzedawca", editable: true },
+  { key: "developer", label: "Developer", editable: true },
+  { key: "retencja", label: "Retencja", editable: true },
+];
+// etykiety/grupy/seedy 1:1 ze schema-rbac.sql — DEMO pokazuje dokładnie to, co będzie na żywo
+const DEMO_PERMISSIONS = [
+  { key: "clients.view_all", label: "Widzi klientów całego zespołu", grp: "Klienci", ord: 10 },
+  { key: "clients.edit_all", label: "Edytuje cudze karty", grp: "Klienci", ord: 20 },
+  { key: "clients.hard_delete", label: "Usuwa trwale z archiwum", grp: "Klienci", ord: 30 },
+  { key: "partners.revoke", label: "Zdejmuje token partnera (Baza partnerów)", grp: "Klienci", ord: 40 },
+  { key: "stages.realizacja", label: "Przenosi karty przez etapy realizacji (po checkliście)", grp: "Klienci", ord: 50 },
+  { key: "section.klienci", label: "Sekcja Baza partnerów (podpisani)", grp: "Sekcje", ord: 10 },
+  { key: "section.admin", label: "Panel admina", grp: "Sekcje", ord: 20 },
+  { key: "stages.dev", label: "Widzi szczegóły etapów realizacji (dev)", grp: "Sekcje", ord: 30 },
+  { key: "team.manage", label: "Zarządza użytkownikami i rolami", grp: "Zespół", ord: 10 },
+  { key: "services.manage", label: "Zarządza ofertą usług", grp: "Zespół", ord: 20 },   // seed ze schema-uslugi.sql
+];
+// katalog usług 1:1 z seedem schema-uslugi.sql + trzecia usługa UKRYTA (w DEMO widać wycofywanie z oferty)
+const DEMO_SERVICE_CATALOG = [
+  { key: "strona",  label: "Strona internetowa", visible: true,  price_mode: "custom", price_fixed: null, price_min: null, price_rec: null, billing: "one_time", ord: 10, created_at: "2026-07-01T10:00:00" },
+  { key: "obsluga", label: "Obsługa techniczna", visible: true,  price_mode: "fixed",  price_fixed: 49,   price_min: null, price_rec: null, billing: "monthly",  ord: 20, created_at: "2026-07-01T10:01:00" },
+  { key: "hosting", label: "Hosting",            visible: false, price_mode: "fixed",  price_fixed: 30,   price_min: null, price_rec: null, billing: "monthly",  ord: 30, created_at: "2026-07-01T10:02:00" },
+];
+// admin celowo BEZ wpisów (ma wszystko z definicji — jak w kontrakcie backendu); retencja startuje bez uprawnień
+const DEMO_ROLE_PERMS = [
+  { role_key: "sprzedawca", perm_key: "section.klienci" },
+  { role_key: "developer", perm_key: "clients.view_all" },
+  { role_key: "developer", perm_key: "stages.dev" },
+  { role_key: "developer", perm_key: "section.klienci" },
+];
+// operacje panelu admina w DEMO — na mockach w pamięci (jak reszta appki; znikają po odświeżeniu strony)
+function demoAdminUsers(action, p) {
+  if (action === "create") {
+    if (DEMO_TEAM.some((t) => t.email === p.email)) throw new Error("Użytkownik z tym e-mailem już istnieje");
+    const row = { id: "demo-tm-" + Date.now(), user_id: "demo-uid-" + Date.now(), email: p.email, name: p.name, role: p.role || "sprzedawca", active: true, created_at: new Date().toISOString() };
+    DEMO_TEAM.push(row);
+    return { ok: true, user_id: row.user_id };
+  }
+  const i = DEMO_TEAM.findIndex((t) => t.user_id === p.user_id);
+  if (i < 0) throw new Error("Nie znaleziono użytkownika");
+  if (action === "deactivate") DEMO_TEAM[i].active = false;
+  else if (action === "reactivate") DEMO_TEAM[i].active = true;
+  else if (action === "remove") DEMO_TEAM.splice(i, 1);
+  else if (action === "set_role") DEMO_TEAM[i].role = p.role;
+  else throw new Error("Nieznana akcja: " + action);
+  return { ok: true };
+}
 
 init();
