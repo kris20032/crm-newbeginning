@@ -38,8 +38,11 @@ const BOOTSTRAP_ADMIN_EMAILS = new Set([
   "kozakiewicz.marceli@gmail.com",
 ]);
 
+// CORS zawężony do origin naszego frontu (GitHub Pages). Panel admina woła tę
+// funkcję tylko stamtąd; automaty łączą się z bazą bezpośrednio (service_role),
+// nie przez tę funkcję. Gdyby doszła własna domena CRM - dopisać ją tutaj.
 const cors = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": "https://kris20032.github.io",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
