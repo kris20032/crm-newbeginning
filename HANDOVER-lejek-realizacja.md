@@ -3,7 +3,14 @@
 > Dla: **kto kontynuuje** (Marceli lub Krzysztof — i jego Claude). Data: 2026-07-02, zaktualizowano 2026-07-04. Autorzy: Krzysztof + Marceli + Claude.
 > **Najpierw powiedz swojemu Claude: „przeczytaj HANDOVER-lejek-realizacja.md i kontynuuj według niego".**
 
-## ⏸️ STAN NA KONIEC SESJI 2026-07-04 — od czego zacząć następną
+## 🟢 WDROŻONE NA ŻYWO 2026-07-04 (Opus + Supabase MCP) — TEN HANDOVER JEST JUŻ ZREALIZOWANY
+- **Wariant PEŁNY wdrożony:** `feat/lejek-realizacja` **zmergowany do `main`** (commit `a763551`, front v92 LIVE na Pages) + backend Fazy 1–4 wykonane na żywej bazie: część A (`schema-rbac.sql`), katalog usług (`schema-uslugi.sql`), Edge Function `admin-users` (deploy przez MCP, ACTIVE), część B OSTRA (`schema-rbac-enforce.sql` — izolacja RLS + bramki lejka + unik. indeks imion).
+- **Decyzje K.:** admini = Krzysztof + Marceli; reszta (Szymon, Piotrek/Pcebulski, Patryk, Bartek) = sprzedawca; cennik jak jest (Obsługa 49 zł/mies).
+- **Weryfikacja izolacji (symulacja jwt na żywych politykach):** sprzedawca (Szymon) widzi tylko swoje 22 karty, admin (Krzysztof) widzi 150. Pre-flight był czysty (0 duplikatów imion, 0 sierot owner/opiekun). Backup przed wdrożeniem: `~/CRM-backups/crm-backup-2026-07-04_1115.json`.
+- **ROLLBACK Fazy 4** (gdyby coś): odkomentuj sekcję `-- ROLLBACK` na końcu `schema-rbac-enforce.sql` i uruchom → wraca „każdy widzi wszystko”.
+- **ZOSTAŁO TYLKO Faza 5** (panel Supabase, ręcznie — patrz niżej): rejestracja OFF (pewnie już z 2.07), MFA adminów, leaked-password ON, rate limits, CORS EF z `*` → origin Pages. + opcjonalny test na drugim koncie.
+
+## ⏸️ STAN NA KONIEC SESJI 2026-07-04 — (historyczny, sprzed wdrożenia)
 - Branch = v92, wszystko wypchnięte, working tree czysty. Zrobione Kroki 1–8 + **audyt bezpieczeństwa i naprawy** (Krok 9 niżej).
 - **Żywa baza NIETKNIĘTA** — Krzysztof świadomie wstrzymał wdrożenie plików SQL. Gdy da zgodę → sekcja „⚠️ BACKEND" niżej (kolejność 1→4). Uwaga: `schema-rbac.sql` (część A) urósł — dodaje teraz też kolumny `clients.partner_since` i `clients.checklist` oraz uprawnienia `partners.revoke` i `stages.realizacja`.
 - **NASTĘPNE ZADANIE: Krzysztof poda listę realnych usług agencji** (nazwa, rozliczenie jednorazowo/miesięcznie, cena stała albo wpisywana + minimum/rekomendowana, widoczna/ukryta). Dwie drogi: (a) wypisze na czacie → dopisać do seedu `schema-uslugi.sql` + mocków `DEMO_SERVICE_CATALOG` w `app.js`; (b) po wdrożeniu backendu wyklika w Panel admina → Oferta na prawdziwym logowaniu → wtedy ściągnąć je z bazy do seedu (żeby plik odtwarzał katalog 1:1).
