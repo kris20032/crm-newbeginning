@@ -140,8 +140,8 @@
     "Otwórz wizytówkę Google": "Open Google listing",
     "Kliknij, aby edytować": "Click to edit",
     "Kliknij, aby zaplanować follow-up": "Click to schedule a follow-up",
-    "notatki, historia rozmów... (kliknij, aby pisać; wklejone linki staną się klikalne)":
-      "notes, call history... (click to type; pasted links become clickable)"
+    "notatki, historia rozmów… (kliknij, aby pisać; wklejone linki staną się klikalne)":
+      "notes, call history… (click to type; pasted links become clickable)"
   };
 
   /* ---------- reguły podłańcuchowe (dla etykiet z doklejoną liczbą/ikoną/nazwą) ----------
