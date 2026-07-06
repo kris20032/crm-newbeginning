@@ -132,7 +132,16 @@
     "Ta karta nie jest już w Archiwum — odświeżam": "This card is no longer in the Archive - refreshing",
     "Tej karty już nie ma": "This card no longer exists",
     "Tę kartę usunął ktoś inny": "Someone else deleted this card",
-    "Wysłana oferta.": "Offer sent."
+    "Wysłana oferta.": "Offer sent.",
+    /* modal karty - uzupełnienie po teście na żywo (07.07) */
+    "Wyślij": "Send", "— brak —": "— none —", "Imię i nazwisko": "Full name",
+    "Zamknij": "Close", "Poprzedni klient": "Previous client", "Następny klient": "Next client",
+    "Kopiuj link": "Copy link", "Kopiuj link do dema": "Copy demo link",
+    "Otwórz wizytówkę Google": "Open Google listing",
+    "Kliknij, aby edytować": "Click to edit",
+    "Kliknij, aby zaplanować follow-up": "Click to schedule a follow-up",
+    "notatki, historia rozmów... (kliknij, aby pisać; wklejone linki staną się klikalne)":
+      "notes, call history... (click to type; pasted links become clickable)"
   };
 
   /* ---------- reguły podłańcuchowe (dla etykiet z doklejoną liczbą/ikoną/nazwą) ----------
@@ -147,6 +156,8 @@
     [/Nowa karta/g, "New card"],
     [/Tabela/g, "Table"],
     [/Pokaż:/g, "Show:"],
+    [/Widok:/g, "View:"],
+    [/Ocena (\d+) z (\d+)/g, "Rating $1 of $2"],
     [/(\d+)\s+osób/g, "$1 people"],
     [/(\d+)\s+osoby/g, "$1 people"],
     [/1\s+osoba/g, "1 person"],
