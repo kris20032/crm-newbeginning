@@ -135,15 +135,30 @@
     "Wysłana oferta.": "Offer sent."
   };
 
-  /* ---------- reguły z częścią dynamiczną (prefiksy / wzorce) ---------- */
+  /* ---------- reguły podłańcuchowe (dla etykiet z doklejoną liczbą/ikoną/nazwą) ----------
+     UWAGA: NIE używać \b przy polskich znakach (ś/ć/ż...) - w JS bez /u \b ich nie widzi
+     (stąd wcześniejszy babol "Na dziś" się nie tłumaczyło). Kolejność: najdłuższe/najbardziej
+     specyficzne pierwsze. Reguły biją po podłańcuchu, więc łapią "Archiwum 72", "+ Nowa karta" itd. */
   var RULES = [
+    [/Na dziś \/ zaległe/g, "Today / overdue"],
+    [/Na dziś/g, "Today"],
+    [/zaległe/g, "overdue"],
+    [/Archiwum/g, "Archive"],
+    [/Nowa karta/g, "New card"],
+    [/Tabela/g, "Table"],
+    [/Pokaż:/g, "Show:"],
+    [/(\d+)\s+osób/g, "$1 people"],
+    [/(\d+)\s+osoby/g, "$1 people"],
+    [/1\s+osoba/g, "1 person"],
     [/^Opiekun: /, "Manager: "],
-    [/^Handlowiec: /, "Sales: "],
+    [/^Handlowiec: /, "Sales rep: "],
     [/oznaczył\(a\) Cię/g, "mentioned you"],
-    [/\bzaległe\b/g, "overdue"],
-    [/(\d+)\s+komentarz(?:y|e)?\b/g, "$1 comments"],
+    [/(\d+)\s+komentarz(?:y|e)?/g, "$1 comments"],
     [/^1 komentarz$/, "1 comment"],
-    [/\bNa dziś\b/g, "Today"]
+    /* daty follow-up: skróty polskich miesięcy → angielskie (np. "6 lip 2026" → "6 Jul 2026") */
+    [/\bsty\b/g, "Jan"], [/\blut\b/g, "Feb"], [/\bmar\b/g, "Mar"], [/\bkwi\b/g, "Apr"],
+    [/\bmaj\b/g, "May"], [/\bcze\b/g, "Jun"], [/\blip\b/g, "Jul"], [/\bsie\b/g, "Aug"],
+    [/\bwrz\b/g, "Sep"], [/paź/g, "Oct"], [/\blis\b/g, "Nov"], [/\bgru\b/g, "Dec"]
   ];
 
   function trText(s) {
@@ -153,8 +168,9 @@
     if (EXACT.hasOwnProperty(t)) return s.replace(t, EXACT[t]);
     var out = s, changed = false;
     for (var i = 0; i < RULES.length; i++) {
-      if (RULES[i][0].test(out)) { out = out.replace(RULES[i][0], RULES[i][1]); changed = true; }
-      if (RULES[i][0].global) RULES[i][0].lastIndex = 0;
+      var before = out;
+      out = out.replace(RULES[i][0], RULES[i][1]);
+      if (out !== before) changed = true;
     }
     return changed ? out : s;
   }
