@@ -7,37 +7,75 @@
   var LANG = "pl";
   try { LANG = localStorage.getItem("crm_lang") || "pl"; } catch (e) {}
 
-  /* ---------- przycisk-pigułka (widoczny też na ekranie logowania) ---------- */
-  function addBtn() {
-    var bar = document.querySelector(".topbar-right");
+  /* ---------- przełącznik języka ----------
+     Po ZALOGOWANIU: wybór języka mieszka w MENU KONTA (ikona ludzika w rogu, gdzie jest „Wyloguj”)
+     jako sekcja „Język: Polski / English” (menu = „więcej ustawień”). Na EKRANIE LOGOWANIA (menu konta
+     jeszcze nie widać) zostaje mała pigułka w rogu, by dało się przełączyć język przed zalogowaniem. */
+  function langName(code) { return code === "pl" ? "Polski" : "English"; }
+  function switchLang(code) {
+    if (code === LANG) return;
+    try { localStorage.setItem("crm_lang", code); } catch (e) {}
+    location.reload();
+  }
+
+  // Sekcja wyboru języka wstawiona RAZ do menu konta (nad „Wyloguj”).
+  function addAccountLang() {
+    var menu = document.getElementById("account-menu");
+    if (!menu || document.getElementById("lang-section")) return;
+    var wrap = document.createElement("div");
+    wrap.id = "lang-section";
+    var sep = document.createElement("div");
+    sep.style.cssText = "height:1px;background:#eceae6;margin:5px 4px";
+    var head = document.createElement("div");
+    head.className = "pop-menu-head"; head.textContent = "Język";
+    wrap.appendChild(sep); wrap.appendChild(head);
+    ["pl", "en"].forEach(function (code) {
+      var it = document.createElement("button");
+      it.type = "button";
+      it.className = "pop-menu-item lang-opt" + (code === LANG ? " active" : "");
+      it.setAttribute("data-lang", code);
+      it.textContent = langName(code);
+      if (code === LANG) {
+        var ck = document.createElement("span");
+        ck.textContent = "✓"; ck.style.cssText = "float:right;font-weight:700";
+        it.appendChild(ck);
+      }
+      it.onclick = function () { switchLang(code); };
+      wrap.appendChild(it);
+    });
+    var logout = document.getElementById("logout-item");
+    if (logout && logout.parentNode === menu) menu.insertBefore(wrap, logout);
+    else menu.appendChild(wrap);
+  }
+
+  // Pigułka w rogu — TYLKO na ekranie logowania (brak menu konta).
+  function addCornerPill() {
     var b = document.getElementById("lang-pill");
     if (!b) {
       b = document.createElement("button");
       b.id = "lang-pill"; b.type = "button";
       b.textContent = LANG === "en" ? "PL" : "EN";
       b.title = LANG === "en" ? "Przełącz na polski" : "Switch to English";
-      b.onclick = function () {
-        try { localStorage.setItem("crm_lang", LANG === "en" ? "pl" : "en"); } catch (e) {}
-        location.reload();
-      };
-    }
-    if (bar) {
-      // NA GÓRZE, tuż PRZY ikonach (dzwonek/profil/menu) — wpnij bezpośrednio przed dzwonkiem
-      var anchor = bar.querySelector(".notif-wrap") || bar.querySelector(".menu-wrap");
-      if (b.parentNode !== bar) {
-        b.style.cssText = "margin-right:10px;padding:7px 13px;border-radius:99px;border:1px solid #d0cdc7;" +
-          "background:#fff;color:#37352f;font:600 12px/1 Inter,sans-serif;letter-spacing:.08em;cursor:pointer;" +
-          "align-self:center;flex:0 0 auto";
-        if (anchor) bar.insertBefore(b, anchor); else bar.appendChild(b);
-      }
-    } else if (!b.parentNode) {
-      // ekran logowania (brak topbaru) — pigułka w rogu (jak dotąd)
       b.style.cssText = "position:fixed;bottom:14px;right:14px;z-index:9000;" +
         "padding:6px 14px;border-radius:99px;border:1px solid #d0cdc7;background:#fff;" +
         "color:#37352f;font:600 12px/1 Inter,sans-serif;letter-spacing:.08em;cursor:pointer;" +
         "box-shadow:0 2px 8px rgba(0,0,0,.12)";
+      b.onclick = function () { switchLang(LANG === "en" ? "pl" : "en"); };
       document.body.appendChild(b);
     }
+  }
+  function removeCornerPill() {
+    var b = document.getElementById("lang-pill");
+    if (b && b.parentNode) b.parentNode.removeChild(b);
+  }
+
+  // Ustaw stan wg tego, czy jesteśmy zalogowani (widać #app-view).
+  function placeSwitcher() {
+    addAccountLang();   // menu konta istnieje od startu (w ukrytym #app-view) → wstaw raz
+    var app = document.getElementById("app-view");
+    var loggedIn = app && !app.hidden;
+    if (loggedIn) removeCornerPill();   // po zalogowaniu język tylko w menu konta
+    else addCornerPill();               // ekran logowania → pigułka w rogu
   }
 
   /* ---------- słownik: dokładne teksty (PL → EN) ---------- */
@@ -58,7 +96,8 @@
     "+ Nowa karta": "+ New card",
     "Szukaj klienta, firmy, telefonu...": "Search client, company, phone...",
     "Powiadomienia": "Notifications", "Powiadomienia (@oznaczenia)": "Notifications (@mentions)",
-    "Konto": "Account", "Wyloguj": "Log out", "Sekcje": "Sections",
+    "Konto": "Account", "Konto i ustawienia": "Account & settings",
+    "Język": "Language", "Wyloguj": "Log out", "Sekcje": "Sections",
     "Sprzedaż": "Sales", "Baza partnerów": "Partners", "Panel admina": "Admin panel",
     "Oznacz przeczytane": "Mark as read",
     /* etapy lejka */
@@ -230,13 +269,17 @@
   }
 
   function start() {
-    addBtn();
-    // topbar pojawia się dopiero po zalogowaniu (login → apka bez reloadu) — domknij pozycję przycisku
+    placeSwitcher();
+    // login → apka dzieje się BEZ reloadu (app.js tylko odsłania #app-view). Domknij stan (zdejmij
+    // pigułkę z rogu, gdy zalogowany) event-driven: obserwuj atrybut hidden #app-view; poller = zapas.
+    var app = document.getElementById("app-view");
+    if (app && window.MutationObserver) {
+      new MutationObserver(placeSwitcher).observe(app, { attributes: true, attributeFilter: ["hidden"] });
+    }
     var tries = 0, iv = setInterval(function () {
-      addBtn();
-      var bar = document.querySelector(".topbar-right");
-      var b = document.getElementById("lang-pill");
-      if (++tries > 40 || (bar && b && b.parentNode === bar)) clearInterval(iv);
+      placeSwitcher();
+      var loggedIn = app && !app.hidden;
+      if (++tries > 40 || loggedIn) clearInterval(iv);
     }, 500);
     if (LANG !== "en") return;             // po polsku: tylko przycisk, zero podmian
     document.documentElement.lang = "en";
