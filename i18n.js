@@ -9,20 +9,34 @@
 
   /* ---------- przycisk-pigułka (widoczny też na ekranie logowania) ---------- */
   function addBtn() {
-    if (document.getElementById("lang-pill")) return;
-    var b = document.createElement("button");
-    b.id = "lang-pill"; b.type = "button";
-    b.textContent = LANG === "en" ? "PL" : "EN";
-    b.title = LANG === "en" ? "Przełącz na polski" : "Switch to English";
-    b.style.cssText = "position:fixed;bottom:14px;right:14px;z-index:9000;" +
-      "padding:6px 14px;border-radius:99px;border:1px solid #d0cdc7;background:#fff;" +
-      "color:#37352f;font:600 12px/1 Inter,sans-serif;letter-spacing:.08em;cursor:pointer;" +
-      "box-shadow:0 2px 8px rgba(0,0,0,.12)";
-    b.onclick = function () {
-      try { localStorage.setItem("crm_lang", LANG === "en" ? "pl" : "en"); } catch (e) {}
-      location.reload();
-    };
-    document.body.appendChild(b);
+    var bar = document.querySelector(".topbar-right");
+    var b = document.getElementById("lang-pill");
+    if (!b) {
+      b = document.createElement("button");
+      b.id = "lang-pill"; b.type = "button";
+      b.textContent = LANG === "en" ? "PL" : "EN";
+      b.title = LANG === "en" ? "Przełącz na polski" : "Switch to English";
+      b.onclick = function () {
+        try { localStorage.setItem("crm_lang", LANG === "en" ? "pl" : "en"); } catch (e) {}
+        location.reload();
+      };
+    }
+    if (bar) {
+      // NA GÓRZE, obok ikon (dzwonek/profil/menu) — wpnij jako pierwszy w topbar-right
+      if (b.parentNode !== bar) {
+        b.style.cssText = "margin-right:8px;padding:7px 13px;border-radius:99px;border:1px solid #d0cdc7;" +
+          "background:#fff;color:#37352f;font:600 12px/1 Inter,sans-serif;letter-spacing:.08em;cursor:pointer;" +
+          "align-self:center;flex:0 0 auto";
+        bar.insertBefore(b, bar.firstChild);
+      }
+    } else if (!b.parentNode) {
+      // ekran logowania (brak topbaru) — pigułka w rogu (jak dotąd)
+      b.style.cssText = "position:fixed;bottom:14px;right:14px;z-index:9000;" +
+        "padding:6px 14px;border-radius:99px;border:1px solid #d0cdc7;background:#fff;" +
+        "color:#37352f;font:600 12px/1 Inter,sans-serif;letter-spacing:.08em;cursor:pointer;" +
+        "box-shadow:0 2px 8px rgba(0,0,0,.12)";
+      document.body.appendChild(b);
+    }
   }
 
   /* ---------- słownik: dokładne teksty (PL → EN) ---------- */
@@ -216,6 +230,13 @@
 
   function start() {
     addBtn();
+    // topbar pojawia się dopiero po zalogowaniu (login → apka bez reloadu) — domknij pozycję przycisku
+    var tries = 0, iv = setInterval(function () {
+      addBtn();
+      var bar = document.querySelector(".topbar-right");
+      var b = document.getElementById("lang-pill");
+      if (++tries > 40 || (bar && b && b.parentNode === bar)) clearInterval(iv);
+    }, 500);
     if (LANG !== "en") return;             // po polsku: tylko przycisk, zero podmian
     document.documentElement.lang = "en";
     walk(document.body);
