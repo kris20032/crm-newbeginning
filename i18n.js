@@ -22,12 +22,13 @@
       };
     }
     if (bar) {
-      // NA GÓRZE, obok ikon (dzwonek/profil/menu) — wpnij jako pierwszy w topbar-right
+      // NA GÓRZE, tuż PRZY ikonach (dzwonek/profil/menu) — wpnij bezpośrednio przed dzwonkiem
+      var anchor = bar.querySelector(".notif-wrap") || bar.querySelector(".menu-wrap");
       if (b.parentNode !== bar) {
-        b.style.cssText = "margin-right:8px;padding:7px 13px;border-radius:99px;border:1px solid #d0cdc7;" +
+        b.style.cssText = "margin-right:10px;padding:7px 13px;border-radius:99px;border:1px solid #d0cdc7;" +
           "background:#fff;color:#37352f;font:600 12px/1 Inter,sans-serif;letter-spacing:.08em;cursor:pointer;" +
           "align-self:center;flex:0 0 auto";
-        bar.insertBefore(b, bar.firstChild);
+        if (anchor) bar.insertBefore(b, anchor); else bar.appendChild(b);
       }
     } else if (!b.parentNode) {
       // ekran logowania (brak topbaru) — pigułka w rogu (jak dotąd)
