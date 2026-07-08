@@ -1206,6 +1206,7 @@ async function openModal(id) {
   wireComposer(c.id);
   wirePartnerToken(c);
   if (editable) { wireStageArrows(c); wireFuBar(c.id); wirePhoneInput(); wireNameAutosize(); wireChecklist(c); }
+  if (showChecklist) wireChecklistExport(c);   // eksport działa też w trybie read-only (poza bramką editable)
   const grantBtn = document.getElementById("grant-token");   // JEDYNA droga na „Umowa podpisana": admin klika → token + przeniesienie
   if (grantBtn) grantBtn.addEventListener("click", () => {
     if (!isAdminUser()) return;                              // pas bezpieczeństwa (przycisk i tak renderuje się tylko adminowi)
@@ -1355,6 +1356,7 @@ function checklistHTML(c, editable) {
       ${noteArea(it.key)}
     </div>`).join("");
   return `
+    <div class="chk-done-row"><button type="button" class="chk-done-btn" id="chk-export" title="Kopiuje całą checklistę do schowka — do wklejenia np. w Claude">Kopiuj całą checklistę do schowka</button></div>
     <div class="chk-item">
       <div class="chk-row">
         <label class="chk-check"><input type="checkbox" id="chk-paid" ${ch.paid_ok ? "checked" : ""} ${dis} /><span>Klient zapłacił</span></label>
@@ -1426,6 +1428,49 @@ function wireChecklist(c) {
       saveDeb(); updateDone();
     });
     ta.addEventListener("change", () => saveChecklist(c.id));
+  });
+}
+// Eksport całej checklisty do schowka — czytelny tekst do wklejenia (np. w Claude przy pisaniu treści strony).
+function checklistExportText(c) {
+  const ch = (c && c.checklist) || {};
+  const notes = ch.notes || {};
+  const paidLabel = (CHK_PAID.find((o) => o.key === ch.paid) || {}).label || "—";
+  const L = [];
+  L.push("=== CHECKLISTA WDROŻENIOWA ===");
+  L.push("Klient: " + (c.name || "—") + (c.company ? " (" + c.company + ")" : ""));
+  if (c.phone)       L.push("Telefon: " + c.phone);
+  if (c.email)       L.push("E-mail: " + c.email);
+  if (c.google_maps) L.push("Google Maps: " + c.google_maps);
+  if (c.demo_url)    L.push("Demo: " + c.demo_url);
+  L.push("");
+  L.push("Płatność: " + (ch.paid_ok ? "TAK (" + paidLabel + ")" : "nie"));
+  if ((notes.paid || "").trim())      L.push("  Uwagi: " + notes.paid.trim());
+  L.push("Materiały: " + (ch.materials ? "komplet dotarł" : "brak / niekompletne"));
+  if ((notes.materials || "").trim()) L.push("  Uwagi: " + notes.materials.trim());
+  L.push("");
+  CHECKLIST_ITEMS.forEach((it) => {
+    L.push("--- " + it.label + (it.hint ? " (" + it.hint + ")" : "") + " ---");
+    L.push((notes[it.key] || "").trim() || "—");
+    L.push("");
+  });
+  return L.join("\n").trim();
+}
+function wireChecklistExport(c) {
+  const btn = document.getElementById("chk-export");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const txt = checklistExportText(c);
+    try {
+      await navigator.clipboard.writeText(txt);
+      toast("Checklista skopiowana — wklej do Claude");
+    } catch {
+      const ta = document.createElement("textarea");   // fallback bez clipboard API
+      ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      try { document.execCommand("copy"); toast("Checklista skopiowana — wklej do Claude"); }
+      catch { toast("Nie udało się skopiować — zaznacz ręcznie"); }
+      ta.remove();
+    }
   });
 }
 
