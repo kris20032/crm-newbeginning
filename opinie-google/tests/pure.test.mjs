@@ -3,6 +3,7 @@
 import {
   normalizePhonePL, extractPhonePL, fillTemplate, computeScheduledAt, hourInTz,
   reviewFingerprint, buttonId, parseButtonId, fallbackReplyDraft, within24h,
+  parseStopCommand, validateTemplate, timingSafeEqualHex,
 } from "../functions/_shared/pure.mjs";
 
 let passed = 0, failed = 0;
@@ -64,6 +65,36 @@ t("draft: negatyw przeprasza i zaprasza", /kontakt/.test(fallbackReplyDraft("Fir
 t("24h: swieza interakcja = tak", within24h(new Date(Date.now() - 3600_000).toISOString()));
 t("24h: stara = nie", !within24h(new Date(Date.now() - 25 * 3600_000).toISOString()));
 t("24h: brak = nie", !within24h(null));
+
+// --- extractPhonePL: granice cyfr (audyt sms-stop-throttle-6) ---
+t("extract: NIP (10 cyfr) NIE jest telefonem", extractPhonePL("NIP 8133334455") === null);
+t("extract: nr konta NIE jest telefonem", extractPhonePL("konto 61109010140000071219812874") === null);
+t("extract: telefon obok NIP-u wygrywa", extractPhonePL("NIP 8133334455 tel 600123456") === "+48600123456");
+
+// --- parseStopCommand (audyt rls-izolacja-2: sciezka STOP) ---
+t("stop: STOP + numer", JSON.stringify(parseStopCommand("STOP 600 123 456")) === JSON.stringify({ phone: "+48600123456" }));
+t("stop: wypisz + numer", parseStopCommand("wypisz 512221704")?.phone === "+48512221704");
+t("stop: male litery", parseStopCommand("stop +48 600 123 456")?.phone === "+48600123456");
+t("stop: bez numeru = null", parseStopCommand("STOP") === null);
+t("stop: zwykla wiadomosc = null", parseStopCommand("wyslij do Jana 600123456") === null);
+t("stop: 'stopien' to nie STOP", parseStopCommand("stopien 600123456 zamowienia") === null);
+
+// --- validateTemplate (audyt omnibus-gating-3: gating/zachety) ---
+t("tpl: domyslny neutralny przechodzi", validateTemplate("Czesc{imie}! Dziekujemy za skorzystanie z naszych uslug. Bedzie nam milo, jesli ocenisz nas w Google: {link} Nie chcesz takich wiadomosci? Odpisz STOP.").ok);
+t("tpl: 'ocenisz nas' NIE jest blokowane", validateTemplate("Ocen nas w Google: {link}").ok);
+t("tpl: brak {link} odrzucony", !validateTemplate("Czesc, daj opinie!").ok);
+t("tpl: '5 gwiazdek' odrzucone", !validateTemplate("Daj nam 5 gwiazdek: {link}").ok);
+t("tpl: 'rabat' odrzucony", !validateTemplate("Rabat 10% za opinie: {link}").ok);
+t("tpl: 'gwiazdki' odrzucone", !validateTemplate("Prosimy o gwiazdki: {link}").ok);
+t("tpl: 'w zamian' odrzucone", !validateTemplate("W zamian cos milego: {link}").ok);
+t("tpl: 'pozytywna' odrzucona", !validateTemplate("Zostaw pozytywna opinie: {link}").ok);
+t("tpl: za dlugi odrzucony", !validateTemplate("{link}" + "x".repeat(320)).ok);
+
+// --- timingSafeEqualHex (audyt wa-webhook-6) ---
+t("hmac: rowne hexy = true", timingSafeEqualHex("abc123", "abc123"));
+t("hmac: rozne = false", !timingSafeEqualHex("abc123", "abc124"));
+t("hmac: rozna dlugosc = false", !timingSafeEqualHex("abc", "abc1"));
+t("hmac: puste/null = false dla roznych", !timingSafeEqualHex(null, "x") && timingSafeEqualHex("", ""));
 
 console.log(`\n${failed === 0 ? "✅" : "❌"} pure.test: ${passed} OK, ${failed} FAIL`);
 process.exit(failed === 0 ? 0 : 1);

@@ -21,27 +21,46 @@
 - **Anthropic API (Claude Haiku):** klucz do szkiców odpowiedzi. Bez klucza działa szablon zapasowy (sensowny, ale sztywny).
 
 ## Krok 3 — Sekrety i deploy funkcji (Claude, wymaga `supabase` CLI: `brew install supabase/tap/supabase`)
+> ⚠️ WYMAGANE PRZED DEPLOYEM: plik `supabase/config.toml` (wyłącza bramkę logowania `verify_jwt` dla wszystkich 6 funkcji, żeby crony i webhook Meta w ogóle weszły - autoryzacji i tak pilnuje nasz kod). Jest już w repo, nic nie trzeba tworzyć - CLI podłącza go sam podczas deployu.
 ```bash
 supabase login                       # 👤 K. klika autoryzację raz
 supabase link --project-ref uzccwsmzmzcsijddbtzn
-supabase secrets set OG_SERVICE_KEY=$(openssl rand -hex 32) OG_DRY_MODE=1   # start NA SUCHO
+# Tryb na sucho jest DOMYŚLNY - NIE ustawiamy OG_DRY_MODE (brak zmiennej = na sucho, bezpiecznie).
+supabase secrets set OG_SERVICE_KEY=$(openssl rand -hex 32)   # start NA SUCHO (nic nie idzie w świat)
 # realne klucze dokładamy stopniowo (każdy brakujący = dany kanał zostaje na sucho):
 #   GOOGLE_PLACES_KEY=...  SMSAPI_TOKEN=...  SMS_TEST_MODE=1
 #   WA_TOKEN=... WA_PHONE_NUMBER_ID=... WA_VERIFY_TOKEN=... WA_APP_SECRET=...
 #   ANTHROPIC_API_KEY=...
 cd opinie-google && supabase functions deploy og-onboard og-request-review og-dispatch og-snapshot og-monitor og-wa-webhook
-# realny start = OG_DRY_MODE=0 (wysyłki idą w świat) — dopiero po teście na sucho
+# realny start (MOKRO, wysyłki idą w świat) = dopiero po teście na sucho ustaw jawnie:
+#   supabase secrets set OG_DRY_MODE=0
 ```
+> Sekret `og_anon_key` dla cronów (drugie zabezpieczenie wywołań) ustawia się w bazie w Kroku 4.
 
 ## Krok 4 — Crony (Claude, SQL Editor)
-`db/004_cron.sql` — podmienić `<PROJECT_REF>`, zapisać `og_service_key` w Vault (komenda w pliku), Run.
+Wymaga, by funkcje były już zdeployowane (Krok 3). W `db/004_cron.sql`:
+1. Podmienić `<PROJECT_REF>` na ref projektu (`uzccwsmzmzcsijddbtzn`).
+2. Zapisać DWA sekrety w Vault (raz każdy; komendy są w nagłówku pliku):
+   - `select vault.create_secret('<WARTOSC_OG_SERVICE_KEY>', 'og_service_key');` - ten sam klucz co `OG_SERVICE_KEY` z Kroku 3.
+   - `select vault.create_secret('<ANON_KEY>', 'og_anon_key');` - anon key projektu (Settings → API → Project API keys → `anon public`).
+3. Uruchomić cały plik (Run).
 
-## Krok 5 — Test end-to-end na sucho (SMS_TEST_MODE=1: SMSAPI przyjmuje, nie wysyła, nie kosztuje)
+## Krok 5 - Test end-to-end na sucho (domyślny tryb na sucho: nic nie idzie w świat, wysyłki lądują w tabeli `og_outbox`)
 1. `og-onboard` z `{"query":"<nazwa firmy pilota> <miasto>"}` → wybrać właściwego kandydata → `confirm`.
-2. `og-request-review` z numerem testowym (własnym) → sprawdzić `scheduled_at` (wpada w okno 9-21).
-3. Ręcznie wywołać `og-dispatch` → status `sent`, w panelu SMSAPI widać wiadomość testową.
-4. `og-snapshot` → wiersz w `og_metrics_snapshots` ze świeżym ratingiem.
-5. Dopiero po zielonym: `SMS_TEST_MODE=0` i prawdziwy SMS na własny numer.
+2. `og-request-review` z numerem testowym (własnym) → w bazie pojawia się prośba ze statusem `scheduled` i `scheduled_at` USTAWIONYM ~3 h w przyszłość (silnik timingu celuje w okno 9-21, żeby realny SMS nie szedł w nocy).
+3. ⚠️ Dlatego ręczne `og-dispatch` teraz NIC nie wyśle - żadna prośba nie jest jeszcze „dojrzała". Do testu przestaw termin na TERAZ (SQL Editor):
+   ```sql
+   update og_review_requests set scheduled_at = now() where status = 'scheduled';
+   ```
+   (Albo po prostu poczekaj do zaplanowanej godziny - do testu szybciej przestawić ręcznie.)
+4. Teraz ręcznie wywołać `og-dispatch` → prośba przechodzi dalej, a wiadomość ląduje w `og_outbox` ze statusem `dry` (tryb na sucho). `select * from og_outbox order by created_at desc;` - powinna tam być.
+5. `og-snapshot` → wiersz w `og_metrics_snapshots` ze świeżym ratingiem.
+
+> ⚠️ ZANIM przełączysz na MOKRO (`supabase secrets set OG_DRY_MODE=0`) - OBOWIĄZKOWO wyczyść testowe prośby, inaczej po włączeniu realnych wysyłek pójdą naprawdę / zablokują throttle (limit 30 dni na numer):
+> ```sql
+> update og_review_requests set status = 'cancelled' where status in ('queued','scheduled','sending');
+> ```
+> Dopiero po tym: `OG_DRY_MODE=0` (mokro), a jeśli chcesz najpierw sprawdzić samo połączenie z SMSAPI bez kosztu - `SMS_TEST_MODE=1` (SMSAPI przyjmuje, nie wysyła, nie kosztuje), potem `SMS_TEST_MODE=0` i prawdziwy SMS na własny numer.
 
 ## Krok 6 — Pilot
 Kandydat: **Hydraulika JB (Jakub)** — nasz płatny klient, żywa wizytówka, regularne zlecenia.

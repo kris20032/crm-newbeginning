@@ -37,9 +37,12 @@ revoke all on og_accounts, og_customers, og_review_requests,
   from anon, authenticated;
 
 -- og_accounts: fachowiec czyta swoje konto; edytuje TYLKO szablon wiadomości
--- i swój numer WA. Nadawca SMS / place_id / cena / status = tylko operator (F3).
+-- (treść walidowana w og-dispatch: wymóg {link} + deny-lista gating/zachęt).
+-- wa_number = klucz tożsamości konta w webhooku WhatsApp -> zmienia TYLKO
+-- operator (audyt 10.07, analogicznie do sms_sender_name/F3). Nadawca SMS /
+-- place_id / cena / status = tylko operator (F3).
 grant select on og_accounts to authenticated;
-grant update (message_template, wa_number) on og_accounts to authenticated;
+grant update (message_template) on og_accounts to authenticated;
 
 -- og_customers: fachowiec zarządza swoją listą klientów, ale opted_out (STOP)
 -- zmienia wyłącznie worker — żeby abonent nie mógł „odznaczyć" STOP-u (F7).

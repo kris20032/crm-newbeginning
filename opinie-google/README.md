@@ -23,6 +23,8 @@ Wieloklientowy system zbierania i obsługi opinii Google dla lokalnych fachowcó
 | Kolejka publikacji (`og_publish_queue`) | ✅ LIVE (005) — przetestowana na żywej bazie |
 | Testy: logika (Node) + baza | ✅ 31/31 pure.test + izolacja 14/14 + test Pętli 2 na żywo |
 | Harmonogram cronów (`db/004`) | ✅ szablon (dispatch, snapshot, monitor) — ⏳ przy deployu |
+| **Audyt maszyny (Fable, 10.07)** | ✅ zrobiony - 5 usterek wdrożeniowych znalezionych i zamkniętych |
+| **Poprawki po audycie (`db/006` + hardening funkcji + `supabase/config.toml`)** | ✅ na gałęzi `feat/opinie-google` - ⏳ do zaaplikowania przy deployu |
 | Deploy funkcji + klucze (Places, SMSAPI, WhatsApp, Anthropic) | ⏳ ostatni krok przed realnym startem (SETUP Krok 2-4) |
 | Panel + widget (Moduł 5) | ⏳ Opus/Sonnet po 7.07 |
 
@@ -30,19 +32,28 @@ Wieloklientowy system zbierania i obsługi opinii Google dla lokalnych fachowcó
 ```
 opinie-google/
   db/
-    001_schema.sql     — tabele og_* (Moduł 1)
-    002_rls.sql        — izolacja danych (RLS) ⭐ serce bezpieczeństwa
-    003_seed_test.sql  — 2 konta A/B do testów izolacji
-    999_drop.sql       — cofnięcie (odwracalność)
-  functions/           — (Fable) Edge Functions: snapshoty, wysyłka SMS, webhook WhatsApp, monitoring
-  README.md            — ten plik
-  PROMPT-FABLE-KM1.md  — zadanie startowe dla Fable
+    001_schema.sql       - tabele og_* (Moduł 1)
+    002_rls.sql          - izolacja danych (RLS) ⭐ serce bezpieczeństwa
+    003_seed_test.sql    - 2 konta A/B do testów izolacji
+    004_cron.sql         - harmonogram (pg_cron wywołuje Edge Functions)
+    005_outbox_queue.sql - skrzynka nadawcza (tryb na sucho) + kolejka publikacji
+    006_fixes.sql        - poprawki po audycie 10.07 (m.in. idempotencja webhooka)
+    999_drop.sql         - cofnięcie (pełna odwracalność)
+  functions/             - (Fable) Edge Functions: onboarding, wysyłka SMS, webhook WhatsApp, monitoring
+    _shared/             - wspólny kod funkcji (util.ts, pure.mjs)
+  supabase/
+    config.toml          - konfiguracja deployu (verify_jwt=false dla funkcji)
+  tests/                 - testy: logika (Node) + izolacja (SQL)
+  README.md              - ten plik
+  SETUP.md               - checklista uruchomienia od zera
+  AUDYT-IZOLACJI.md      - wynik audytu izolacji (Fable)
+  PROMPT-FABLE-KM1.md    - zadanie startowe dla Fable
 ```
 
 ## Jak uruchomić
 Cała ścieżka krok po kroku: [`SETUP.md`](SETUP.md).
 ⚠️ **Baza: OSOBNY projekt Supabase** (wynik audytu F1 — NIE projekt CRM: jego polityki dają każdemu zalogowanemu pełny wgląd, więc abonenci nie mogą dzielić z nim puli logowań).
-Kolejność SQL: `001_schema.sql` → `002_rls.sql` → **bramka** `tests/test-izolacja.sql` (musi być ✅) → `004_cron.sql`.
+Kolejność SQL: `001_schema.sql` → `002_rls.sql` → **bramka** `tests/test-izolacja.sql` (musi być ✅) → `005_outbox_queue.sql` → `006_fixes.sql` → `004_cron.sql` (crony na końcu, po deployu funkcji).
 Cofnięcie w każdej chwili: `999_drop.sql` (usuwa tylko `og_*`).
 
 ## Zasady (jak w całym New Beginning)

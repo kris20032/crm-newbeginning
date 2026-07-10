@@ -1,0 +1,44 @@
+# ============================================================
+# Opinie Google - konfiguracja Supabase CLI (deploy Edge Functions)
+# ============================================================
+# PO CO TEN PLIK:
+# Supabase domyslnie stawia przed kazda Edge Function bramke JWT
+# (verify_jwt=true) - odrzuca kazde wywolanie bez waznego tokenu logowania,
+# ZANIM w ogole uruchomi nasz kod. To by zabilo cala maszyne:
+#   - crony (pg_cron) wywoluja funkcje z naglowkiem x-og-service-key,
+#     a nie z tokenem logowania -> dostalyby 401,
+#   - webhook Meta (WhatsApp) MUSI byc publiczny - Meta puka bez zadnego
+#     tokenu (GET z hub.challenge przy weryfikacji, POST z podpisem HMAC).
+#
+# Dlatego wylaczamy verify_jwt dla WSZYSTKICH 6 funkcji. To NIE oznacza
+# braku ochrony - autoryzacje pilnuje NASZ kod:
+#   - requireServiceKey() sprawdza naglowek x-og-service-key (crony/operator),
+#   - webhook WhatsApp weryfikuje podpis HMAC Meta (WA_APP_SECRET) i token
+#     weryfikacyjny (WA_VERIFY_TOKEN).
+#
+# UWAGA og-request-review: ma sciezke logowania dla panelu fachowca, ale
+# sam weryfikuje token przez userClient.auth.getUser() w kodzie. Dlatego
+# verify_jwt=false jest tu tez OK - to kod (a nie bramka Supabase) decyduje,
+# czy token jest wazny.
+#
+# BEZ tego pliku deploy postawi bramke JWT i po wykonaniu SETUP nic nie
+# ruszy. Plik musi byc w repo PRZED `supabase functions deploy`.
+# ============================================================
+
+[functions.og-onboard]
+verify_jwt = false
+
+[functions.og-request-review]
+verify_jwt = false
+
+[functions.og-dispatch]
+verify_jwt = false
+
+[functions.og-snapshot]
+verify_jwt = false
+
+[functions.og-monitor]
+verify_jwt = false
+
+[functions.og-wa-webhook]
+verify_jwt = false

@@ -12,14 +12,25 @@ export function normalizePhonePL(raw) {
 
 // --- Wyciągnięcie numeru telefonu z wolnego tekstu (wiadomość na WhatsApp). ---
 // Łapie "600 123 456", "+48600123456", "tel: 600-123-456" itp.
+// Granice cyfr (?<!\d)...(?!\d): 9-cyfrowy fragment NIP-u/numeru konta/paczki
+// (dłuższy ciąg cyfr) NIE jest brany za telefon.
 export function extractPhonePL(text) {
-  const m = String(text).match(/(?:\+?48[\s-]?)?(\d[\s-]?){9}/g);
+  const m = String(text).match(/(?<!\d)(?:\+?48[\s-]?)?(?:\d[\s-]?){9}(?!\d)/g);
   if (!m) return null;
   for (const cand of m) {
     const norm = normalizePhonePL(cand.replace(/[\s-]/g, ""));
     if (norm) return norm;
   }
   return null;
+}
+
+// --- Komenda STOP od fachowca w bocie: "STOP 600123456" / "wypisz 600 123 456". ---
+// Zwraca {phone} do oznaczenia klienta jako opted_out, albo null gdy to nie STOP.
+export function parseStopCommand(text) {
+  const t = String(text ?? "").trim().toLowerCase();
+  if (!/^(stop|wypisz|wypisuje|nie wysylaj|nie pisz|usun)\b/.test(t)) return null;
+  const phone = extractPhonePL(t);
+  return phone ? { phone } : null;
 }
 
 // --- Szablon wiadomości: {imie} i {link}. ---
@@ -76,11 +87,44 @@ export function fallbackReplyDraft(businessName, rating, authorName) {
   if (rating >= 4) {
     return `Dziekujemy${imie} za mila opinie i zaufanie! Pozdrawiamy, ${businessName}.`;
   }
-  return `Dziekujemy${imie} za opinie. Przykro nam, ze cos poszlo nie tak - prosimy o kontakt, chetnie to wyjasnimy i naprawimy. ${businessName}.`;
+  return `Dziekujemy${imie} za opinie. Przykro nam, ze cos poszlo nie tak. Prosimy o kontakt - chetnie Panstwa wysluchamy i porozmawiamy o szczegolach. ${businessName}.`;
 }
 
 // --- Okno 24h WhatsApp: czy można pisać zwykłą wiadomością (nie template)? ---
 export function within24h(lastInteractionAt, now = new Date()) {
   if (!lastInteractionAt) return false;
   return now.getTime() - new Date(lastInteractionAt).getTime() < 24 * 3600_000;
+}
+
+// --- Walidacja szablonu SMS: zgodność Google (zakaz review-gatingu) + Omnibus
+//     (zakaz zachęt majątkowych za opinię). Fachowiec edytuje szablon z panelu,
+//     więc sprawdzamy tuż przed wysyłką. Zwraca {ok:true} albo {ok:false, reason}.
+// Deny-lista skalibrowana tak, by NIE blokować dozwolonego "ocenisz nas"/"oceń nas":
+// używamy "docen" (obietnica korzyści), nigdy "ocen".
+export const TEMPLATE_DENY = [
+  "gwiazdk", "5 gwiazd", "pozytywn",                      // sterowanie oceną (Google zakaz gatingu)
+  "rabat", "znizk", "zniżk", "gratis", "prezent",        // zachęta majątkowa (Omnibus)
+  "nagrod", "w zamian", "docen",
+];
+export function validateTemplate(tpl) {
+  const t = String(tpl ?? "");
+  if (!t.includes("{link}")) {
+    return { ok: false, reason: "szablon musi zawierać {link} (bez linku SMS jest bezużyteczny)" };
+  }
+  const low = t.toLowerCase();
+  const hit = TEMPLATE_DENY.find((p) => low.includes(p));
+  if (hit) {
+    return { ok: false, reason: `szablon zawiera niedozwoloną frazę ("${hit}") - zakaz proszenia o oceny/zachęt (Google + Omnibus)` };
+  }
+  if (t.length > 320) return { ok: false, reason: "szablon za długi (>320 znaków)" };
+  return { ok: true };
+}
+
+// --- Stałoczasowe porównanie dwóch hexów (podpis HMAC): brak wycieku czasowego. ---
+export function timingSafeEqualHex(a, b) {
+  const x = String(a ?? ""), y = String(b ?? "");
+  if (x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x.charCodeAt(i) ^ y.charCodeAt(i);
+  return diff === 0;
 }

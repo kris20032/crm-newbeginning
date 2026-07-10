@@ -34,10 +34,20 @@ export function requireServiceKey(req: Request): Response | null {
   return null;
 }
 
-const dryMode = () => Deno.env.get("OG_DRY_MODE") === "1";
+// TRYB NA SUCHO - FAIL-SAFE (audyt dry-mode-1): sucho jest DOMYSLNE.
+// Mokro (realne wysylki) wymaga JAWNIE OG_DRY_MODE=0. Kazda inna wartosc
+// (brak zmiennej, "1", "true", literowka, spacja) => sucho. Zapomniany/zepsuty
+// sekret nigdy nie przelaczy maszyny na realne wysylki.
+export const dryMode = () => Deno.env.get("OG_DRY_MODE") !== "0";
 
-async function toOutbox(db: SupabaseClient, channel: string, recipient: string, payload: unknown, status = "dry", error: string | null = null) {
-  await db.from("og_outbox").insert({ channel, recipient, payload, status, error });
+// Timeout na kazdy fetch w swiat (Places/SMSAPI/Meta/Anthropic) - wiszace
+// polaczenie nie ubija calego przebiegu (audyt bledy-odpornosc-2).
+const FETCH_TIMEOUT_MS = 10_000;
+const withTimeout = () => AbortSignal.timeout(FETCH_TIMEOUT_MS);
+
+async function toOutbox(db: SupabaseClient, channel: string, recipient: string, payload: unknown, status = "dry", error: string | null = null): Promise<{ error: string | null }> {
+  const { error: insErr } = await db.from("og_outbox").insert({ channel, recipient, payload, status, error });
+  return { error: insErr ? insErr.message : null };
 }
 
 // ------------------------------------------------------------
@@ -46,16 +56,26 @@ async function toOutbox(db: SupabaseClient, channel: string, recipient: string, 
 export async function sendSms(db: SupabaseClient, to: string, from: string, message: string): Promise<{ ok: boolean; id?: string | null; dry?: boolean; error?: string }> {
   const token = Deno.env.get("SMSAPI_TOKEN");
   if (dryMode() || !token) {
-    await toOutbox(db, "sms", to, { from, message });
+    // Na sucho: blad zapisu do outboxu NIE moze udawac sukcesu (audyt dry-mode-3).
+    const { error: outErr } = await toOutbox(db, "sms", to, { from, message });
+    if (outErr) return { ok: false, error: `outbox: ${outErr}` };
     return { ok: true, dry: true, id: null };
   }
   const params = new URLSearchParams({ to, from, message, format: "json", encoding: "utf-8" });
   if (Deno.env.get("SMS_TEST_MODE") === "1") params.set("test", "1");
-  const res = await fetch("https://api.smsapi.pl/sms.do", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: params,
-  });
+  let res: Response;
+  try {
+    res = await fetch("https://api.smsapi.pl/sms.do", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: params,
+      signal: withTimeout(),
+    });
+  } catch (e) {
+    const error = `siec/timeout SMSAPI: ${(e as Error).message}`;
+    await toOutbox(db, "sms", to, { from, message }, "failed", error);
+    return { ok: false, error };
+  }
   const data = await res.json().catch(() => null);
   if (!res.ok || !data || data.error) {
     const error = data?.message ?? `HTTP ${res.status}`;
@@ -76,14 +96,23 @@ export async function sendWa(db: SupabaseClient, to: string, payload: Record<str
   const token = Deno.env.get("WA_TOKEN");
   const phoneId = Deno.env.get("WA_PHONE_NUMBER_ID");
   if (dryMode() || !token || !phoneId) {
-    await toOutbox(db, "wa", to, payload);
+    const { error: outErr } = await toOutbox(db, "wa", to, payload);
+    if (outErr) return { ok: false, error: `outbox: ${outErr}` };
     return { ok: true, dry: true };
   }
-  const res = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ messaging_product: "whatsapp", to: waNumber(to), ...payload }),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ messaging_product: "whatsapp", to: waNumber(to), ...payload }),
+      signal: withTimeout(),
+    });
+  } catch (e) {
+    const error = `siec/timeout WhatsApp: ${(e as Error).message}`;
+    await toOutbox(db, "wa", to, payload, "failed", error);
+    return { ok: false, error };
+  }
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const error = data?.error?.message ?? `HTTP ${res.status}`;
@@ -121,9 +150,10 @@ export async function aiReplyDraft(businessName: string, review: { author_name?:
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 300,
-        system: `Piszesz krótkie odpowiedzi na opinie Google w imieniu lokalnej polskiej firmy "${businessName}". Zasady: po polsku, 1-3 zdania, naturalnie i konkretnie, bez frazesów i wykrzykników na siłę, bez emoji. Na negatywne: spokojnie, rzeczowo, zaproszenie do kontaktu, zero wymówek. Nigdy nie obiecuj rekompensat. Zwróć SAMĄ odpowiedź.`,
+        system: `Piszesz krótkie odpowiedzi na opinie Google w imieniu lokalnej polskiej firmy "${businessName}". Zasady: po polsku, 1-3 zdania, naturalnie i konkretnie, bez frazesów i wykrzykników na siłę, bez emoji. Na negatywne: spokojnie, rzeczowo, zaproszenie do kontaktu, zero wymówek. Nigdy nie obiecuj rekompensat, napraw ani konkretnych działań - tylko zaproszenie do kontaktu (odpowiedź jest publiczna). Zwróć SAMĄ odpowiedź.`,
         messages: [{ role: "user", content: `Opinia (${review.rating}/5) od ${review.author_name ?? "klienta"}: ${review.text ?? "(bez tekstu)"}` }],
       }),
+      signal: withTimeout(),
     });
     const data = await res.json();
     const text = data?.content?.[0]?.text?.trim();
@@ -147,8 +177,10 @@ export async function queueReviewRequest(db: SupabaseClient, accountId: string, 
   const phone = normalizePhonePL(rawPhone);
   if (!phone) return { queued: false, reason: "to nie wygląda na polski numer (9 cyfr lub +48...)" };
 
+  // consent_attested_at: fachowiec, podajac numer, oswiadcza zgode klienta na SMS
+  // (art. 172 PKE) - dokumentujemy moment atestacji = nasza nalezyta starannosc.
   const { data: customer, error: custErr } = await db.from("og_customers")
-    .upsert({ account_id: accountId, phone, ...(name ? { name } : {}) }, { onConflict: "account_id,phone" })
+    .upsert({ account_id: accountId, phone, consent_attested_at: new Date().toISOString(), ...(name ? { name } : {}) }, { onConflict: "account_id,phone" })
     .select("id, opted_out").single();
   if (custErr) return { queued: false, reason: custErr.message };
   if (customer.opted_out) return { queued: false, reason: "ten numer wypisał się (STOP) - nie wyślemy" };
@@ -187,6 +219,7 @@ export async function placesSearchText(query: string) {
       "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount",
     },
     body: JSON.stringify({ textQuery: query, languageCode: "pl", regionCode: "PL" }),
+    signal: withTimeout(),
   });
   if (!res.ok) throw new Error(`Places searchText HTTP ${res.status}: ${await res.text()}`);
   return (await res.json()).places ?? [];
@@ -195,7 +228,7 @@ export async function placesSearchText(query: string) {
 export async function placesDetails(placeId: string, fields = "rating,userRatingCount") {
   const res = await fetch(
     `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`,
-    { headers: { "X-Goog-Api-Key": PLACES_KEY(), "X-Goog-FieldMask": fields } },
+    { headers: { "X-Goog-Api-Key": PLACES_KEY(), "X-Goog-FieldMask": fields }, signal: withTimeout() },
   );
   if (!res.ok) throw new Error(`Places details HTTP ${res.status}: ${await res.text()}`);
   return await res.json();

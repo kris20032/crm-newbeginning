@@ -3,7 +3,7 @@
 > Wklej to jako pierwsze zadanie po `/model fable` (effort **high**, nie ultra). Pracujesz na gałęzi `feat/opinie-google` w repo `crm-newbeginning`. Cały kontekst produktu: `docs/PRD-opinie-google.md` + `docs/BLUEPRINT-opinie-google.md`. Schemat i RLS napisał Opus — Twoje pierwsze zadanie to je **rozwalić i naprawić**, potem budować.
 
 ## Kontekst w jednym akapicie
-Budujemy wieloklientowy (multi-tenant) system „Opinie Google" dla lokalnych fachowców. Jeden system, wielu abonentów, **każdy widzi wyłącznie swoje dane**. Izolacja danych to jedyne twarde kryterium. Baza: Supabase (projekt CRM `zngfubfinbojfgaxdrbf`), osobne tabele `og_*`, nie dotykają CRM.
+Budujemy wieloklientowy (multi-tenant) system „Opinie Google" dla lokalnych fachowców. Jeden system, wielu abonentów, **każdy widzi wyłącznie swoje dane**. Izolacja danych to jedyne twarde kryterium. Baza: **OSOBNY projekt Supabase `opinie-google` (ref `uzccwsmzmzcsijddbtzn`)** - NIE projekt CRM (decyzja z audytu izolacji F1). Osobne tabele `og_*`, całkowicie oddzielone od CRM.
 
 ## ZADANIE A — AUDYT IZOLACJI (najpierw, to Twoja przewaga)
 Przejrzyj `opinie-google/db/001_schema.sql` i `002_rls.sql`. Załóż wrogiego użytkownika konta A, który próbuje dobrać się do danych konta B. Sprawdź m.in.:
