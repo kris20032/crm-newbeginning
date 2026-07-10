@@ -23,7 +23,7 @@ Wieloklientowy system zbierania i obsługi opinii Google dla lokalnych fachowcó
 | Kolejka publikacji (`og_publish_queue`) | ✅ LIVE (005) — przetestowana na żywej bazie |
 | Testy: logika (Node) + baza | ✅ 31/31 pure.test + izolacja 14/14 + test Pętli 2 na żywo |
 | Harmonogram cronów (`db/004`) | ✅ szablon (dispatch, snapshot, monitor) — ⏳ przy deployu |
-| **Audyt maszyny (Fable, 10.07)** | ✅ zrobiony - 5 usterek wdrożeniowych znalezionych i zamkniętych |
+| **Audyt maszyny (Fable, 10.07)** | ✅ zrobiony - 44 potwierdzone usterki (1 krytyczna, 10 wysokich); raport: `AUDYT-OPINIE-GOOGLE-FABLE-2026-07-10.md` na Desktopie |
 | **Poprawki po audycie (`db/006` + hardening funkcji + `supabase/config.toml`)** | ✅ na gałęzi `feat/opinie-google` - ⏳ do zaaplikowania przy deployu |
 | Deploy funkcji + klucze (Places, SMSAPI, WhatsApp, Anthropic) | ⏳ ostatni krok przed realnym startem (SETUP Krok 2-4) |
 | Panel + widget (Moduł 5) | ⏳ Opus/Sonnet po 7.07 |
