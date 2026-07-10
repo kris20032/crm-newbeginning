@@ -195,7 +195,32 @@
     "Kliknij, aby edytować": "Click to edit",
     "Kliknij, aby zaplanować follow-up": "Click to schedule a follow-up",
     "notatki, historia rozmów… (kliknij, aby pisać; wklejone linki staną się klikalne)":
-      "notes, call history… (click to type; pasted links become clickable)"
+      "notes, call history… (click to type; pasted links become clickable)",
+    /* uzupełnienie luk EN po diffie z app.js (ES-7, 10.07) - miejsca, których Matheo realnie dotyka */
+    /* błędy logowania / reset hasła */
+    "Błędny e-mail lub hasło.": "Wrong e-mail or password.",
+    "Hasło musi mieć co najmniej 6 znaków.": "Password must be at least 6 characters.",
+    "Nie udało się wysłać linku. Spróbuj jeszcze raz za chwilę.": "Could not send the link. Please try again in a moment.",
+    /* chip / tytuł „demo w budowie" (kluczowe dla czekającego na demo) */
+    "🔨 w budowie": "🔨 being built",
+    "Demo w budowie": "Demo being built",
+    "Demo w budowie — sesja właśnie je robi": "Demo being built - a session is working on it now",
+    /* Archiwum / akcje karty / widok */
+    "Schowano": "Hidden",
+    "Usuń kartę": "Delete card",
+    "Układ widoku": "View layout",
+    /* stany ładowania (panel admina) */
+    "Wczytuję zespół…": "Loading the team…",
+    "Wczytuję role…": "Loading roles…",
+    "Wczytuję ofertę…": "Loading the catalogue…",
+    /* toasty */
+    "Nie udało się przenieść": "Could not move",
+    "Nie udało się usunąć": "Could not delete",
+    "Nie udało się skopiować — zaznacz ręcznie": "Could not copy - select manually",
+    /* checklista realizacji (etykiety WIDOCZNE w DOM; „Płatność:/Materiały:/komplet dotarł" są tylko
+       w eksporcie do schowka - poza zasięgiem nakładki - więc zostają PL celowo) */
+    "pełna kwota": "full amount", "zadatek": "deposit", "inne": "other",
+    "Kopiuj całą checklistę do schowka": "Copy the whole checklist to clipboard"
   };
 
   /* ---------- reguły podłańcuchowe (dla etykiet z doklejoną liczbą/ikoną/nazwą) ----------
@@ -203,6 +228,13 @@
      (stąd wcześniejszy babol "Na dziś" się nie tłumaczyło). Kolejność: najdłuższe/najbardziej
      specyficzne pierwsze. Reguły biją po podłańcuchu, więc łapią "Archiwum 72", "+ Nowa karta" itd. */
   var RULES = [
+    /* reset hasła: komunikat z wklejonym adresem e-mail w środku → tłumacz prefiks i sufiks osobno (ES-7) */
+    [/Sprawdź skrzynkę \(/g, "Check your inbox ("],
+    [/\) - wysłaliśmy link do ustawienia nowego hasła\. Sprawdź też SPAM\./g,
+      ") - we sent a password reset link. Check SPAM too."],
+    /* etykieta cyklu w cenach (waluta zł zostaje - decyzja biznesowa; tłumaczymy tylko „/mies." i „N mies.") */
+    [/zł\/mies\./g, "zł/mo"],
+    [/(\d+)\s+mies\./g, "$1 mo"],
     [/Na dziś \/ zaległe/g, "Today / overdue"],
     [/Na dziś/g, "Today"],
     [/zaległe/g, "overdue"],
