@@ -767,16 +767,38 @@ function wireDragAndDrop() {
   });
 }
 
-// Telefon PL → "+48 XXX XXX XXX" przy wpisywaniu/wklejaniu. Puste zostaje puste (placeholder działa).
-// Wiodące +48 / 0048 / 48 traktuj jak prefiks kraju i odetnij; krajowy numer = 9 cyfr, grupowany po 3.
+// Telefon przy wpisywaniu/wklejaniu. Puste zostaje puste (placeholder działa).
+// - goły numer / 48 / 0048 / +48  -> "+48 XXX XXX XXX" (PL bez zmian),
+// - +34 / 0034                     -> "+34 XXX XXX XXX" (Hiszpania, 9 cyfr po prefiksie),
+// - inny prefiks +XX (00XX)        -> zostaw prefiks, cyfry grupuj po 3 (nie wymuszaj +48).
+// Numer bez "+"/"00" traktujemy jako krajowy PL (tylko wtedy dokładamy +48).
 function formatPhonePL(raw) {
-  let d = String(raw || "").replace(/\D/g, "");
-  if (!d) return "";
-  if (d.startsWith("0048")) d = d.slice(4);
-  else if (d.startsWith("48")) d = d.slice(2);
+  const s = String(raw || "");
+  const hasPlus = s.trim().startsWith("+");
+  const group3 = (x) => (x.match(/.{1,3}/g) || []).join(" ");
+  let d = s.replace(/\D/g, "");
+  if (!d) return hasPlus ? "+" : "";               // sam "+" w trakcie pisania zostaje
+
+  // Międzynarodowy: jawny "+" albo wiodące "00" (00XX... => +XX...).
+  let intl = hasPlus;
+  if (!intl && d.startsWith("00")) { intl = true; d = d.slice(2); }
+
+  if (intl) {
+    // Kod kraju: 48/34 rozpoznajemy wprost, inaczej pierwsze 2 cyfry.
+    let cc, nat;
+    if (d.startsWith("48"))      { cc = "48"; nat = d.slice(2); }
+    else if (d.startsWith("34")) { cc = "34"; nat = d.slice(2); }
+    else                         { cc = d.slice(0, 2); nat = d.slice(2); }
+    if (cc === "48") { nat = nat.slice(0, 9); return nat ? "+48 " + group3(nat) : "+48"; }
+    if (cc === "34")   nat = nat.slice(0, 9);      // ES: 9 cyfr po prefiksie
+    return nat ? "+" + cc + " " + group3(nat) : "+" + cc;
+  }
+
+  // Krajowy PL (goły numer): legacy wiodące "48" traktuj jak prefiks kraju i odetnij.
+  if (d.startsWith("48")) d = d.slice(2);
   if (!d) return "";                               // został sam prefiks (np. po skasowaniu numeru)
   d = d.slice(0, 9);
-  return "+48 " + (d.match(/.{1,3}/g) || []).join(" ");
+  return "+48 " + group3(d);
 }
 
 // Stepper statusu: strzałki ‹ › przesuwają kartę o jeden etap w lejku (te same klucze co select „Status").
