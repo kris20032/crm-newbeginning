@@ -969,6 +969,10 @@ async function openModal(id) {
     state.modalHistoryPushed = true;
     try { history.pushState({ crmModal: true }, ""); } catch {}
   }
+  // Odblokowanie usług przez admina (edycja mimo etapu lejka) dotyczy WYŁĄCZNIE tej jednej karty —
+  // przy przejściu na inną kartę wygaś tryb, żeby nie „przeciekał". Ponowne openModal tej samej karty
+  // (np. przerysowanie po zmianie) tryb zachowuje.
+  if (String(state.adminSvcEditId) !== String(id)) state.adminSvcEditId = null;
   state.openCardId = id;
   state.openCardWasArchived = !!c.deleted_at;   // zapamiętaj, w jakim trybie otwarto (do wykrycia zmiany przez inną osobę)
   // komentarze z pamięci (są utrzymywane na bieżąco: start, dodanie, realtime) — bez osobnego zapytania,
@@ -1032,6 +1036,9 @@ async function openModal(id) {
   // Zakładka Checklista pojawia się tak samo jak Usługi — od etapu „Sprzedaż" (i dla partnera zawsze).
   const lockedIdx = STATUSES.findIndex((s) => s.key === "oferta");
   const svcLocked = stageIdx >= lockedIdx;
+  // Admin może wymusić edycję usług (wybór, ceny, okres) mimo zamrożenia lejka — po kliknięciu
+  // przycisku „Edytuj usługi (admin)" w zakładce Usługi (stan trzymany w state.adminSvcEditId).
+  const svcAdminEdit = svcLocked && isAdminUser() && String(state.adminSvcEditId) === String(c.id);
   const showChecklist = showServices;
 
   const starsHTML = editable
@@ -1087,7 +1094,11 @@ async function openModal(id) {
                  <textarea class="notes" data-key="notes" id="notes-edit" hidden>${esc(c.notes || "")}</textarea>`
               : `<div class="notes-view readonly">${c.notes ? linkify(c.notes) : "—"}</div>`}
           </div>
-          ${showServices ? `<div class="notes-pane services-pane${svcLocked ? " locked" : ""}" id="pane-services" hidden>${servicesHTML(c, editable && !svcLocked)}</div>` : ""}
+          ${showServices ? `<div class="notes-pane services-pane${svcLocked && !svcAdminEdit ? " locked" : ""}${svcAdminEdit ? " admin-edit" : ""}" id="pane-services" hidden>${
+              (svcLocked && isAdminUser())
+                ? `<div class="svc-admin-bar"><button type="button" class="ghost-btn svc-admin-edit-btn${svcAdminEdit ? " on" : ""}" id="svc-admin-edit" title="Odblokowuje edycję usług mimo etapu lejka — widzi tylko admin">${svcAdminEdit ? "🔒 Zablokuj usługi" : "✎ Edytuj usługi (admin)"}</button>${svcAdminEdit ? `<span class="svc-admin-hint">Tryb admina — zmieniasz wybór, ceny i okres mimo etapu lejka.</span>` : ""}</div>`
+                : ""
+            }${servicesHTML(c, (editable && !svcLocked) || svcAdminEdit, svcAdminEdit)}</div>` : ""}
           ${showChecklist ? `<div class="notes-pane checklist-pane" id="pane-checklist" hidden>${checklistHTML(c, editable)}</div>` : ""}
         </div>
 
@@ -1157,8 +1168,10 @@ async function openModal(id) {
     const svcRow = (k) => { c.services = c.services || {}; return (c.services[k] = c.services[k] || {}); };
     document.querySelectorAll("#pane-services .svc-cb").forEach((cb) => cb.addEventListener("change", () => {
       const k = cb.dataset.svc;
-      if (svcRow(k).sold_at) { cb.checked = true; return; }   // sprzedana = nie do odznaczenia (checkbox i tak disabled — pas bezpieczeństwa)
+      if (svcRow(k).sold_at && !svcAdminEdit) { cb.checked = true; return; }   // sprzedana = nie do odznaczenia (checkbox i tak disabled — pas bezpieczeństwa); admin w trybie odblokowanym może
       svcRow(k).on = cb.checked;   // rekomendowaną cenę podpowiada placeholder pola — kwotę handlowiec wpisuje sam
+      // admin cofa sprzedaną usługę → zdejmij też stempel „aktywna" (sold_at), żeby wiersz nie świecił się zielony mimo odznaczenia
+      if (svcAdminEdit && !cb.checked && svcRow(k).sold_at) { delete svcRow(k).sold_at; const it = cb.closest(".svc-item"); if (it) it.classList.remove("sold"); }
       const item = cb.closest(".svc-item"); if (item) item.classList.toggle("on", cb.checked);
       updateSvcTotal(c);
       saveServices(c.id);
@@ -1169,8 +1182,9 @@ async function openModal(id) {
         const raw = inp.value.trim();
         const val = raw === "" ? null : Number(raw);
         // poniżej minimum: pole na czerwono + limit obok, wartości NIE zapisujemy (zostaje ostatnia poprawna)
+        // admin w trybie odblokowanym może zejść poniżej minimum (świadoma korekta) — bramka go nie dotyczy
         const min = svcMin(state.catalog.find((s) => s.key === k));
-        const bad = val != null && !Number.isNaN(val) && min != null && val < min;
+        const bad = !svcAdminEdit && val != null && !Number.isNaN(val) && min != null && val < min;
         const warn = document.querySelector(`#pane-services .svc-min-warn[data-svc="${CSS.escape(k)}"]`);
         inp.classList.toggle("bad", bad);
         if (warn) { warn.hidden = !bad; if (bad) warn.textContent = `minimalnie ${min} zł`; }
@@ -1234,6 +1248,15 @@ async function openModal(id) {
     if (!isAdminUser()) return;                              // pas bezpieczeństwa (przycisk i tak renderuje się tylko adminowi)
     saveField(c.id, "status", "konwersja", { bypassGate: true });
   });
+  // Admin: odblokuj/zablokuj edycję usług mimo etapu lejka — przełącznik przerysowuje kartę w nowym trybie.
+  const svcAdminBtn = document.getElementById("svc-admin-edit");
+  if (svcAdminBtn) svcAdminBtn.addEventListener("click", () => {
+    if (!isAdminUser()) return;                              // pas bezpieczeństwa (przycisk widzi tylko admin)
+    state.adminSvcEditId = (String(state.adminSvcEditId) === String(c.id)) ? null : c.id;
+    openModal(c.id);                                         // przerysuj kartę (DOM budowany synchronicznie)
+    const svcTab = document.getElementById("tab-services");  // wróć na zakładkę Usługi po przerysowaniu
+    if (svcTab) svcTab.click();
+  });
   updateNavButtons();
 }
 
@@ -1294,13 +1317,15 @@ function updateSvcTotal(c) {
 // Jeden wiersz na usługę z katalogu: checkbox + (okres przy monthly) + cena (stała / input handlowca).
 // Usługa z sold_at (sprzedana — patrz markServicesSold) jest TRWALE zielona i zablokowana per-wiersz,
 // niezależnie od etapu karty; pozostałe wiersze podlegają zwykłym regułom (edycja do „Umowa wysłana").
-function servicesHTML(c, editable) {
+// adminOverride = tryb admina (odblokował edycję mimo lejka): edytowalne są wszystkie wiersze,
+// także sprzedane (sold_at), bo admin może korygować omyłkowo domknięte wartości.
+function servicesHTML(c, editable, adminOverride) {
   const sv = c.services || {};
   const cur = (s) => s.billing === "monthly" ? "zł/mies." : "zł";
   const items = servicesForClient(sv).map((s) => {
     const row = sv[s.key] || {};
     const sold = !!row.sold_at;
-    const dis = (editable && !sold) ? "" : "disabled";
+    const dis = (editable && (!sold || adminOverride)) ? "" : "disabled";
     const k = esc(s.key);
     // usługa wycofana z oferty (ukryta), ale na tej karcie zaznaczona — pokaż z dyskretnym dopiskiem
     const retired = s.visible === false ? ` <span class="svc-retired">(wycofana z oferty)</span>` : "";
@@ -1863,6 +1888,7 @@ function teardownModal() {
 // zamknięcie wywołane przez UI (X / Esc / klik w tło / „do archiwum" itp.)
 function closeModal() {
   if ($("#modal-overlay").hidden) return;        // już zamknięte
+  state.adminSvcEditId = null;                    // odblokowanie usług (admin) wygasa przy zamknięciu — każde otwarcie zaczyna zablokowane
   const hadHistory = state.modalHistoryPushed;
   teardownModal();
   // jeśli przy otwarciu dołożyliśmy wpis do historii — zdejmij go, żeby przycisk/gest „wstecz"
@@ -2896,8 +2922,8 @@ const DEMO_CLIENTS = [
   { id: "d3", name: "Hydraulika Nowak", company: "Hydraulika Nowak", phone: "+48 600 100 204", email: "", google_maps: "", quality: "", status: "lead", follow_up: null, owner: "Marceli", notes: "", position: 2000 },
   { id: "d7", name: "Stolarnia Wiór", company: "Stolarnia Wiór", phone: "+48 600 100 203", email: "", google_maps: "", quality: "", status: "lead", follow_up: "2026-06-24", owner: "Krzysztof", notes: "", position: 3000 },
   { id: "d4", name: "Salon Bella", company: "Salon Fryzjerski Bella", phone: "+48 600 100 206", email: "", google_maps: "", quality: "", status: "umowiony", follow_up: "2026-06-25", owner: "Szymon", opiekun: "Krzysztof", notes: "Spotkanie czwartek 17:00.", position: 1000 },
-  { id: "d5", name: "Kwiaciarnia Storczyk", company: "Kwiaciarnia Storczyk", phone: "+48 600 100 208", email: "", google_maps: "", quality: "", status: "oferta", follow_up: "2026-06-27", owner: "Piotr", notes: "Wysłana oferta.", position: 1000 },
-  { id: "d6", name: "Fit Klub Active", company: "Fit Klub Active", phone: "+48 600 100 209", email: "", google_maps: "", quality: "", status: "konwersja", follow_up: null, owner: "Krzysztof", notes: "PODPISANE.", position: 1000 },
+  { id: "d5", name: "Kwiaciarnia Storczyk", company: "Kwiaciarnia Storczyk", phone: "+48 600 100 208", email: "", google_maps: "", quality: "", status: "oferta", follow_up: "2026-06-27", owner: "Piotr", notes: "Wysłana oferta.", position: 1000, services: { strona: { on: true, price: 3500 } } },
+  { id: "d6", name: "Fit Klub Active", company: "Fit Klub Active", phone: "+48 600 100 209", email: "", google_maps: "", quality: "", status: "konwersja", follow_up: null, owner: "Krzysztof", notes: "PODPISANE.", position: 1000, services: { strona: { on: true, price: 4200 }, obsluga: { on: true, period: "1y" } } },
 ];
 const DEMO_COMMENTS = {
   d1: [
