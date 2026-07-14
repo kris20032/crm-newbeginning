@@ -1036,9 +1036,14 @@ async function openModal(id) {
   // Zakładka Checklista pojawia się tak samo jak Usługi — od etapu „Sprzedaż" (i dla partnera zawsze).
   const lockedIdx = STATUSES.findIndex((s) => s.key === "oferta");
   const svcLocked = stageIdx >= lockedIdx;
-  // Admin może wymusić edycję usług (wybór, ceny, okres) mimo zamrożenia lejka — po kliknięciu
-  // przycisku „Edytuj usługi (admin)" w zakładce Usługi (stan trzymany w state.adminSvcEditId).
-  const svcAdminEdit = svcLocked && isAdminUser() && String(state.adminSvcEditId) === String(c.id);
+  // Usługi bywają zablokowane per-wiersz (sold_at — „aktywna") także PRZED „Umowa wysłana": np. partner na
+  // retencji wrócił na „Sprzedaż" ze sprzedanymi usługami. Admin ma móc je odblokować tak samo jak przy
+  // zamrożonym lejku — dlatego przycisk pokazujemy, gdy lejek zamrożony LUB istnieje choć jeden wiersz sprzedany.
+  const svcHasSold = Object.values(c.services || {}).some((r) => r && r.sold_at);
+  const svcAdminLockable = (svcLocked || svcHasSold) && isAdminUser();
+  // Admin może wymusić edycję usług (wybór, ceny, okres) mimo blokad — po kliknięciu przycisku
+  // „Edytuj usługi (admin)" w zakładce Usługi (stan trzymany w state.adminSvcEditId).
+  const svcAdminEdit = svcAdminLockable && String(state.adminSvcEditId) === String(c.id);
   const showChecklist = showServices;
 
   const starsHTML = editable
@@ -1095,8 +1100,8 @@ async function openModal(id) {
               : `<div class="notes-view readonly">${c.notes ? linkify(c.notes) : "—"}</div>`}
           </div>
           ${showServices ? `<div class="notes-pane services-pane${svcLocked && !svcAdminEdit ? " locked" : ""}${svcAdminEdit ? " admin-edit" : ""}" id="pane-services" hidden>${
-              (svcLocked && isAdminUser())
-                ? `<div class="svc-admin-bar"><button type="button" class="ghost-btn svc-admin-edit-btn${svcAdminEdit ? " on" : ""}" id="svc-admin-edit" title="Odblokowuje edycję usług mimo etapu lejka — widzi tylko admin">${svcAdminEdit ? "🔒 Zablokuj usługi" : "✎ Edytuj usługi (admin)"}</button>${svcAdminEdit ? `<span class="svc-admin-hint">Tryb admina — zmieniasz wybór, ceny i okres mimo etapu lejka.</span>` : ""}</div>`
+              svcAdminLockable
+                ? `<div class="svc-admin-bar"><button type="button" class="ghost-btn svc-admin-edit-btn${svcAdminEdit ? " on" : ""}" id="svc-admin-edit" title="Odblokowuje edycję usług (także sprzedanych/„aktywnych") — widzi tylko admin">${svcAdminEdit ? "🔒 Zablokuj usługi" : "✎ Edytuj usługi (admin)"}</button>${svcAdminEdit ? `<span class="svc-admin-hint">Tryb admina — zmieniasz wybór, ceny i okres także dla usług zablokowanych/„aktywnych".</span>` : ""}</div>`
                 : ""
             }${servicesHTML(c, (editable && !svcLocked) || svcAdminEdit, svcAdminEdit)}</div>` : ""}
           ${showChecklist ? `<div class="notes-pane checklist-pane" id="pane-checklist" hidden>${checklistHTML(c, editable)}</div>` : ""}
@@ -2175,8 +2180,9 @@ function stageChangeBlocked(c, targetKey) {
   const from = STATUSES.findIndex((s) => s.key === normStatus(c));
   if (to < 0 || to <= from) return null;
   // KAŻDA reguła pilnuje PRZEKROCZENIA swojego progu (nie strefy) — cofanie zawsze wolne:
-  // 1) próg „Umowa wysłana": wymagana min. 1 zaznaczona usługa
-  if (to >= OFERTA_IDX && from < OFERTA_IDX && !hasSelectedService(c)) return `Najpierw zaznacz usługę w zakładce Usługi — dopiero wtedy karta może przejść na „Umowa wysłana"`;
+  // 1) próg „Umowa wysłana": wymagana min. 1 zaznaczona usługa. Admin pomija tę bramkę — np. karta partnera na
+  //    retencji ma tylko stare sprzedane usługi (sold_at), a admin i tak chce ją przesunąć w lejku.
+  if (to >= OFERTA_IDX && from < OFERTA_IDX && !hasSelectedService(c) && !isAdminUser()) return `Najpierw zaznacz usługę w zakładce Usługi — dopiero wtedy karta może przejść na „Umowa wysłana"`;
   // 2) próg „Umowa podpisana": wyłącznie przycisk „Nadaj token" (bypassGate), nikt ręcznie
   if (to >= SIGNED_IDX && from < SIGNED_IDX) return `Na „Umowa podpisana" karta przechodzi WYŁĄCZNIE przyciskiem „Nadaj token" (widzi go admin na karcie z etapem „Umowa wysłana")`;
   // 3) próg „Checklista gotowa": tylko z KOMPLETNIE wypełnioną checklistą (dotyczy każdego, admina też)
@@ -2922,7 +2928,7 @@ const DEMO_CLIENTS = [
   { id: "d3", name: "Hydraulika Nowak", company: "Hydraulika Nowak", phone: "+48 600 100 204", email: "", google_maps: "", quality: "", status: "lead", follow_up: null, owner: "Marceli", notes: "", position: 2000 },
   { id: "d7", name: "Stolarnia Wiór", company: "Stolarnia Wiór", phone: "+48 600 100 203", email: "", google_maps: "", quality: "", status: "lead", follow_up: "2026-06-24", owner: "Krzysztof", notes: "", position: 3000 },
   { id: "d4", name: "Salon Bella", company: "Salon Fryzjerski Bella", phone: "+48 600 100 206", email: "", google_maps: "", quality: "", status: "umowiony", follow_up: "2026-06-25", owner: "Szymon", opiekun: "Krzysztof", notes: "Spotkanie czwartek 17:00.", position: 1000 },
-  { id: "d5", name: "Kwiaciarnia Storczyk", company: "Kwiaciarnia Storczyk", phone: "+48 600 100 208", email: "", google_maps: "", quality: "", status: "oferta", follow_up: "2026-06-27", owner: "Piotr", notes: "Wysłana oferta.", position: 1000, services: { strona: { on: true, price: 3500 } } },
+  { id: "d5", name: "Kwiaciarnia Storczyk", company: "Kwiaciarnia Storczyk", phone: "+48 600 100 208", email: "", google_maps: "", quality: "", status: "po_spotkaniu", follow_up: "2026-06-27", owner: "Krzysztof", notes: "Partner na retencji — wrócił na Sprzedaż ze sprzedaną stroną.", position: 1000, partner_since: "2026-06-15T10:00:00Z", services: { strona: { on: true, price: 3500, sold_at: "2026-06-15T10:00:00Z" } } },
   { id: "d6", name: "Fit Klub Active", company: "Fit Klub Active", phone: "+48 600 100 209", email: "", google_maps: "", quality: "", status: "konwersja", follow_up: null, owner: "Krzysztof", notes: "PODPISANE.", position: 1000, services: { strona: { on: true, price: 4200 }, obsluga: { on: true, period: "1y" } } },
 ];
 const DEMO_COMMENTS = {
