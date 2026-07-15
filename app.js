@@ -175,9 +175,17 @@ const api = {
 
   async getAllComments() {
     if (!LIVE) return structuredClone(DEMO_COMMENTS);
-    const { data, error } = await sb.from("comments").select("*").order("created_at", { ascending: true });
-    if (error) throw error;
-    const by = {}; (data || []).forEach((c) => { (by[c.client_id] = by[c.client_id] || []).push(c); }); return by;
+    // UWAGA: PostgREST zwraca max 1000 wierszy na zapytanie. Przy >1000 komentarzy w bazie
+    // pojedynczy select ucinał najnowsze wiersze (sort rosnący) → nowe komentarze "znikały"
+    // po każdym przeładowaniu. Dlatego pobieramy WSZYSTKO stronami po 1000 aż do wyczerpania.
+    const PAGE = 1000; const all = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await sb.from("comments").select("*").order("created_at", { ascending: true }).range(from, from + PAGE - 1);
+      if (error) throw error;
+      const rows = data || []; all.push(...rows);
+      if (rows.length < PAGE) break;                          // ostatnia (niepełna) strona → koniec
+    }
+    const by = {}; all.forEach((c) => { (by[c.client_id] = by[c.client_id] || []).push(c); }); return by;
   },
   async getComments(clientId) {
     // DEMO: źródłem prawdy jest bieżący stan (addComment dopisuje tam) — seedy tylko przed pierwszym załadowaniem.
