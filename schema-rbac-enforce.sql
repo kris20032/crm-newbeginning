@@ -209,6 +209,7 @@ begin
   -- PROGI (tylko gdy karta idzie W PRZÓD ponad próg) — twardo, bo to celowe obejście:
   if n > o then
     if n >= public.stage_rank('oferta') and o < public.stage_rank('oferta')
+       and not is_admin
        and not exists (select 1 from jsonb_each(nsv) e
                        where coalesce((e.value->>'on')::boolean, false)
                          and (e.value->>'sold_at') is null) then
@@ -239,14 +240,15 @@ begin
     end if;
   end if;
 
-  -- SOLD_AT: raz ostemplowana usługa jest niezmienialna i nie do odznaczenia
-  -- (chyba że „partners.revoke" — zdejmowanie tokena czyści też stemple).
-  if tg_op = 'UPDATE' and not (select public.authorize('partners.revoke')) then
+  -- SOLD_AT: raz ostemplowana usługa jest dla NIE-admina W CAŁOŚCI niezmienialna — nie do odznaczenia,
+  -- nie do zmiany sold_at, ORAZ nie do zmiany ceny/okresu (wcześniej pilnowaliśmy tylko sold_at +
+  -- odznaczenia, więc cenę dało się podmienić PATCH-em przez REST — to była dziura). ADMIN (lub rola
+  -- z „partners.revoke") edytuje sprzedane usługi bez ograniczeń — stąd przycisk „Edytuj usługi (admin)".
+  if tg_op = 'UPDATE' and not is_admin and not (select public.authorize('partners.revoke')) then
     for k in select jsonb_object_keys(osv) loop
       if (osv->k->>'sold_at') is not null
-         and ( (nsv->k->>'sold_at') is distinct from (osv->k->>'sold_at')
-               or not coalesce((nsv->k->>'on')::boolean, false) ) then
-        nsv := jsonb_set(nsv, array[k], (osv->k));           -- cicho przywróć sprzedany wiersz
+         and (nsv->k) is distinct from (osv->k) then
+        nsv := jsonb_set(nsv, array[k], (osv->k));           -- cicho przywróć CAŁY sprzedany wiersz
       end if;
     end loop;
     new.services := nsv;
