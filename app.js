@@ -1697,9 +1697,13 @@ function wireComposer(clientId) {
     if (!body) return;
     inp.value = ""; pop.hidden = true; syncHL();
     try {
-      await api.addComment(clientId, body);
-      const fresh = await api.getComments(clientId);
-      state.commentsByClient[clientId] = fresh;
+      // dopisz WIERSZ zwrócony przez insert (RETURNING) — bez ponownego SELECT-a.
+      // (Re-fetch tuż po zapisie bywał spóźniony o jeden komentarz: świeży wiersz nie zdążył
+      //  wejść do odczytu → feed renderował listę bez niego, „znikał" do następnej wiadomości.)
+      const arr = state.commentsByClient[clientId] = state.commentsByClient[clientId] || [];
+      const before = arr.length;
+      const row = await api.addComment(clientId, body);
+      if (arr.length === before && row) arr.push(row);          // live: addComment nie dopisuje lokalnie → dopisz zwrócony wiersz
       refreshFeed(clientId);
       updateCardInPlace(c);                                     // tylko chip 💬, bez przebudowy tablicy
     } catch (err) { console.error(err); toast("Nie udało się dodać komentarza"); }
