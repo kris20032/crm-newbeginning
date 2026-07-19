@@ -83,6 +83,7 @@ const state = {
   catalog: [],              // katalog usług (service_catalog) — jedyne źródło prawdy zakładki „Usługi" i panelu „Oferta"
   catalogReady: false,      // czy backend katalogu (schema-uslugi.sql) jest wdrożony; false = tryb zgodności (wbudowane 2 usługi)
   catalogAt: 0,             // kiedy ostatnio wczytano katalog (throttle w refreshData — jak RBAC)
+  mobileStage: null,        // MOBILE: aktywny etap lejka (na telefonie tablica pokazuje JEDEN etap naraz)
 };
 
 /* ---------- Panel zespołu: czyje karty widać (domyślnie tylko moje) ---------- */
@@ -566,11 +567,72 @@ function visibleClients() {
     String(a.name || "").localeCompare(String(b.name || ""), "pl"));
 }
 
+/* ---------- MOBILE: tablica pokazuje JEDEN etap naraz ----------
+   Na telefonie 9 wąskich kolumn obok siebie jest nieużywalne — zamiast tego
+   pasek etapów (chipy z licznikami) + karty aktywnego etapu na pełną szerokość.
+   Zmiana etapu: tap w chip albo swipe w bok po liście kart. Desktop bez zmian. */
+function isMobileView() { return window.matchMedia("(max-width: 700px)").matches; }
+function mobileStageKey() {
+  if (state.mobileStage == null) { try { state.mobileStage = localStorage.getItem("crm.mstage"); } catch {} }
+  const k = state.mobileStage;
+  return STATUSES.some((s) => s.key === k) ? k : STATUSES[0].key;
+}
+function setMobileStage(key) {
+  if (!STATUSES.some((s) => s.key === key)) return;
+  state.mobileStage = key;
+  try { localStorage.setItem("crm.mstage", key); } catch {}
+  const board = $("#board");
+  board.querySelectorAll(".column").forEach((col) => col.classList.toggle("m-on", col.dataset.status === key));
+  board.querySelectorAll(".m-chip").forEach((ch) => {
+    const on = ch.dataset.status === key;
+    ch.classList.toggle("on", on);
+    const s = statusOf(ch.dataset.status);
+    ch.style.background = on ? s.bg : ""; ch.style.color = on ? s.fg : "";
+    if (on) { try { ch.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" }); } catch {} }
+  });
+}
+function renderMobileStageBar(board, list) {
+  const cur = mobileStageKey();
+  const bar = document.createElement("div");
+  bar.className = "m-stagebar";
+  bar.innerHTML = STATUSES.map((s) => {
+    const n = list.filter((c) => normStatus(c) === s.key).length;
+    const on = s.key === cur;
+    return `<button type="button" class="m-chip${on ? " on" : ""}" data-status="${s.key}"${on ? ` style="background:${s.bg};color:${s.fg}"` : ""}><span class="dot" style="background:${s.dot}"></span>${esc(s.label)}<span class="m-cnt">${n}</span></button>`;
+  }).join("");
+  board.prepend(bar);
+  bar.querySelectorAll(".m-chip").forEach((ch) => ch.addEventListener("click", () => setMobileStage(ch.dataset.status)));
+  board.querySelectorAll(".column").forEach((col) => col.classList.toggle("m-on", col.dataset.status === cur));
+  const on = bar.querySelector(".m-chip.on");
+  if (on) { try { on.scrollIntoView({ inline: "center", block: "nearest" }); } catch {} }
+  // SWIPE w bok = poprzedni/następny etap (raz na element #board — przeżywa przebudowy innerHTML).
+  // Ignorujemy przesunięcia pionowe (scroll listy) i gesty zaczęte na samym pasku chipów (on ma własny scroll).
+  if (!state._swipeWired) {
+    state._swipeWired = true;
+    let sx = 0, sy = 0, ok = false;
+    board.addEventListener("touchstart", (e) => {
+      ok = isMobileView() && board.classList.contains("m-one") && !e.target.closest(".m-stagebar");
+      const t = e.touches[0]; sx = t.clientX; sy = t.clientY;
+    }, { passive: true });
+    board.addEventListener("touchend", (e) => {
+      if (!ok) return; ok = false;
+      const t = e.changedTouches[0]; const dx = t.clientX - sx, dy = t.clientY - sy;
+      if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 2) return;
+      const idx = STATUSES.findIndex((s) => s.key === mobileStageKey());
+      const next = idx + (dx < 0 ? 1 : -1);
+      if (next >= 0 && next < STATUSES.length) setMobileStage(STATUSES[next].key);
+    }, { passive: true });
+    // tel: na kafelku — nie otwieraj karty przy tapnięciu w numer (capture wyprzedza listener kafelka)
+    board.addEventListener("click", (e) => { if (e.target.closest && e.target.closest(".chip-tel")) e.stopPropagation(); }, true);
+  }
+}
+
 function renderBoard() {
   const board = $("#board");
   const tableMode = state.layout === "table" && state.viewMode !== "archive";
   const isArchive = state.viewMode === "archive";
   board.classList.toggle("board-table", tableMode || isArchive);   // Archiwum też jako tabela
+  board.classList.toggle("m-one", isMobileView() && !tableMode && !isArchive);   // MOBILE: jeden etap naraz
   // FLIP (mierzenie pozycji + animacja) TYLKO gdy karty realnie się przestawiają (drag / zmiana etapu / nowa / usunięta).
   // Przy realtime i wyszukiwarce pomijamy — zero wymuszonych reflow = zero laga.
   const animate = !tableMode && !isArchive && !reduceMotion() && (state.skipFlipId || state.animateNextRender);
@@ -607,6 +669,8 @@ function renderBoard() {
       </div>
     </section>`;
   }).join("");
+
+  if (board.classList.contains("m-one")) renderMobileStageBar(board, list);   // MOBILE: pasek etapów + aktywna kolumna
 
   board.querySelectorAll(".card").forEach((el) => el.addEventListener("click", () => openModal(el.dataset.id)));
   board.querySelectorAll(".add-card-btn, .add-card").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); newCard(el.dataset.status); }));
@@ -680,7 +744,7 @@ function renderCardInner(c) {
   const starsHtml = stars ? `<span class="card-stars" title="Ocena ${stars}/3">${"★".repeat(stars)}</span>` : "";
   return `<div class="card-title"><span class="card-ic">👤</span>${esc(c.name)}${partnerMark(c)}${starsHtml}</div>
     ${c.company ? `<div class="card-company">${esc(c.company)}</div>` : ""}
-    <div class="card-meta">${c.phone ? `<span class="chip">📞 ${esc(c.phone)}</span>` : ""}</div>
+    <div class="card-meta">${c.phone ? `<a class="chip chip-tel" href="tel:${esc(String(c.phone).replace(/[^+\d]/g, ""))}">📞 ${esc(c.phone)}</a>` : ""}</div>
     <div class="card-foot">
       ${(c.follow_up && !c.follow_up_done) ? `<span class="chip ${ds ? "chip-" + ds : ""}" title="Follow-up">📅 ${esc(fmtFollow(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>` : ""}
       ${cnt ? `<span class="chip">💬 ${cnt}</span>` : ""}
@@ -1076,7 +1140,7 @@ async function openModal(id) {
         <div class="cm-props">
           <div class="cm-group">
             ${cmRow("firma", "Firma", editable ? `<input data-key="company" value="${esc(c.company || "")}" placeholder="Firma" />` : `<div class="prop-value readonly">${esc(c.company) || "—"}</div>`)}
-            ${cmRow("telefon", "Telefon", editable ? `<input data-key="phone" inputmode="tel" value="${esc(c.phone || "")}" placeholder="Telefon" />` : `<div class="prop-value readonly">${esc(c.phone) || "—"}</div>`)}
+            ${cmRow("telefon", "Telefon", `${editable ? `<input data-key="phone" inputmode="tel" value="${esc(c.phone || "")}" placeholder="Telefon" />` : `<div class="prop-value readonly">${esc(c.phone) || "—"}</div>`}${(c.phone || "").trim() ? `<a class="maps-btn m-only" href="tel:${esc(String(c.phone).replace(/[^+\d]/g, ""))}" title="Zadzwoń">📞 Zadzwoń</a>` : ""}`, "maps-cell")}
             ${cmRow("email", "Email", editable ? `<input data-key="email" value="${esc(c.email || "")}" placeholder="Email" />` : `<div class="prop-value readonly">${esc(c.email) || "—"}</div>`)}
             ${cmRow("maps", "Google Maps", `${editable
                   ? `<input data-key="google_maps" id="maps-input" value="${esc(c.google_maps || "")}" placeholder="Google Maps" />`
@@ -1133,6 +1197,26 @@ async function openModal(id) {
   `;
   $(".modal").classList.add("modal-full");       // główna karta = pełny ekran (Kosz/proste zostają małe)
   $("#modal-overlay").hidden = false;
+
+  // MOBILE: na wąskim ekranie dane karty i czat nie mieszczą się naraz — przełącznik Karta / Czat
+  // (dwie pełnoekranowe zakładki zamiast ściśniętych paneli). Desktop: dwie kolumny jak dotąd.
+  if (isMobileView()) {
+    const cm = document.querySelector("#modal-body .cm");
+    if (cm) {
+      const cnt = comments.length;
+      const mbar = document.createElement("div");
+      mbar.className = "cm-mtabs";
+      mbar.innerHTML = `<button type="button" class="cm-mtab on" data-pane="card">Karta</button>
+        <button type="button" class="cm-mtab" data-pane="chat">Czat${cnt ? ` <span class="m-cnt">${cnt}</span>` : ""}</button>`;
+      cm.prepend(mbar);
+      mbar.querySelectorAll(".cm-mtab").forEach((b) => b.addEventListener("click", () => {
+        mbar.querySelectorAll(".cm-mtab").forEach((x) => x.classList.toggle("on", x === b));
+        cm.classList.toggle("chat-on", b.dataset.pane === "chat");
+        // po wejściu w czat przewiń na najnowsze komentarze
+        if (b.dataset.pane === "chat") { const w = $("#comments-wrap"); if (w) w.scrollTop = w.scrollHeight; }
+      }));
+    }
+  }
 
   // Linki (Google Maps / Demo): jedno kliknięcie otwiera + przycisk kopiowania (jak w Notion)
   const wireLink = (openId, copyId, inputId, rawVal) => {
@@ -2772,7 +2856,10 @@ function wireChrome() {
     if (state.section === "klienci") { state.klienciSearch = s.value; renderKlienciRows(); }
     else if (state.section === "sprzedaz") { state.search = s.value; renderBoardDeb(); }   // panel admina nie używa szukajki
   });
-  const nb = $("#new-card-btn"); if (nb) nb.addEventListener("click", () => newCard("lead"));
+  // na telefonie „＋" dodaje kartę do AKTUALNIE oglądanego etapu (desktop: zawsze Lead, jak dotąd)
+  const nb = $("#new-card-btn"); if (nb) nb.addEventListener("click", () => newCard(isMobileView() ? mobileStageKey() : "lead"));
+  // zmiana szerokości ekranu (obrót telefonu / zwężenie okna) → przełącz tablicę desktop↔mobile
+  try { window.matchMedia("(max-width: 700px)").addEventListener("change", () => { renderTabs(); renderBoard(); }); } catch {}
   // Rozwijane menu w topbarze: Konto (ludzik) i Sekcje (hamburger)
   const toggleMenu = (btnSel, menuSel) => {
     const btn = $(btnSel), menu = $(menuSel);

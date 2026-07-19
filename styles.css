@@ -544,22 +544,7 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
   .modal.modal-full .cm-right .fu-bar + .comments-wrap { padding-top: 12px; }
 }
 
-/* ===== Mobile ===== */
-@media (max-width: 640px) {
-  .board { height: auto; }
-  .column { flex-basis: 84vw; }
-  .modal { padding: 30px 20px 24px; }
-  .props { grid-template-columns: 1fr; }
-  .prop-label { padding-bottom: 0; }
-  .topbar { flex-wrap: wrap; gap: 8px; }
-  .topbar-center { order: 3; flex-basis: 100%; padding: 0; }
-  .board { scroll-snap-type: x mandatory; }
-  .column { scroll-snap-align: start; }
-  /* pasek widoków + panel zespołu: na wąskim ekranie panel spada pod taby (zero poziomego scrolla strony) */
-  .tabs { flex-wrap: wrap; }
-  .owner-panel { width: 100%; padding-bottom: 8px; }
-  .owner-pop { left: 0; right: auto; }
-}
+/* ===== Mobile: KOMPLETNY redesign w bloku „📱 MOBILE" na KOŃCU pliku (2026-07-19) ===== */
 
 /* ===== v2: wyszukiwarka, nowa karta, demo, @mention, toast ===== */
 .topbar-center { flex: 1; display: flex; justify-content: center; padding: 0 16px; }
@@ -690,3 +675,118 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 /* pola liczbowe bez strzałek — ten sam wzorzec co .svc-price-input na karcie */
 .admin-field input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 .admin-field input[type="number"]::-webkit-outer-spin-button, .admin-field input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* ============================================================
+   📱 MOBILE (≤700px) — kompletny redesign na telefon (2026-07-19)
+   Zasada: desktop NIETKNIĘTY (wszystko w tym media query).
+   Tablica = JEDEN etap naraz (pasek chipów + swipe — logika w app.js:
+   renderMobileStageBar/setMobileStage), karta klienta = zakładki
+   Karta/Czat (cm-mtabs w openModal), pola dotykowe ≥44px,
+   inputy 16px (iOS przestaje przybliżać ekran przy tapnięciu w pole).
+   ============================================================ */
+.m-only { display: none; }                    /* elementy tylko-mobilne (np. „📞 Zadzwoń" na karcie) */
+/* desktop: numer na kafelku wygląda jak dotąd, tap w niego = klik w kafelek (link nieaktywny) */
+.chip-tel { color: inherit; text-decoration: none; pointer-events: none; }
+
+@media (max-width: 700px) {
+  .m-only { display: inline-flex; align-items: center; text-decoration: none; }
+  /* telefon KLIKALNY: tap w numer na kafelku = dzwonienie (capture w app.js nie otwiera wtedy karty) */
+  .chip-tel { pointer-events: auto; color: var(--accent); font-weight: 600; padding: 3px 0; }
+
+  /* ---- Topbar: zwarty; szukajka w osobnym wierszu na pełną szerokość ---- */
+  .topbar { flex-wrap: wrap; gap: 8px 10px; padding: 10px 14px; }
+  .logo-sub { display: none; }
+  .topbar-center { order: 3; flex-basis: 100%; padding: 0; }
+  .search { max-width: none; padding: 10px 14px; border-radius: 10px; }
+  .topbar-right { gap: 8px; margin-left: auto; }
+
+  /* „+ Nowa karta" = pływający okrągły przycisk na dole po prawej (pod kciukiem);
+     na telefonie dodaje kartę do AKTUALNIE oglądanego etapu (app.js) */
+  #new-card-btn { position: fixed; right: 16px; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); z-index: 40;
+    width: 58px; height: 58px; border-radius: 50%; padding: 0; font-size: 0;
+    box-shadow: 0 6px 20px rgba(35,131,226,.45); display: flex; align-items: center; justify-content: center; }
+  #new-card-btn::after { content: "＋"; font-size: 27px; font-weight: 500; line-height: 1; }
+
+  /* ---- Pasek widoków: jeden przewijany wiersz (bez zawijania) ---- */
+  .tabs { flex-wrap: nowrap; align-items: center; gap: 8px; padding: 4px 12px 0; }
+  .tab { padding: 10px 10px 12px; font-size: 13px; }
+  .vs-btn span { display: none; }
+  .vs-btn { padding: 7px 9px; }
+  .owner-toggle { padding: 8px 10px; }
+  .owner-pop { max-width: calc(100vw - 24px); }
+
+  /* ---- Tablica: JEDEN etap naraz ---- */
+  .board.m-one { display: block; height: auto; overflow: visible; padding: 0 12px calc(96px + env(safe-area-inset-bottom, 0px)); }
+  .m-stagebar { position: sticky; top: 0; z-index: 5; display: flex; gap: 6px; overflow-x: auto;
+    padding: 10px 2px; margin: 0 -4px; background: var(--bg); -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .m-stagebar::-webkit-scrollbar { display: none; }
+  .m-chip { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; border: 1px solid var(--line-strong);
+    background: var(--panel); color: var(--ink-soft); border-radius: 999px; padding: 9px 13px; font-size: 13px;
+    font-weight: 600; font-family: inherit; cursor: pointer; white-space: nowrap; }
+  .m-chip .m-cnt { font-weight: 600; opacity: .65; font-size: 12px; }
+  .m-chip.on { border-color: transparent; }
+  .board.m-one .column { display: none; }
+  .board.m-one .column.m-on { display: flex; width: 100%; flex-basis: auto; }
+  .board.m-one .col-inner { padding: 6px 10px 12px; }
+  .board.m-one .column-head { display: none; }   /* etap+licznik już pokazuje aktywny chip */
+  .board.m-one .cards { gap: 10px; }
+  .board.m-one .card { padding: 14px 15px; border-radius: 12px; }
+  .board.m-one .card-title { font-size: 15px; }
+  .board.m-one .card-company { font-size: 13.5px; }
+  .board.m-one .card-meta { font-size: 13.5px; }
+  .board.m-one .card-foot { font-size: 12.5px; flex-wrap: wrap; }
+  .board.m-one .add-card-btn { padding: 13px 14px; font-size: 14px; }
+
+  /* ---- Widok tabeli / Archiwum: tabela przewija się w poziomie WEWNĄTRZ ramki ---- */
+  .board.board-table { padding: 12px 12px 90px; }
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* ---- Karta klienta: pełny ekran + zakładki Karta / Czat ---- */
+  .modal.modal-full { height: 100dvh; max-height: 100dvh; }
+  .modal.modal-full #modal-body { display: block; }
+  .cm { display: flex; flex-direction: column; height: 100dvh; max-width: none; box-shadow: none; }
+  .cm-mtabs { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; padding: 10px 118px 8px 12px;
+    border-bottom: 1px solid var(--line); background: var(--panel); }
+  .cm-mtab { flex: 0 0 auto; border: 1px solid var(--line-strong); background: var(--bg); color: var(--ink-soft);
+    font-family: inherit; font-size: 13.5px; font-weight: 600; border-radius: 999px; padding: 8px 16px; cursor: pointer; }
+  .cm-mtab.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .cm-mtab .m-cnt { opacity: .75; }
+  .modal.modal-full .modal-actions { top: 9px; right: 10px; }
+
+  /* domyślnie widać KARTĘ (dane) na pełną wysokość; czat po tapnięciu w zakładkę */
+  .cm-left { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 14px 16px calc(24px + env(safe-area-inset-bottom, 0px)); }
+  .cm-right { display: none; }
+  .cm.chat-on .cm-left { display: none; }
+  .cm.chat-on .cm-right { display: flex; flex: 1 1 auto; min-height: 0; max-height: none; border-top: none; border-left: none; }
+  .cm.chat-on .cm-right .fu-bar { margin: 12px 12px 0; }
+  .cm.chat-on .cm-right .fu-bar + .comments-wrap { padding-top: 12px; }
+  .cm.chat-on .cm-right .comments-wrap { padding: 12px 14px 4px; }
+  .cm-right .composer { padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .add-comment button { min-height: 44px; }
+
+  /* nagłówek karty: imię na całą szerokość, stepper etapu pod spodem na 100% */
+  .cm-head { gap: 10px; }
+  .cm-head .cm-name-wrap { flex: 1 1 100%; }
+  .cm-name { font-size: 18px; }
+  .modal.modal-full input.title-input.cm-name { font-size: 18px; }
+  .cm-stage { display: flex; width: 100%; }
+  .cm-stage .stage-select { min-width: 0; flex: 1 1 auto; }
+  .stage-arrow { width: 44px; }
+  .cm-props { margin: 14px 0 4px; }
+  .cm-row { min-height: 44px; }
+  .cm-row .v .maps-btn, .cm-row .v .ghost-btn { padding: 8px 12px; }
+
+  /* iOS: pole z fontem <16px = automatyczny zoom przy tapnięciu → wymuś 16px wszędzie */
+  input, select, textarea { font-size: 16px !important; }
+
+  /* mały modal (Archiwum / dialogi) */
+  .modal:not(.modal-full) { padding: 26px 18px 22px; }
+  .props { grid-template-columns: 1fr; }
+  .prop-label { padding-bottom: 0; }
+
+  /* powiadomienia: panel na (prawie) całą szerokość ekranu */
+  .notif-panel { position: fixed; left: 10px; right: 10px; top: 62px; width: auto; max-width: none; }
+
+  /* sekcje: Baza partnerów / Panel admina */
+  .section-view { padding: 16px 12px 60px; }
+}

@@ -105,6 +105,8 @@
     "Umowa wysłana": "Contract sent", "Umowa podpisana": "Contract signed",
     "Checklista gotowa": "Checklist ready", "W trakcie realizacji": "In progress",
     "Realizacja ukończona": "Completed",
+    /* mobile: zakładki karty klienta + przycisk dzwonienia */
+    "Karta": "Card", "Czat": "Chat", "📞 Zadzwoń": "📞 Call",
     /* zakładki / widoki */
     "Wszyscy": "Everyone", "Wszystkie": "All", "Moje": "Mine", "Na dziś": "Today",
     "Archiwum": "Archive", "Kosz": "Trash", "Zespół": "Team",
