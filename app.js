@@ -321,6 +321,24 @@ const api = {
     holdRefresh();
   },
 
+  /* ---- Umowy (tabela contracts + prywatny bucket 'umowy'; patrz schema-umowy.sql) ----
+     Odporne na brak wdrożenia: gdy tabeli nie ma (42P01), karta pokazuje sam
+     przycisk „Stwórz umowę” zamiast się wywalić. */
+  async getContracts(clientId) {
+    if (!LIVE) return [];
+    const { data, error } = await sb.from("contracts")
+      .select("id,status,pdf_path,error_msg,created_by,created_at,kwota_strona,kwota_abon,abonament")
+      .eq("client_id", clientId).order("created_at", { ascending: false });
+    if (error) { if (error.code === "42P01") return []; throw error; }
+    return data || [];
+  },
+  // Plik leży w prywatnym buckecie — do pobrania trzeba wystawić czasowy link (1 h).
+  async contractUrl(path) {
+    const { data, error } = await sb.storage.from("umowy").createSignedUrl(path, 3600);
+    if (error) throw error;
+    return data.signedUrl;
+  },
+
   async subscribe(onChange) {
     if (!LIVE) return;
     // utrzymuj ŚWIEŻY token na sokecie realtime (sesja wygasa ~1h i jest cicho odświeżana,
@@ -408,6 +426,43 @@ function demoFieldHTML(c, editable) {
     <button type="button" class="maps-btn" id="demo-add" title="Wklej gotowy link do dema">link</button>
     <input data-key="demo_url" id="demo-input" class="demo-input" value="" placeholder="wklej link do dema" hidden />`;
 }
+/* Pole „Umowa” na karcie — dociągane po otwarciu modala (osobne zapytanie, żeby
+   nie opóźniać pokazania karty). Gotowe umowy są linkami do PDF-a; link do
+   prywatnego pliku wystawiamy DOPIERO na kliknięcie, bo ważny jest godzinę. */
+async function wypelnijUmowy(c, editable) {
+  const cell = $("#umowa-cell");
+  if (!cell) return;
+  const nowa = (editable && can("contracts.create"))
+    ? `<a class="ghost-btn umowa-new" href="umowa.html?client=${encodeURIComponent(c.id)}">Stwórz umowę</a>`
+    : "";
+  let lista = [];
+  try { lista = await api.getContracts(c.id); }
+  catch (e) { console.error("getContracts", e); }
+  if (String(state.openCardId) !== String(c.id)) return;   // w międzyczasie przeskoczono na inną kartę
+
+  if (!lista.length) { cell.innerHTML = nowa || `<span class="readonly">—</span>`; return; }
+
+  const pozycje = lista.map((u) => {
+    const kiedy = fmtDateTime(u.created_at);
+    if (u.status === "ready" && u.pdf_path) {
+      return `<button type="button" class="umowa-dl" data-path="${esc(u.pdf_path)}" title="Umowa z ${esc(kiedy)} — ${esc(u.created_by)}">umowa ${esc(kiedy)}</button>`;
+    }
+    if (u.status === "error") {
+      return `<span class="umowa-bad" title="${esc(u.error_msg || "")}">umowa ${esc(kiedy)} — nie wyszła</span>`;
+    }
+    return `<span class="umowa-wait">umowa ${esc(kiedy)} — składa się…</span>`;
+  });
+  cell.innerHTML = pozycje.join(`<span class="umowa-sep">·</span>`) + (nowa ? ` ${nowa}` : "");
+
+  cell.querySelectorAll(".umowa-dl").forEach((b) => b.addEventListener("click", async () => {
+    const stary = b.textContent;
+    b.textContent = "otwieram…";
+    try { window.open(await api.contractUrl(b.dataset.path), "_blank", "noopener"); }
+    catch (e) { console.error("contractUrl", e); toast("Nie udało się otworzyć pliku umowy"); }
+    b.textContent = stary;
+  }));
+}
+
 const reduceMotion = () => { try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
 // FLIP: płynne przestawianie kart (rejestruj pozycje przed przerysowaniem, animuj po)
 function flipAnimate(board, prevRects) {
@@ -1021,6 +1076,7 @@ const CARD_ICON = {
   opiekun:    `<svg ${CI_ATTRS}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>`,
   followup:   `<svg ${CI_ATTRS}><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`,
   demo:       `<svg ${CI_ATTRS}><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`,
+  umowa:      `<svg ${CI_ATTRS}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg>`,
 };
 // odznaka z ptaszkiem — wiersz „Nadaj token" na karcie (admin, etap „Umowa wysłana")
 const BADGE_CHECK_ICON = `<svg ${CI_ATTRS}><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></svg>`;
@@ -1153,6 +1209,7 @@ async function openModal(id) {
             ${cmRow("handlowiec", "Handlowiec", ownerSelect)}
             ${cmRow("opiekun", "Opiekun", opiekunSelect)}
             ${cmRow("demo", "Demo", demoFieldHTML(c, editable), "demo-cell maps-cell", "demo-cell")}
+            ${cmRow("umowa", "Umowa", `<span class="readonly">…</span>`, "umowa-cell maps-cell", "umowa-cell")}
             ${(editable && isAdminUser() && stageIdx >= lockedIdx && stageIdx < SIGNED_IDX)
               ? `<div class="cm-row"><span class="k" title="Token partnera" aria-label="Token partnera">${BADGE_CHECK_ICON}</span><div class="v"><button type="button" class="ghost-btn grant-token" id="grant-token" title="Przenosi kartę na „Umowa podpisana" i nadaje token partnera (widzi tylko admin)">Nadaj token</button></div></div>`
               : ""}
@@ -1197,6 +1254,7 @@ async function openModal(id) {
   `;
   $(".modal").classList.add("modal-full");       // główna karta = pełny ekran (Kosz/proste zostają małe)
   $("#modal-overlay").hidden = false;
+  wypelnijUmowy(c, editable);                    // pole „Umowa” dociąga się samo, karta nie czeka
 
   // MOBILE: na wąskim ekranie dane karty i czat nie mieszczą się naraz — przełącznik Karta / Czat
   // (dwie pełnoekranowe zakładki zamiast ściśniętych paneli). Desktop: dwie kolumny jak dotąd.
