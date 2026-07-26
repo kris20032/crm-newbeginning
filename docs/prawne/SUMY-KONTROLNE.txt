@@ -3,9 +3,9 @@ Wygenerowano: 2026-07-26
 Do wpisania w log akceptacji zamówienia (nazwa pliku + SHA-256).
 
 regulamin-2026-07-26.pdf
-  SHA-256: 7c05a9bf202ab4db98608c256a9da4ccf1622b19bf1c8d3e40b0f71a11f6c7d0
-  rozmiar: 191619 B
+  SHA-256: c4f47d447cfcaca2b15069378c779b015debb198a8554d54e65a96cac16b4cb7
+  rozmiar: 192448 B
 
 polityka-prywatnosci-2026-07-26.pdf
-  SHA-256: f69a06e348e16d0478bd974c87e3b600de894ab31ff4b380ffbaf559206bfa59
+  SHA-256: f71307d2a5b006ad6789d147df8ccc8d9b73f31857a19dcd2681c82bf41a0352
   rozmiar: 229120 B
