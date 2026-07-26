@@ -125,10 +125,22 @@ function zlePole(el, powod) {
   msg(powod, true);
   return false;
 }
+// NIP ma wbudowaną cyfrę kontrolną — dzięki niej literówka („5831234576" zamiast
+// „5831234567") wychodzi OD RAZU, a nie dopiero u klienta na podpisanej umowie.
+// Ostatnia cyfra = reszta z dzielenia ważonej sumy dziewięciu pierwszych przez 11.
+function nipPoprawny(nip) {
+  if (!/^\d{10}$/.test(nip)) return false;
+  const wagi = [6, 5, 7, 2, 3, 4, 5, 6, 7];
+  const suma = wagi.reduce((s, w, i) => s + w * Number(nip[i]), 0);
+  const kontrolna = suma % 11;
+  return kontrolna !== 10 && kontrolna === Number(nip[9]);
+}
+
 function sprawdz() {
   document.querySelectorAll(".bad").forEach((e) => e.classList.remove("bad"));
   const nip = $("#f-nip").value.replace(/[\s-]/g, "");
   if (!/^\d{10}$/.test(nip)) return zlePole($("#f-nip"), "NIP ma mieć 10 cyfr.");
+  if (!nipPoprawny(nip)) return zlePole($("#f-nip"), "Ten NIP nie istnieje — sprawdź, czy nie ma literówki.");
   const krs = $("#f-krs").value.replace(/[\s-]/g, "");
   if (krs && !/^\d{1,10}$/.test(krs)) return zlePole($("#f-krs"), "KRS to same cyfry (albo zostaw puste).");
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test($("#f-email").value.trim())) return zlePole($("#f-email"), "Sprawdź adres e-mail.");
