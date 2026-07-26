@@ -8,8 +8,8 @@
      1. wczytuje kartę klienta i wypełnia z niej, co się da
         (nazwa firmy, e-mail, kwoty z zakładki „Usługi”),
      2. przyjmuje resztę (adres, NIP, wariant abonamentu),
-     3. woła funkcję 'umowa-generuj' — ta zapisuje umowę i budzi automat,
-     4. czeka, aż automat odłoży PDF, i podaje link.
+     3. zapisuje umowę w tabeli contracts (to baza sprawdza uprawnienia, nie ten plik),
+     4. czeka, aż automat na Macu odłoży PDF, i podaje link.
 
    Kto co widzi pilnuje baza (schema-umowy.sql), nie ten plik.
    ============================================================ */
@@ -22,7 +22,7 @@ const $ = (s) => document.querySelector(s);
 const clientId = new URLSearchParams(location.search).get("client");
 
 const WARIANTY = {
-  rok_zgory:   { mies: 12, platneCoMiesiac: false, label: "12 miesięcy z góry (12. miesiąc gratis)" },
+  rok_zgory:   { mies: 12, platneCoMiesiac: false, label: "12 miesięcy, płatne z góry za rok" },
   rok_mies:    { mies: 12, platneCoMiesiac: true,  label: "12 miesięcy, co miesiąc" },
   polrok_mies: { mies: 6,  platneCoMiesiac: true,  label: "6 miesięcy, co miesiąc" },
 };
@@ -55,8 +55,7 @@ function odswiezPodsumowanie() {
   const s = Number($("#f-strona").value) || 0;
   const a = Number($("#f-abon").value) || 0;
   const w = WARIANTY[$("#f-wariant").value] || WARIANTY.rok_mies;
-  // przy płatności rocznej z góry klient płaci 11 miesięcy zamiast 12
-  const mcDoZaplaty = w.platneCoMiesiac ? 1 : w.mies - 1;
+  const mcDoZaplaty = w.platneCoMiesiac ? 1 : w.mies;
   const zaAbon = a * mcDoZaplaty;
   const opisAbon = w.platneCoMiesiac
     ? `${zl(a)} netto miesięcznie przez ${w.mies} mies.`
@@ -149,6 +148,7 @@ async function wyslij(e) {
 
   const dane = {
     client_id:    clientId,
+    created_by:   mojeImie,          // baza i tak pilnuje, że to MOJE imię
     klient_nazwa: $("#f-nazwa").value.trim(),
     klient_adres: $("#f-adres").value.trim(),
     klient_nip:   $("#f-nip").value.replace(/[\s-]/g, ""),
@@ -161,17 +161,16 @@ async function wyslij(e) {
     nasz_repr:    $("#f-podpis").value,
   };
 
-  try {
-    const { data, error } = await sb.functions.invoke("umowa-generuj", { body: dane });
-    if (error) throw error;
-    if (!data || !data.id) throw new Error((data && data.error) || "Funkcja nie zwróciła numeru umowy.");
-    umowaId = data.id;
-  } catch (err) {
-    console.error("umowa-generuj", err);
+  // Zapis prosto do tabeli. Kto może i na czyjej karcie — rozstrzyga RLS
+  // (schema-umowy.sql), więc nie ma czego omijać po stronie przeglądarki.
+  const { data, error } = await sb.from("contracts").insert(dane).select("id").single();
+  if (error || !data) {
+    console.error("zapis umowy", error);
     btn.disabled = false;
-    msg(czytelnyBlad(err), true);
+    msg(czytelnyBlad(error), true);
     return;
   }
+  umowaId = data.id;
 
   pokazPodglad(dane);
   $("#u-form").hidden = true;
@@ -180,10 +179,12 @@ async function wyslij(e) {
 }
 
 function czytelnyBlad(err) {
+  const kod = (err && err.code) || "";
   const t = String((err && (err.message || err.error)) || err);
-  if (/Failed to send|NetworkError|fetch/i.test(t)) return "Brak połączenia — sprawdź internet i spróbuj jeszcze raz.";
-  if (/404|not found/i.test(t)) return "Automat umów nie jest jeszcze wdrożony (funkcja umowa-generuj). Daj znać Krzysztofowi.";
-  if (/403|forbidden|permission|row-level/i.test(t)) return "Nie masz uprawnień do tworzenia umowy na tej karcie.";
+  if (kod === "42P01") return "Umowy nie są jeszcze włączone w bazie. Daj znać Krzysztofowi.";
+  if (kod === "42501" || /row-level|permission|forbidden/i.test(t))
+    return "Nie masz uprawnień do tworzenia umowy na tej karcie — umowę wystawia handlowiec, do którego karta należy.";
+  if (/Failed to fetch|NetworkError/i.test(t)) return "Brak połączenia — sprawdź internet i spróbuj jeszcze raz.";
   return "Nie udało się: " + t;
 }
 

@@ -1,99 +1,90 @@
-# Umowy z karty klienta — co trzeba włączyć
+# Umowy z karty klienta — jak to działa
 
-Kod jest wgrany. Zostały cztery rzeczy do kliknięcia. Bez nich przycisk
-„Stwórz umowę” albo się nie pokaże, albo powie wprost, czego brakuje —
-nic się nie zepsuje po cichu.
+**Wszystko jest włączone i przetestowane (26.07.2026). Nie ma nic do klikania.**
 
-Kolejność ma znaczenie: **1 → 2 → 3 → 4**.
+## Dla handlowca
 
----
+Karta klienta → pole **Umowa** → **„Stwórz umowę”**. Formularz sam podstawia
+z karty nazwę firmy, e-mail i kwoty z zakładki „Usługi”. Dopisujesz adres,
+NIP i wybierasz wariant abonamentu. Wysyłasz — po kilkunastu sekundach
+gotowy PDF pojawia się na karcie i można go pobrać.
 
-## 1. Baza — tabela umów i miejsce na pliki
+Umowy widzisz przy swoich klientach. Cudzych nie — tak samo jak z kartami.
 
-Supabase → **SQL Editor** → wklej całą zawartość `schema-umowy.sql` → **Run**.
-
-Zakłada tabelę `contracts`, prywatny bucket `umowy` i reguły dostępu
-(„każdy handlowiec do swoich klientów”). Można wykonać wielokrotnie,
-nic nie nadpisze. Cofnięcie jest opisane na górze tego pliku.
-
-Po tym kroku przycisk „Stwórz umowę” pojawia się na kartach.
-
----
-
-## 2. GitHub — automat składania PDF
-
-Automat mieszka w prywatnym repo **`kris20032/umowy-generator`**.
-
-**a) dodaj plik automatu** (mój token nie miał do tego uprawnień):
+## Co się dzieje pod spodem
 
 ```
-gh auth refresh -s workflow
+formularz (umowa.html)
+   │  zapis do tabeli contracts — to BAZA sprawdza, czy wolno
+   ▼
+automat na Macu Krzysztofa (co 60 s)
+   │  1. składa PDF ze wzoru (LibreOffice)
+   │  2. wrzuca do prywatnego bucketa 'umowy'
+   │  3. status = ready
+   │  4. komentarz @Krzysztof na karcie = dzwonek
+   ▼
+gotowy PDF na karcie → Autenti → klient
 ```
 
-Potem daj znać — dołożę plik jedną komendą.
+Składanie trwa około pięciu sekund. Sprawdzone na żywo od początku do końca.
 
-Alternatywa bez terminala: w repo `umowy-generator` jest katalog
-`_workflow-do-dodania/`. Wystarczy przenieść z niego plik `umowa-pdf.yml`
-do `.github/workflows/` przez stronę GitHuba (Add file → Create new file,
-nazwa `.github/workflows/umowa-pdf.yml`, wklej treść).
+⚠️ **Automat chodzi na Macu Krzysztofa.** Gdy Mac jest wyłączony, umowa czeka
+w kolejce ze statusem „składa się…” i zostanie zrobiona po włączeniu.
+Nic nie ginie. Gdyby to zaczęło przeszkadzać, w repo `kris20032/umowy-generator`
+leży gotowa wersja chmurowa (GitHub Actions) — do włączenia jednym poleceniem.
 
-**b) dodaj sekrety** — repo `umowy-generator` → Settings → Secrets and
-variables → Actions → New repository secret:
-
-| Nazwa | Wartość |
-|---|---|
-| `SUPABASE_URL` | `https://zngfubfinbojfgaxdrbf.supabase.co` |
-| `SUPABASE_SERVICE_KEY` | Supabase → Settings → API → `service_role` (ten długi, tajny) |
-
----
-
-## 3. Supabase — funkcja przyjmująca formularz
-
-Z terminala (jednorazowo, wymaga Supabase CLI):
-
-```
-supabase login
-supabase link --project-ref zngfubfinbojfgaxdrbf
-supabase secrets set GH_TOKEN=<token GitHuba>
-supabase functions deploy umowa-generuj
-```
-
-`GH_TOKEN` to token GitHuba z prawem zapisu do repo `umowy-generator` —
-tym funkcja budzi automat. Zrób go na
-github.com/settings/personal-access-tokens: **Repository access →** tylko
-`kris20032/umowy-generator`, **Permissions → Contents: Read and write**.
-
-Token jest sekretem po stronie serwera. Nigdy nie trafia do przeglądarki —
-dlatego formularz woła funkcję, a nie GitHuba wprost.
-
----
-
-## 4. Sprawdzenie na żywo
-
-1. Wejdź na dowolną swoją kartę klienta → pole **Umowa** → „Stwórz umowę”.
-2. Formularz sam podstawi nazwę firmy, e-mail i kwoty z zakładki „Usługi”.
-   Uzupełnij adres i NIP.
-3. Wyślij. Po około minucie w polu **Umowa** na karcie pojawi się PDF.
-4. Na kartę wpada komentarz z `@Krzysztof` — to jest powiadomienie (dzwonek).
-
-Jeśli coś nie zagra, umowa dostaje status błędu z konkretnym powodem,
-widocznym na karcie. Dane z formularza zostają w bazie, więc powtórzenie
-nie wymaga wpisywania od nowa:
-repo `umowy-generator` → Actions → „Złóż umowę (PDF)” → Run workflow → numer umowy.
-
----
-
-## Co gdzie mieszka
+## Gdzie co mieszka
 
 | Rzecz | Miejsce |
 |---|---|
 | Formularz | `umowa.html` + `umowa.js` (to repo) |
 | Przycisk i lista umów na karcie | `app.js`, funkcja `wypelnijUmowy` |
-| Tabela, bucket, uprawnienia | `schema-umowy.sql` |
-| Przyjęcie formularza | `supabase/functions/umowa-generuj/` |
-| Składanie PDF | prywatne repo `kris20032/umowy-generator` |
-| Zatwierdzony wzór umowy | `~/Desktop/UMOWA-Impulseo-WZOR-AKTUALNY-2026-07-26.docx` |
+| Tabela, bucket, uprawnienia | `schema-umowy.sql` (wykonane w bazie) |
+| Automat | `~/Library/Application Support/newbeginning/scripts/umowa-watcher.sh` + `umowa_build.py` |
+| Wzór z polami | tamże, `umowa-szablon.docx` |
+| Warianty abonamentu | tamże, `umowa_wypelnij.py` → `WARIANTY` |
+| Zatwierdzony wzór (źródło) | `~/Desktop/UMOWA-Impulseo-WZOR-AKTUALNY-2026-07-26.docx` |
 
-**Zmiana treści umowy** zaczyna się zawsze od wzoru na pulpicie, nie od
-szablonu w repo automatu — inaczej wersja do ręcznego wypełniania
-i wersja generowana się rozjadą. Instrukcja jest w README tamtego repo.
+Skrypty automatu kopiują się same co pół godziny do prywatnego repo
+`Impulseo-pl/newbeginning-automaty` — kopia zapasowa jest z automatu.
+
+## Gdy coś nie wyjdzie
+
+Umowa dostaje status błędu z konkretnym powodem, widocznym na karcie.
+Dane z formularza zostają, więc powtórka nie wymaga wpisywania od nowa:
+
+```
+cd ~/Library/Application\ Support/newbeginning/scripts
+bash umowa-watcher.sh <numer umowy>
+```
+
+Log: `~/Library/Application Support/newbeginning/umowa-watcher.log`
+
+**Wyłączenie automatu** (odwracalne, formularz działa dalej — umowy się kolejkują):
+
+```
+bash ~/Library/Application\ Support/newbeginning/scripts/umowa-watcher-stop.sh
+```
+
+## Gdy zmieni się treść umowy
+
+Kolejność jest jedna i trzeba jej pilnować, inaczej wersja do ręcznego
+wypełniania i generowana się rozjadą:
+
+1. popraw wzór na pulpicie (`UMOWA-Impulseo-WZOR-AKTUALNY-<data>.docx`),
+2. przerób go na szablon z polami:
+   `python3 zrob_szablon.py <wzór> umowa-szablon.docx` (skrypt w repo `umowy-generator`),
+3. podmień `umowa-szablon.docx` w katalogu automatu,
+4. sprawdź na sucho jedną umową i **obejrzyj PDF** — sam kod nie pokaże,
+   czy skład się nie rozjechał.
+
+## Warianty abonamentu
+
+| Wybór w formularzu | §4 ust. 5 (na ile) | §4 ust. 4 (płatne z góry za) |
+|---|---|---|
+| 12 miesięcy, płatne z góry za cały rok | 12 miesięcy | 12 miesięcy |
+| 12 miesięcy, płatne co miesiąc | 12 miesięcy | miesiąca |
+| 6 miesięcy, płatne co miesiąc | 6 miesięcy | miesiąca |
+
+Generator **nie dodaje do umowy ani jednego słowa** ponad zatwierdzony wzór —
+wypełnia tylko puste miejsca. Żadnych rabatów ani gratisów w treści.
