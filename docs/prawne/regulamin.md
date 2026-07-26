@@ -210,7 +210,7 @@ b) **prawo odstąpienia wygasa z chwilą pełnego wykonania usługi**, jeżeli W
 
 4\. Nieważność lub bezskuteczność któregokolwiek postanowienia Regulaminu nie wpływa na ważność pozostałych postanowień.
 
-5\. Ewentualne spory Strony poddają pod rozstrzygnięcie sądu powszechnego właściwego miejscowo dla siedziby Wykonawcy. Zamawiającemu, do którego stosuje się przepisy dotyczące konsumentów zgodnie z §1 ust. 5, przysługuje możliwość skorzystania z pozasądowych sposobów rozpatrywania reklamacji i dochodzenia roszczeń, w tym pomocy powiatowego lub miejskiego rzecznika konsumentów oraz wojewódzkich inspektoratów Inspekcji Handlowej.
+5\. Ewentualne spory Strony poddają pod rozstrzygnięcie sądu powszechnego właściwego miejscowo dla siedziby Wykonawcy. **Postanowienie zdania pierwszego nie dotyczy Zamawiającego, do którego stosuje się przepisy dotyczące konsumentów zgodnie z §1 ust. 5 — w takim wypadku właściwość sądu określają przepisy ogólne.** Zamawiającemu, do którego stosuje się przepisy dotyczące konsumentów zgodnie z §1 ust. 5, przysługuje możliwość skorzystania z pozasądowych sposobów rozpatrywania reklamacji i dochodzenia roszczeń, w tym pomocy powiatowego lub miejskiego rzecznika konsumentów oraz wojewódzkich inspektoratów Inspekcji Handlowej.
 
 &nbsp;
 
