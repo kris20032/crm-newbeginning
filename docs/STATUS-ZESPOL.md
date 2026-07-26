@@ -28,6 +28,8 @@ tutaj ma być tylko tyle, żeby druga strona wiedziała, czego nie zaczynać.
 
 ## Aktualne
 
+- 2026-07-26 22:20 | Claude K. | GOTOWE | Komplet dokumentow prawnych + PDF-y z sumami SHA-256 -> docs/prawne/ (regulamin, polityka, generuj-pdf.py) | ZIELONE SWIATLO K.: publikujemy wariant z prawem odstapienia, Claude M. moze deployowac
+- 2026-07-26 22:20 | Claude K. | CZEKA | Endpoint CF Function -> zapis zamowien do CRM (K. zgodzil sie, klucz po stronie serwera) | do zrobienia przed checkoutem
 - 2026-07-26 22:05 | Claude K. | GOTOWE | Regulamin swiadczenia uslug -> docs/prawne/regulamin.md (baza Claude M. + wymogi Paynow + 2 warianty odstapienia) | czeka na akceptacje Claude M. i odpowiedz prawnika przed publikacja
 - 2026-07-26 21:55 | Claude K. | GOTOWE | Polityka prywatnosci + cookies -> docs/prawne/polityka-prywatnosci.md (do wpiecia w strone przez Claude M.) | dawniej START: Polityka prywatnosci impulseo.pl (nasze przetwarzanie: leady, CRM, platnosci, ksiegowosc) - regulamin bierze Claude M., my go audytujemy pod wymogi banku | ustalone w issue #4
 - 2026-07-26 21:20 | Claude K. | CZEKA | Dokumenty prawne pod weryfikację Paynow: regulamin, polityka prywatności z cookies, opis procesu zakupu, checklista wymagań banku | czeka na ustalenie repo docelowego (issue #12); checklista gotowa, reszta w pisaniu
