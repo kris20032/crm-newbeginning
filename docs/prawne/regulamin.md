@@ -4,8 +4,6 @@
 
 Obowiązuje od dnia …………………………… 2026 r.
 
-> **Uwaga redakcyjna (do usunięcia przed publikacją):** wersja finalna powstała na bazie regulaminu B2B napisanego przez Claude'a Marcelego. Dodane zostały elementy wymagane przez operatora płatności Paynow (regulamin usługi z 14.12.2023, pkt 4 ust. 5) oraz dopasowanie do wzoru umowy z 26.07.2026. Miejsca oznaczone **[WARIANT A / WARIANT B]** zależą od odpowiedzi prawnika w sprawie prawa odstąpienia — przed publikacją zostaje jeden wariant, drugi się usuwa.
-
 **§1. Postanowienia ogólne**
 
 1\. Regulamin określa zasady zamawiania i świadczenia usług wykonania oraz utrzymania stron internetowych za pośrednictwem serwisu impulseo.pl (dalej: **„Serwis"**), a także zasady zawierania i rozwiązywania umów o te usługi.
@@ -28,11 +26,7 @@ e) **Cennik** – zestawienie Pakietów i cen dostępne w Serwisie, stanowiące 
 
 f) **Materiały** – treści, zdjęcia, logo i dane kontaktowe dostarczane przez Zamawiającego.
 
-5\. **[WARIANT A — jeżeli prawnik potwierdzi, że przy jednoosobowych działalnościach nie da się wyłączyć reżimu konsumenckiego]**
-Regulamin skierowany jest do przedsiębiorców. Składając Zamówienie, Zamawiający oświadcza, czy Umowa ma dla niego charakter zawodowy w rozumieniu art. 385(5) Kodeksu cywilnego. Jeżeli Zamawiającym jest osoba fizyczna zawierająca Umowę bezpośrednio związaną z jej działalnością gospodarczą, a Umowa nie ma dla niej charakteru zawodowego, stosuje się do niej przepisy dotyczące konsumenta w zakresie wskazanym w art. 7aa oraz art. 38a ustawy o prawach konsumenta, w tym prawo odstąpienia opisane w §13.
-
-5\. **[WARIANT B — jeżeli prawnik potwierdzi skuteczność wyłączenia]**
-**Regulamin skierowany jest wyłącznie do przedsiębiorców.** Usługi nie są świadczone konsumentom ani osobom fizycznym zawierającym umowę bezpośrednio związaną z ich działalnością gospodarczą, gdy nie ma ona dla nich charakteru zawodowego (art. 385(5) Kodeksu cywilnego). Składając Zamówienie, Zamawiający oświadcza, że zawiera Umowę w związku z prowadzoną działalnością gospodarczą lub zawodową i że ma ona dla niego charakter zawodowy.
+5\. Regulamin skierowany jest do przedsiębiorców. Składając Zamówienie, Zamawiający oświadcza, czy Umowa ma dla niego charakter zawodowy w rozumieniu art. 385(5) Kodeksu cywilnego. Jeżeli Zamawiającym jest osoba fizyczna zawierająca Umowę bezpośrednio związaną z jej działalnością gospodarczą, a Umowa nie ma dla niej charakteru zawodowego, stosuje się do niej przepisy dotyczące konsumenta w zakresie wskazanym w art. 7aa oraz art. 38a ustawy o prawach konsumenta, w tym prawo odstąpienia opisane w §13.
 
 6\. Umowa ma charakter mieszany. Do postanowień dotyczących wykonania strony stosuje się przepisy o umowie o dzieło (art. 627 i nast. Kodeksu cywilnego), a do postanowień dotyczących hostingu i utrzymania strony – przepisy o świadczeniu usług (art. 750 w zw. z art. 734 i nast. Kodeksu cywilnego).
 
@@ -172,18 +166,13 @@ d) certyfikat SSL zapewniający szyfrowaną transmisję danych (protokół HTTPS
 
 **§13. Rezygnacja, odstąpienie i zwrot płatności**
 
-1\. **[WARIANT A — prawo odstąpienia przysługuje]**
-Zamawiającemu, o którym mowa w §1 ust. 5 wariant A (osoba fizyczna zawierająca Umowę bez charakteru zawodowego), przysługuje prawo odstąpienia od Umowy w terminie **14 dni** od dnia jej zawarcia, bez podania przyczyny. Oświadczenie o odstąpieniu wystarczy wysłać na adres e-mail wskazany w §1 ust. 3 przed upływem terminu.
+1\. Zamawiającemu, o którym mowa w §1 ust. 5 (osoba fizyczna zawierająca Umowę bez charakteru zawodowego), przysługuje prawo odstąpienia od Umowy w terminie **14 dni** od dnia jej zawarcia, bez podania przyczyny. Oświadczenie o odstąpieniu wystarczy wysłać na adres e-mail wskazany w §1 ust. 3 przed upływem terminu.
 
-2\. **[WARIANT A, ciąg dalszy]**
-Jeżeli Zamawiający żąda rozpoczęcia prac przed upływem terminu do odstąpienia, składa wyraźne żądanie przy Zamówieniu. W takim wypadku:
+2\. Jeżeli Zamawiający żąda rozpoczęcia prac przed upływem terminu do odstąpienia, składa wyraźne żądanie przy Zamówieniu. W takim wypadku:
 
 a) w razie odstąpienia w trakcie realizacji Zamawiający zapłaci za świadczenie spełnione do chwili odstąpienia, w wysokości proporcjonalnej do zakresu wykonanych prac (art. 35 ustawy o prawach konsumenta);
 
 b) **prawo odstąpienia wygasa z chwilą pełnego wykonania usługi**, jeżeli Wykonawca wykonał ją w całości za wyraźną zgodą Zamawiającego poinformowanego przed rozpoczęciem świadczenia o utracie tego prawa (art. 38 pkt 1 ustawy o prawach konsumenta).
-
-1\. **[WARIANT B — prawo odstąpienia nie przysługuje]**
-Z uwagi na zawodowy charakter Umowy prawo odstąpienia od umowy zawartej na odległość, o którym mowa w ustawie o prawach konsumenta, Zamawiającemu nie przysługuje. Nie ogranicza to uprawnień z tytułu rękojmi ani prawa do reklamacji zgodnie z §14.
 
 3\. **Rezygnacja przed rozpoczęciem prac.** Niezależnie od powyższego, jeżeli Zamawiający zrezygnuje z Umowy, zanim Wykonawca przystąpi do prac projektowych, Wykonawca zwraca całość otrzymanej płatności. Jeżeli prace zostały już rozpoczęte, Wykonawca zwraca płatność pomniejszoną o wartość prac wykonanych do dnia rezygnacji, a na żądanie Zamawiającego przedstawia ich zestawienie.
 
@@ -219,7 +208,7 @@ Z uwagi na zawodowy charakter Umowy prawo odstąpienia od umowy zawartej na odle
 
 4\. Nieważność lub bezskuteczność któregokolwiek postanowienia Regulaminu nie wpływa na ważność pozostałych postanowień.
 
-5\. Ewentualne spory Strony poddają pod rozstrzygnięcie sądu powszechnego właściwego miejscowo dla siedziby Wykonawcy. **[Przy WARIANCIE A dodać:** Zamawiającemu, do którego stosuje się przepisy o konsumentach, przysługuje możliwość skorzystania z pozasądowych sposobów rozpatrywania reklamacji i dochodzenia roszczeń, w tym pomocy powiatowego lub miejskiego rzecznika konsumentów oraz wojewódzkich inspektoratów Inspekcji Handlowej. **]**
+5\. Ewentualne spory Strony poddają pod rozstrzygnięcie sądu powszechnego właściwego miejscowo dla siedziby Wykonawcy. Zamawiającemu, do którego stosuje się przepisy dotyczące konsumentów zgodnie z §1 ust. 5, przysługuje możliwość skorzystania z pozasądowych sposobów rozpatrywania reklamacji i dochodzenia roszczeń, w tym pomocy powiatowego lub miejskiego rzecznika konsumentów oraz wojewódzkich inspektoratów Inspekcji Handlowej.
 
 &nbsp;
 
