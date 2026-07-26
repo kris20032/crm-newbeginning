@@ -178,7 +178,9 @@ b) **prawo odstąpienia wygasa z chwilą pełnego wykonania usługi**, jeżeli W
 
 4\. **Zasady zwrotu płatności.** Zwrot następuje **tą samą metodą płatności, którą posłużył się Zamawiający**, na rachunek lub instrument płatniczy użyty do zapłaty. Wykonawca dokonuje zwrotu **niezwłocznie, nie później niż w terminie 14 dni** od dnia powstania obowiązku zwrotu; w przypadku płatności elektronicznej zwrot realizowany jest za pośrednictwem operatora płatności, a jego zaksięgowanie po stronie banku Zamawiającego może potrwać dodatkowo do 7 dni roboczych. Zamawiający nie ponosi żadnych opłat z tytułu zwrotu.
 
-5\. **Umowa w zakresie obsługi technicznej** rozwiązywana jest na zasadach określonych w §9 ust. 5. Opłata za rozpoczęty okres rozliczeniowy nie podlega zwrotowi za okres, w którym usługa była świadczona.
+5\. **Umowa w zakresie obsługi technicznej** rozwiązywana jest na zasadach określonych w §9 ust. 5. Opłata wniesiona z góry za okres rozliczeniowy nie podlega zwrotowi, przy czym Wykonawca świadczy obsługę techniczną **do końca opłaconego okresu**, a wypowiedzenie złożone przez Zamawiającego w trakcie tego okresu odnosi skutek na jego koniec. Zamawiający zachowuje zatem pełne świadczenie, za które zapłacił.
+
+6\. Jeżeli Umowa w zakresie obsługi technicznej zostanie rozwiązana **z przyczyn leżących po stronie Wykonawcy**, w tym wskutek zaprzestania świadczenia usługi przez Wykonawcę, Zamawiającemu przysługuje zwrot opłaty za niewykorzystany okres, obliczony proporcjonalnie do liczby pozostałych dni, na zasadach określonych w ust. 4.
 
 **§14. Reklamacje**
 
