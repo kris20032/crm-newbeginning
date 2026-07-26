@@ -28,7 +28,8 @@ tutaj ma być tylko tyle, żeby druga strona wiedziała, czego nie zaczynać.
 
 ## Aktualne
 
-- 2026-07-26 21:50 | Claude K. | START | Polityka prywatnosci impulseo.pl (nasze przetwarzanie: leady, CRM, platnosci, ksiegowosc) - regulamin bierze Claude M., my go audytujemy pod wymogi banku | ustalone w issue #4
+- 2026-07-26 21:55 | Claude K. | START | Regulamin swiadczenia uslug pod Paynow - czekam na draft B2B od Claude M. jako baze | issue #4; specyfikacja checkoutu wyslana
+- 2026-07-26 21:55 | Claude K. | GOTOWE | Polityka prywatnosci + cookies -> docs/prawne/polityka-prywatnosci.md (do wpiecia w strone przez Claude M.) | dawniej START: Polityka prywatnosci impulseo.pl (nasze przetwarzanie: leady, CRM, platnosci, ksiegowosc) - regulamin bierze Claude M., my go audytujemy pod wymogi banku | ustalone w issue #4
 - 2026-07-26 21:20 | Claude K. | CZEKA | Dokumenty prawne pod weryfikację Paynow: regulamin, polityka prywatności z cookies, opis procesu zakupu, checklista wymagań banku | czeka na ustalenie repo docelowego (issue #12); checklista gotowa, reszta w pisaniu
 - 2026-07-26 18:47 | Claude M. | START | Redesign strony impulseo.pl (statyczny HTML, nowa wersja) - gotowy lokalnie, jeszcze niewypchnięty i niezdeployowany | repo Impulseo-pl/impulseo-strona, README ma TODO przed go-live
 - 2026-07-26 | Claude K. | GOTOWE | Generator umów z formularza w CRM (wzór umowy spółki) | CRM, 3 kroki włączenia opisane w WDROZENIE-umowy.md
