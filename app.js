@@ -70,7 +70,7 @@ const state = {
   ownersAll: false,         // sentinel „Wszyscy" — rozwija się dynamicznie do bieżącego zespołu (nie zamraża listy)
   ownerPopOpen: false,      // czy rozwinięty panel zespołu (poza DOM, by przeżyć przebudowę #tabs przez realtime)
   currentUser: "Krzysztof", search: "", live: false, openCardId: null, openCardWasArchived: false, newCardIds: new Set(), skipFlipId: null, animateNextRender: false,
-  suppressUntil: 0, lastSnap: "",
+  suppressUntil: 0, lastWriteAt: 0, lastSnap: "",
   section: "sprzedaz",      // aktywna sekcja z menu: "sprzedaz" (lejek) | "klienci" (tabela podpisanych) | "admin" (panel admina)
   klienciSearch: "",        // pole szukania w sekcji Klienci (osobne od głównej wyszukiwarki)
   me: null,                 // mój wiersz zespołu: { email, name, role, user_id, active }
@@ -359,8 +359,31 @@ const api = {
    ============================================================ */
 const $ = (sel) => document.querySelector(sel);
 const fmtDateTime = (d) => { if (!d) return ""; const dt = new Date(d); if (isNaN(dt)) return d; return dt.toLocaleString("pl-PL", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
-// follow_up = timestamp; pole datetime-local chce "YYYY-MM-DDTHH:MM"
-const toDTLocal = (v) => { if (!v) return ""; let s = String(v).replace(" ", "T"); if (s.length === 10) s += "T00:00"; return s.slice(0, 16); };
+// follow_up = timestamptz (KONKRETNY moment); pola daty/godziny chcą "YYYY-MM-DDTHH:MM" w czasie LOKALNYM.
+// Wartość ze strefą ("...T11:00:00+00:00") przeliczamy na zegar użytkownika; naiwną ("YYYY-MM-DD",
+// "...THH:MM" — dane demo i resztki sprzed 27.07.2026) bierzemy dosłownie, bez doklejania przesunięcia.
+const toDTLocal = (v) => {
+  if (!v) return "";
+  const s = String(v).replace(" ", "T");
+  if (/([zZ]|[+-]\d{2}:?\d{2}|[+-]\d{2})$/.test(s.slice(10))) {
+    const dt = new Date(s);
+    if (!isNaN(dt)) {
+      const p = (n) => String(n).padStart(2, "0");
+      return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}T${p(dt.getHours())}:${p(dt.getMinutes())}`;
+    }
+  }
+  return (s.length === 10 ? s + "T00:00" : s).slice(0, 16);
+};
+// pola daty+godziny → MOMENT w strefie użytkownika, zapisywany jako ISO (bez godziny = północ lokalnie).
+// Bez tego naiwne "2026-07-28T13:00" ląduje w bazie jako 13:00 UTC, czyli 15:00 czasu polskiego —
+// CRM pokazywał dobrze (czytał dosłownie), ale alerty i wszystko liczące na momentach chodziło o 2 h za późno.
+const fuToISO = (d, t) => {
+  if (!d) return "";
+  const [y, m, dd] = d.split("-").map(Number);
+  const [hh, mi] = (t || "00:00").split(":").map(Number);
+  const dt = new Date(y, (m || 1) - 1, dd || 1, hh || 0, mi || 0);
+  return isNaN(dt) ? d : dt.toISOString();
+};
 // część dla pola <input type="date"> (YYYY-MM-DD) i opcjonalnego <input type="time"> (HH:MM; pusta gdy północ = brak godziny)
 const toDateInput = (v) => toDTLocal(v).slice(0, 10);
 const toTimeInput = (v) => { const t = toDTLocal(v).slice(11, 16); return (t && t !== "00:00") ? t : ""; };
@@ -1049,7 +1072,7 @@ function wireFuBar(clientId) {
       saveField(clientId, "follow_up_note", "");
       if (fuTime) fuTime.value = ""; if (fuNote) fuNote.value = "";
     } else {
-      saveField(clientId, "follow_up", t ? `${d}T${t}` : d);
+      saveField(clientId, "follow_up", fuToISO(d, t));
       if (c && c.follow_up_done) setFollowDone(clientId, false);   // nowy termin → znów „do zrobienia"
     }
     updateFuBar(c);
@@ -2100,7 +2123,9 @@ function flashSaved() { const w = $("#account-btn"); if (w) { w.classList.add("s
 /* ---------- Realtime → odśwież (debounced) ---------- */
 let refreshTimer = null, refreshInFlight = false, refreshPending = false;
 // wstrzymaj odświeżanie z bazy na chwilę po WŁASNEJ zmianie (żeby „echo" nie cofało jej na ekranie)
-function holdRefresh(ms = 2000) { state.suppressUntil = Date.now() + ms; }
+// lastWriteAt = znacznik OSTATNIEGO własnego zapisu; odświeżenie, które wystartowało przed nim,
+// niesie dane sprzed tego zapisu i musi zostać odrzucone (inaczej cofa świeżą zmianę na ekranie)
+function holdRefresh(ms = 2000) { state.suppressUntil = Date.now() + ms; state.lastWriteAt = Date.now(); }
 function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(maybeRefresh, 250); }
 function maybeRefresh() {
   const wait = (state.suppressUntil || 0) - Date.now();
@@ -2110,9 +2135,14 @@ function maybeRefresh() {
 async function refreshData() {
   if (refreshInFlight) { refreshPending = true; return; }  // nie nakładaj odświeżeń
   refreshInFlight = true;
+  const startedAt = Date.now();
   try {
     // oba niezależne pobrania równolegle (jeden round-trip mniej na każde odświeżenie)
     const [clients, comments] = await Promise.all([api.getClients(), api.getAllComments()]);
+    // WYŚCIG: w trakcie tego pobrania zapisaliśmy coś sami → te dane są sprzed naszego zapisu.
+    // Wzięcie ich cofnęłoby świeżą zmianę na ekranie (znikający follow-up/notatka), choć w bazie siedzi dobrze.
+    // Porzucamy je i planujemy kolejne odświeżenie (finally → refreshPending).
+    if ((state.lastWriteAt || 0) >= startedAt) { refreshPending = true; return; }
     let team = state.team;
     if (state.live) {
       try {
@@ -2139,6 +2169,8 @@ async function refreshData() {
         }
       }
     }
+    // ten sam wyścig, ale zapis mógł wpaść dopiero teraz — w trakcie doczytywania zespołu/oferty/uprawnień
+    if ((state.lastWriteAt || 0) >= startedAt) { refreshPending = true; return; }
     // ZACHOWAJ IDENTYCZNOŚĆ obiektu otwartej karty: closury modala (usługi/checklista/follow-up/strzałki)
     // trzymają referencję do `c`; podmiana na nowy obiekt odłączyłaby je i zapisy szłyby do stale danych,
     // a saveChecklist/saveServices (re-find po id) wysyłałyby do bazy STARY stan → cicha utrata wpisów.
