@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=103" />
+  <link rel="stylesheet" href="styles.css?v=104" />
   <style>
     /* Formularz umowy — dokładany do styles.css, żeby wyglądał jak reszta CRM-u */
     .u-wrap { max-width: 720px; margin: 0 auto; padding: 24px 18px 64px; }
@@ -36,9 +36,22 @@
     .u-err  { font-size: 12px; color: #c0392b; margin-top: 5px; }
     .u-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     @media (max-width: 560px) { .u-two { grid-template-columns: 1fr; } }
+
+    /* Kwota: netto i brutto obok siebie, OBA do wpisania — wpisujesz w jedno,
+       drugie przelicza się samo. Przyrostek („netto"/„brutto") siedzi w środku pola. */
+    .u-money { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 460px) { .u-money { grid-template-columns: 1fr; } }
+    .u-money-in { position: relative; }
+    .u-money-in input { padding-right: 58px; text-align: right; font-variant-numeric: tabular-nums; }
+    .u-money-in .suf { position: absolute; right: 11px; top: 50%; transform: translateY(-50%);
+                       font-size: 12px; color: var(--ink-soft); pointer-events: none; }
+    .u-note { font-size: 12px; color: #8a6d1a; background: #faf3dd; border: 1px solid #ecdca8;
+              border-radius: 6px; padding: 6px 9px; margin-top: 6px; }
+
     .u-sum { background: #f4f8fd; border: 1px solid #d6e6f8; border-radius: 8px; padding: 11px 13px;
              font-size: 13px; line-height: 1.6; }
     .u-sum b { font-variant-numeric: tabular-nums; }
+    .u-sum .razem { display: block; margin-top: 6px; padding-top: 6px; border-top: 1px solid #d6e6f8; }
     .u-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .u-msg { font-size: 13px; }
     .u-msg.ok  { color: #2b6b2e; }
@@ -50,11 +63,15 @@
     @media (prefers-reduced-motion: reduce) { .u-spin { animation-duration: 3s; } }
     .u-done { text-align: center; padding: 8px 0 4px; }
     .u-done .big { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+    .u-done .maly { font-size: 12px; color: var(--ink-soft); margin-top: 8px; }
     .u-prev { list-style: none; font-size: 13px; line-height: 1.9; }
     .u-prev li { display: flex; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); padding: 2px 0; }
     .u-prev li:last-child { border-bottom: 0; }
     .u-prev .k { color: var(--ink-soft); }
     .u-prev .v { text-align: right; font-weight: 500; }
+    /* pasek przy poprawianiu istniejącej umowy */
+    .u-wersja { background: #fdf6e3; border: 1px solid #e8d9a8; border-radius: 8px; padding: 10px 13px;
+                font-size: 13px; line-height: 1.5; margin-bottom: 16px; }
   </style>
 </head>
 <body>
@@ -70,9 +87,11 @@
   <main id="u-app" class="u-wrap" hidden>
     <div class="u-top">
       <a class="u-back" id="u-back" href="index.html">← CRM</a>
-      <h1>Stwórz umowę</h1>
+      <h1 id="u-tytul">Stwórz umowę</h1>
     </div>
     <p class="u-sub" id="u-for"></p>
+
+    <div class="u-wersja" id="u-wersja" hidden></div>
 
     <form id="u-form">
       <div class="u-card">
@@ -86,20 +105,20 @@
 
         <div class="u-field">
           <label for="f-adres">Adres siedziby</label>
-          <input id="f-adres" name="klient_adres" required autocomplete="off"
-                 placeholder="ul. Polna 7, 80-180 Gdańsk" />
+          <input id="f-adres" name="klient_adres" required autocomplete="off" />
+          <div class="u-hint">Ulica z numerem, kod pocztowy i miasto.</div>
         </div>
 
         <div class="u-two">
           <div class="u-field">
             <label for="f-nip">NIP</label>
-            <input id="f-nip" name="klient_nip" required inputmode="numeric" autocomplete="off"
-                   placeholder="10 cyfr" />
+            <input id="f-nip" name="klient_nip" required inputmode="numeric" autocomplete="off" />
+            <div class="u-hint">10 cyfr.</div>
           </div>
           <div class="u-field">
             <label for="f-krs">KRS <span class="opt">— tylko spółki</span></label>
-            <input id="f-krs" name="klient_krs" inputmode="numeric" autocomplete="off"
-                   placeholder="zostaw puste przy działalności" />
+            <input id="f-krs" name="klient_krs" inputmode="numeric" autocomplete="off" />
+            <div class="u-hint">Przy działalności zostaw puste.</div>
           </div>
         </div>
 
@@ -111,42 +130,66 @@
 
         <div class="u-field">
           <label for="f-repr">Kto reprezentuje klienta <span class="opt">— tylko spółki</span></label>
-          <input id="f-repr" name="klient_repr" autocomplete="off"
-                 placeholder="np. Jana Kowalskiego, Prezesa Zarządu" />
-          <div class="u-hint">Przy jednoosobowej działalności zostaw puste.</div>
+          <input id="f-repr" name="klient_repr" autocomplete="off" />
+          <div class="u-hint">Kogo? Z funkcją, np. „Jana Kowalskiego, Prezesa Zarządu". Przy jednoosobowej działalności zostaw puste.</div>
         </div>
       </div>
 
       <div class="u-card">
         <h2>Warunki</h2>
 
-        <div class="u-two">
-          <div class="u-field">
-            <label for="f-strona">Za wykonanie strony (netto)</label>
-            <input id="f-strona" name="kwota_strona" required inputmode="numeric" type="number"
-                   min="0" step="50" />
+        <div class="u-field">
+          <label for="f-strona">Za wykonanie strony</label>
+          <div class="u-money">
+            <div class="u-money-in">
+              <input id="f-strona" inputmode="decimal" autocomplete="off" required />
+              <span class="suf">netto</span>
+            </div>
+            <div class="u-money-in">
+              <input id="f-strona-b" inputmode="decimal" autocomplete="off" />
+              <span class="suf">brutto</span>
+            </div>
           </div>
-          <div class="u-field">
-            <label for="f-abon">Abonament (netto / miesiąc)</label>
-            <input id="f-abon" name="kwota_abon" required inputmode="numeric" type="number"
-                   min="0" step="1" />
-          </div>
+          <div class="u-hint">Wpisz którąkolwiek — druga przeliczy się sama (VAT 23%).</div>
+          <div class="u-note" id="f-strona-note" hidden></div>
         </div>
 
         <div class="u-field">
-          <label for="f-wariant">Abonament — na jak długo i jak płatny</label>
-          <select id="f-wariant" name="abonament" required>
-            <option value="rok_zgory">12 miesięcy, płatne z góry za cały rok</option>
-            <option value="rok_mies">12 miesięcy, płatne co miesiąc</option>
-            <option value="polrok_mies">6 miesięcy, płatne co miesiąc</option>
-          </select>
+          <label for="f-abon">Opłata za utrzymanie <span class="opt">— miesięcznie</span></label>
+          <div class="u-money">
+            <div class="u-money-in">
+              <input id="f-abon" inputmode="decimal" autocomplete="off" required />
+              <span class="suf">netto</span>
+            </div>
+            <div class="u-money-in">
+              <input id="f-abon-b" inputmode="decimal" autocomplete="off" />
+              <span class="suf">brutto</span>
+            </div>
+          </div>
+          <div class="u-note" id="f-abon-note" hidden></div>
+        </div>
+
+        <div class="u-two">
+          <div class="u-field">
+            <label for="f-wariant">Utrzymanie — na jak długo i jak płatne</label>
+            <select id="f-wariant" name="abonament" required>
+              <option value="rok_zgory">12 miesięcy, płatne z góry za cały rok</option>
+              <option value="rok_mies">12 miesięcy, płatne co miesiąc</option>
+              <option value="polrok_mies">6 miesięcy, płatne co miesiąc</option>
+            </select>
+          </div>
+          <div class="u-field">
+            <label for="f-podstron">Ile podstron</label>
+            <select id="f-podstron" name="liczba_podstron" required></select>
+            <div class="u-hint">Poza stroną główną. Wchodzi do §1 umowy.</div>
+          </div>
         </div>
 
         <div class="u-field">
           <label for="f-podpis">Kto podpisuje po naszej stronie</label>
           <select id="f-podpis" name="nasz_repr" required>
-            <option value="krzysztof">Krzysztof Brzeziński</option>
-            <option value="marceli">Marceli Kozakiewicz</option>
+            <option value="krzysztof">Krzysztof Brzeziński — Prezes Zarządu</option>
+            <option value="marceli">Marceli Kozakiewicz — Członek Zarządu</option>
           </select>
         </div>
 
@@ -163,20 +206,22 @@
       </div>
     </form>
 
-    <!-- Ekran po wysłaniu: czekamy na automat, potem link do PDF -->
+    <!-- Ekran po wysłaniu: czekamy na automat, potem linki do plików -->
     <div id="u-after" hidden>
       <div class="u-card">
         <div class="u-wait" id="u-waiting">
           <span class="u-spin"></span>
-          <span>Składam umowę i robię PDF. To trwa około minuty — możesz zamknąć tę stronę,
-                plik i tak pojawi się na karcie klienta.</span>
+          <span>Składam umowę. To trwa około minuty — możesz zamknąć tę stronę,
+                pliki i tak pojawią się na karcie klienta.</span>
         </div>
         <div class="u-done" id="u-ready" hidden>
           <div class="big">Umowa gotowa</div>
           <div class="u-actions" style="justify-content:center">
             <a class="primary-btn" id="u-pdf" href="#" target="_blank" rel="noopener">Pobierz PDF</a>
+            <a class="ghost-btn" id="u-docx" href="#" target="_blank" rel="noopener">Pobierz DOCX</a>
             <a class="ghost-btn" id="u-back2" href="index.html">Wróć do CRM</a>
           </div>
+          <div class="maly">Do klienta i do Autenti wysyłamy PDF. DOCX jest do poprawek (otwiera się w Google Docs).</div>
         </div>
         <div class="u-msg bad" id="u-failed" hidden></div>
       </div>
@@ -189,6 +234,6 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js?v=92"></script>
-  <script src="umowa.js?v=3"></script>
+  <script src="umowa.js?v=4"></script>
 </body>
 </html>

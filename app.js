@@ -327,7 +327,7 @@ const api = {
   async getContracts(clientId) {
     if (!LIVE) return [];
     const { data, error } = await sb.from("contracts")
-      .select("id,status,pdf_path,error_msg,created_by,created_at,kwota_strona,kwota_abon,abonament")
+      .select("id,status,pdf_path,docx_path,error_msg,created_by,created_at,kwota_strona,kwota_abon,abonament,liczba_podstron,zastepuje_id")
       .eq("client_id", clientId).order("created_at", { ascending: false });
     if (error) { if (error.code === "42P01") return []; throw error; }
     return data || [];
@@ -468,7 +468,11 @@ async function wypelnijUmowy(c, editable) {
   const pozycje = lista.map((u) => {
     const kiedy = fmtDateTime(u.created_at);
     if (u.status === "ready" && u.pdf_path) {
-      return `<button type="button" class="umowa-dl" data-path="${esc(u.pdf_path)}" title="Umowa z ${esc(kiedy)} — ${esc(u.created_by)}">umowa ${esc(kiedy)}</button>`;
+      // PDF idzie do klienta i do Autenti; DOCX jest do poprawek (otwiera się w Google Docs)
+      const docx = u.docx_path
+        ? ` <button type="button" class="umowa-dl umowa-docx" data-path="${esc(u.docx_path)}" title="Wersja do edycji (Google Docs)">docx</button>`
+        : "";
+      return `<button type="button" class="umowa-dl" data-path="${esc(u.pdf_path)}" title="Umowa z ${esc(kiedy)} — ${esc(u.created_by)}${u.zastepuje_id ? ` (poprawka umowy nr ${u.zastepuje_id})` : ""}">umowa ${esc(kiedy)}</button>${docx}`;
     }
     if (u.status === "error") {
       return `<span class="umowa-bad" title="${esc(u.error_msg || "")}">umowa ${esc(kiedy)} — nie wyszła</span>`;
@@ -2958,7 +2962,8 @@ function wireChrome() {
   };
   toggleMenu("#nav-toggle", "#nav-menu");
   toggleMenu("#account-btn", "#account-menu");
-  document.querySelectorAll("#nav-menu .pop-menu-item").forEach((b) => b.addEventListener("click", () => showSection(b.dataset.section)));
+  // pozycje BEZ data-section (np. „Umowy" → osobna podstrona) są zwykłymi linkami — nie przełączają sekcji
+  document.querySelectorAll("#nav-menu .pop-menu-item[data-section]").forEach((b) => b.addEventListener("click", () => showSection(b.dataset.section)));
   const logoutItem = $("#logout-item");
   if (logoutItem) logoutItem.addEventListener("click", async () => { closeTopMenus(); await api.signOut(); location.reload(); });
   // klik poza menami topbaru je zamyka

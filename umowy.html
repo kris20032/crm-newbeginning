@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <title>Umowy — CRM Impulseo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=104" />
+  <style>
+    .l-wrap { max-width: 1040px; margin: 0 auto; padding: 24px 18px 64px; }
+    .l-top { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
+    .l-top h1 { font-size: 20px; font-weight: 700; }
+    .l-back { color: var(--ink-soft); text-decoration: none; font-size: 13px; padding: 4px 8px;
+              border: 1px solid var(--line-strong); border-radius: 6px; white-space: nowrap; }
+    .l-back:hover { background: #fff; }
+    .l-sub { color: var(--ink-soft); font-size: 13px; margin-bottom: 18px; }
+    .l-search { width: 100%; max-width: 340px; font: inherit; font-size: 16px; padding: 8px 11px;
+                border: 1px solid var(--line-strong); border-radius: 7px; background: #fff; margin-bottom: 16px; }
+    .l-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+              box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 12px; }
+    .l-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+    .l-firma { font-size: 15px; font-weight: 600; }
+    .l-meta { font-size: 12px; color: var(--ink-soft); }
+    .l-kwoty { font-size: 13px; margin: 8px 0 12px; line-height: 1.7; font-variant-numeric: tabular-nums; }
+    .l-kwoty .etk { color: var(--ink-soft); }
+    .l-akcje { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .l-akcje a, .l-akcje button { font-size: 13px; }
+    .l-stan { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 600; }
+    .l-stan.ready { background: #dbeddb; color: #3d6b2e; }
+    .l-stan.pending { background: #faf3dd; color: #8a6d1a; }
+    .l-stan.error { background: #f9dede; color: #a33; }
+    .l-stara { opacity: .62; }
+    .l-plakietka { font-size: 11px; color: #8a6d1a; background: #faf3dd; border: 1px solid #ecdca8;
+                   border-radius: 5px; padding: 1px 7px; }
+    .l-pusto { color: var(--ink-soft); font-size: 14px; padding: 28px 0; text-align: center; }
+    .l-blad { color: #c0392b; font-size: 13px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div id="l-gate" class="login-view" hidden>
+    <div class="login-card">
+      <h1>Umowy</h1>
+      <p class="login-sub" id="l-gate-msg"></p>
+      <button type="button" id="l-gate-btn">Wróć do CRM</button>
+    </div>
+  </div>
+
+  <main id="l-app" class="l-wrap" hidden>
+    <div class="l-top">
+      <a class="l-back" href="index.html">← CRM</a>
+      <h1>Wystawione umowy</h1>
+    </div>
+    <p class="l-sub" id="l-sub"></p>
+
+    <input class="l-search" id="l-search" type="search" autocomplete="off" aria-label="Szukaj umowy" />
+
+    <div id="l-lista"></div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js?v=92"></script>
+  <script src="umowy.js?v=1"></script>
+</body>
+</html>

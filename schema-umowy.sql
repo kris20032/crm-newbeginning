@@ -149,3 +149,41 @@ end;
 $$;
 
 commit;
+
+-- ============================================================
+--  DOKŁADKA 29.07.2026 — podstrony, DOCX, wersje umów
+--  (wykonana w bazie jako migracja umowy_podstrony_docx_wersje)
+--  Addytywna: istniejące umowy dostają liczba_podstron = 4 i docx_path = NULL.
+--
+--  ↩️ JAK COFNĄĆ:
+--     alter table public.contracts drop column if exists liczba_podstron,
+--       drop column if exists docx_path, drop column if exists zastepuje_id;
+--     (oraz przywrócić starą politykę "umowy_plik_odczyt" — bez warunku docx_path)
+-- ============================================================
+alter table public.contracts
+  add column if not exists liczba_podstron int not null default 4,
+  add column if not exists docx_path text,
+  add column if not exists zastepuje_id bigint references public.contracts(id) on delete set null;
+
+do $$
+begin
+  alter table public.contracts
+    add constraint contracts_podstron_zakres check (liczba_podstron between 1 and 20);
+exception when duplicate_object then null;
+end;
+$$;
+
+create index if not exists idx_contracts_zastepuje on public.contracts(zastepuje_id);
+
+-- Dostęp do plików: wcześniej polityka przepuszczała WYŁĄCZNIE ścieżkę PDF-a,
+-- więc .docx byłby nie do pobrania mimo poprawnych uprawnień do umowy.
+drop policy if exists "umowy_plik_odczyt" on storage.objects;
+create policy "umowy_plik_odczyt" on storage.objects for select to authenticated
+  using (
+    bucket_id = 'umowy'
+    and exists (
+      select 1 from public.contracts u
+       where (u.pdf_path = storage.objects.name or u.docx_path = storage.objects.name)
+         and (select public.moj_klient(u.client_id))
+    )
+  );

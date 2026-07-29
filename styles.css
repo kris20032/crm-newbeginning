@@ -574,6 +574,9 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .umowa-bad  { font-size: 13px; color: #c0392b; padding: 7px 4px; cursor: help; }
 .umowa-sep  { color: var(--line-strong); }
 .umowa-new  { white-space: nowrap; text-decoration: none; }
+/* „docx" obok gotowej umowy — ten sam plik do edycji, więc celowo drobniejszy niż PDF */
+.umowa-docx { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+              color: var(--ink-soft); padding: 7px 5px; }
 
 
 .no-comments { color: var(--ink-soft); font-size: 13px; padding: 6px 0; }
