@@ -17,6 +17,7 @@
               border: 1px solid var(--line-strong); border-radius: 6px; white-space: nowrap; }
     .l-back:hover { background: #fff; }
     .l-sub { color: var(--ink-soft); font-size: 13px; margin-bottom: 18px; }
+    .l-lbl { display: block; font-size: 12px; color: var(--ink-soft); margin-bottom: 4px; }
     .l-search { width: 100%; max-width: 340px; font: inherit; font-size: 16px; padding: 8px 11px;
                 border: 1px solid var(--line-strong); border-radius: 7px; background: #fff; margin-bottom: 16px; }
     .l-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
@@ -55,13 +56,14 @@
     </div>
     <p class="l-sub" id="l-sub"></p>
 
-    <input class="l-search" id="l-search" type="search" autocomplete="off" aria-label="Szukaj umowy" />
+    <label class="l-lbl" for="l-search">Szukaj — firma, NIP albo kto wystawił</label>
+    <input class="l-search" id="l-search" type="search" autocomplete="off" />
 
     <div id="l-lista"></div>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js?v=92"></script>
-  <script src="umowy.js?v=1"></script>
+  <script src="umowy.js?v=2"></script>
 </body>
 </html>
