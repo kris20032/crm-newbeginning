@@ -558,6 +558,18 @@ textarea.notes:focus { outline: none; border-color: var(--accent); }
 .chip-demo { color: #8a5a00; background: #fbe7c9; padding: 1px 6px; border-radius: 10px; }
 .chip-demo-done { color: #2e6b3e; background: #d7eede; padding: 1px 6px; border-radius: 10px; }
 .chip-building { color: #1d5fb5; background: #d8e8fb; padding: 1px 6px; border-radius: 10px; font-weight: 600; }
+/* licznik otwarć dema: szary = ktoś zaglądał, pomarańczowy = klient sam rozniósł link */
+.chip-views { color: #5b6470; background: #eceef1; padding: 1px 6px; border-radius: 10px; font-variant-numeric: tabular-nums; }
+.chip-views-hot { color: #9a4a10; background: #fdead4; font-weight: 650; }
+
+/* wiersz „Otwarcia" w karcie klienta */
+.dv-cell { display: block; }
+.dv-stats { border-left: 3px solid var(--line-strong); padding: 2px 0 2px 9px; font-size: 13px; line-height: 1.5; }
+.dv-stats.dv-hot { border-left-color: #e08a3c; }
+.dv-line { color: var(--ink); }
+.dv-last { color: var(--ink-soft); font-size: 12px; margin-top: 1px; }
+.dv-tip { color: #9a4a10; font-size: 12.5px; margin-top: 3px; }
+.dv-none { color: var(--ink-soft); font-size: 12.5px; line-height: 1.45; }
 
 /* „Poproś o demo" / status demo — w jednej linii z polem „Demo (link)", dosunięte do prawej krawędzi */
 .maps-cell .demo-row { flex: 0 0 auto; margin-left: auto; display: inline-flex; align-items: center; }

@@ -77,6 +77,8 @@ const state = {
   perms: new Set(),         // klucze uprawnień mojej roli (dla admina nieistotne — can() zwraca zawsze true)
   rbacReady: false,         // czy backend RBAC (tabele roles/permissions/role_permissions) jest wdrożony
   rbacAt: 0,                // kiedy ostatnio odświeżono uprawnienia (throttle w refreshData)
+  demoStats: {},            // otwarcia dem per slug (z widoku demo_statystyki)
+  demoStatsAt: 0,           // kiedy ostatnio pobrane (odświeżamy co kilka minut, nie co refresh)
   roles: [],                // lista ról do selectów panelu admina
   teamRows: [],             // pełne wiersze team_members (panel admina)
   adminTab: "users",        // pod-zakładka panelu admina: "users" | "roles" | "oferta"
@@ -172,6 +174,17 @@ const api = {
     const { data, error } = await sb.from("clients").delete().not("deleted_at", "is", null).eq("id", id).select();
     if (error) throw error; holdRefresh();
     return !!(data && data.length);
+  },
+
+  // Otwarcia dem — z widoku demo_statystyki (liczy TYLKO ruch z Polski, bo surowe
+  // wejścia zawierają skanery i boty podglądu linku, które zawyżają licznik kilkukrotnie).
+  async getDemoStats() {
+    if (!LIVE) return {};
+    const { data, error } = await sb.from("demo_statystyki").select("*");
+    if (error) throw error;
+    const by = {};
+    (data || []).forEach((r) => { by[r.slug] = r; });
+    return by;
   },
 
   async getAllComments() {
@@ -449,6 +462,72 @@ function demoFieldHTML(c, editable) {
     <button type="button" class="maps-btn" id="demo-add" title="Wklej gotowy link do dema">link</button>
     <input data-key="demo_url" id="demo-input" class="demo-input" value="" placeholder="wklej link do dema" hidden />`;
 }
+/* ── Otwarcia dema ──────────────────────────────────────────────────────────
+   Handlowiec nie miał jak sprawdzić, czy klient w ogóle otworzył link — a to
+   najlepszy moment na telefon. Liczby biorą się z widoku `demo_statystyki`,
+   który liczy WYŁĄCZNIE wejścia z Polski: surowe dane zawierają zagraniczne
+   skanery i boty podglądu linku Facebooka, przez które demo potrafiło pokazać
+   98 otwarć, gdy realnie było ich 4. „Osoby" to różne adresy IP — przybliżenie,
+   nie licznik ludzi (komórka zmienia IP, a kilka osób może dzielić jedno). */
+function demoSlug(url) {
+  const czysty = String(url || "").trim().replace(/[?#].*$/, "").replace(/\/+$/, "");
+  if (!czysty) return "";
+  return czysty.replace(/\/[a-z0-9_-]+\.html$/i, "").split("/").pop().toLowerCase();
+}
+function demoStatsFor(c) {
+  const slug = demoSlug(c && c.demo_url);
+  if (!slug) return null;
+  const mapa = state.demoStats || {};
+  if (mapa[slug]) return mapa[slug];
+  // Link na karcie bywa skrócony względem adresu, pod którym demo faktycznie stoi
+  // (np. „szymanski-gaz-serwis" wobec „serwis-kotlow-gazowych-szymanski-gaz-serwis").
+  // Dopasowujemy więc po zawieraniu, ale TYLKO w tę stronę i tylko gdy pasuje
+  // dokładnie jeden adres — inaczej „mp-parkiet-v2" pokazałoby wyniki starej wersji.
+  if (slug.length <= 8) return null;
+  const pasujace = Object.keys(mapa).filter((k) => k.includes(slug));
+  return pasujace.length === 1 ? mapa[pasujace[0]] : null;
+}
+// „Gorące" = klient sam rozniósł link (Facebook) albo wraca wiele razy z wielu urządzeń
+function demoHot(s) { return !!s && (s.z_facebooka >= 5 || s.osoby >= 8); }
+function demoChip(c) {
+  const s = demoStatsFor(c);
+  if (!s || !s.otwarcia) return "";
+  const hot = demoHot(s);
+  const opis = [
+    `${s.otwarcia} otwarć z Polski`,
+    `${s.osoby} ${s.osoby === 1 ? "urządzenie" : "urządzeń"}`,
+    s.z_facebooka ? `${s.z_facebooka} z Facebooka` : null,
+    `ostatnie: ${fmtDateTime(s.ostatnie)}`,
+  ].filter(Boolean).join(" · ");
+  return `<span class="chip chip-views${hot ? " chip-views-hot" : ""}" title="${esc(opis)}">${hot ? "🔥" : "👁"} ${s.otwarcia}</span>`;
+}
+
+// Wiersz „Otwarcia” w karcie klienta — pokazuje się tylko wtedy, gdy demo ma link.
+// Zero otwarć to też informacja: znaczy „link nie dotarł", a nie „klient nie chce".
+function demoStatsRowHTML(c) {
+  if (!c.demo_url || !String(c.demo_url).trim()) return "";
+  const s = demoStatsFor(c);
+  if (!s || !s.otwarcia) {
+    return `<div class="dv-none">jeszcze nikt nie otworzył &mdash; przy telefonie załóż, że link nie dotarł (spam?)</div>`;
+  }
+  const czesci = [
+    `<strong>${s.otwarcia}</strong> ${s.otwarcia === 1 ? "otwarcie" : "otwarć"}`,
+    `${s.osoby} ${s.osoby === 1 ? "urządzenie" : "urządzeń"}`,
+    s.z_facebooka ? `<strong>${s.z_facebooka} z Facebooka</strong>` : null,
+    `${s.miasta} ${s.miasta === 1 ? "miasto" : "miast"}`,
+    `${s.dni} ${s.dni === 1 ? "dzień" : "dni"}`,
+  ].filter(Boolean).join(" · ");
+  const wniosek = s.z_facebooka >= 5
+    ? "Klient sam rozniósł link (Facebook) — najmocniejszy sygnał, dzwoń dziś."
+    : (s.osoby >= 8 ? "Ogląda wiele osób — temat żyje, warto domykać."
+      : (s.dni >= 5 ? "Wraca przez kilka dni — chce, ale coś go blokuje (cena? wspólnik?)." : ""));
+  return `<div class="dv-stats${demoHot(s) ? " dv-hot" : ""}">
+      <div class="dv-line">${czesci}</div>
+      <div class="dv-last">ostatnie otwarcie: ${esc(fmtDateTime(s.ostatnie))}</div>
+      ${wniosek ? `<div class="dv-tip">${esc(wniosek)}</div>` : ""}
+    </div>`;
+}
+
 /* Pole „Umowa” na karcie — dociągane po otwarciu modala (osobne zapytanie, żeby
    nie opóźniać pokazania karty). Gotowe umowy są linkami do PDF-a; link do
    prywatnego pliku wystawiamy DOPIERO na kliknięcie, bo ważny jest godzinę. */
@@ -797,9 +876,10 @@ function renderTable(board, list, opts = {}) {
     const fu = c.follow_up
       ? `<span class="tb-fu ${c.follow_up_done ? "fu-done" : (ds ? "fu-" + ds : "")}">${c.follow_up_done ? "✓ " : ""}${esc(fmtFollow(c.follow_up))}${ds === "overdue" ? " ⚠" : ""}</span>`
       : dash;
-    const demo = (c.demo_url && String(c.demo_url).trim()) ? `<span class="chip chip-demo-done" title="Demo gotowe">✅ demo</span>`
+    const demoStan = (c.demo_url && String(c.demo_url).trim()) ? `<span class="chip chip-demo-done" title="Demo gotowe">✅ demo</span>`
       : c.demo_building ? `<span class="chip chip-building" title="Demo w budowie">🔨 w budowie</span>`
-      : c.demo_requested ? `<span class="chip chip-demo" title="Poproszono o demo">📩 demo</span>` : dash;
+      : c.demo_requested ? `<span class="chip chip-demo" title="Poproszono o demo">📩 demo</span>` : "";
+    const demo = (demoStan + demoChip(c)) || dash;
     return `<tr class="tb-row" data-id="${esc(String(c.id))}">
         <td>${nameCell(c)}</td>
         <td>${c.phone ? esc(c.phone) : dash}</td>
@@ -835,6 +915,7 @@ function renderCardInner(c) {
         : (c.demo_building
           ? `<span class="chip chip-building" title="Demo w budowie — sesja właśnie je robi">🔨 w budowie</span>`
           : (c.demo_requested ? `<span class="chip chip-demo" title="Poproszono o demo">📩 demo</span>` : ""))}
+      ${demoChip(c)}
       <span class="card-owner">${c.opiekun ? `<span class="avatar avatar-sec" title="Opiekun: ${esc(c.opiekun)}" style="background:${ownerColor(c.opiekun)}">${initials(c.opiekun)}</span>` : ""}<span class="avatar" title="Handlowiec: ${esc(c.owner)}" style="background:${ownerColor(c.owner)}">${initials(c.owner)}</span></span>
     </div>`;
 }
@@ -1104,6 +1185,7 @@ const CARD_ICON = {
   followup:   `<svg ${CI_ATTRS}><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>`,
   demo:       `<svg ${CI_ATTRS}><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`,
   umowa:      `<svg ${CI_ATTRS}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h4"/></svg>`,
+  otwarcia:   `<svg ${CI_ATTRS}><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>`,
 };
 // odznaka z ptaszkiem — wiersz „Nadaj token" na karcie (admin, etap „Umowa wysłana")
 const BADGE_CHECK_ICON = `<svg ${CI_ATTRS}><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></svg>`;
@@ -1236,6 +1318,7 @@ async function openModal(id) {
             ${cmRow("handlowiec", "Handlowiec", ownerSelect)}
             ${cmRow("opiekun", "Opiekun", opiekunSelect)}
             ${cmRow("demo", "Demo", demoFieldHTML(c, editable), "demo-cell maps-cell", "demo-cell")}
+            ${demoStatsRowHTML(c) ? cmRow("otwarcia", "Otwarcia", demoStatsRowHTML(c), "dv-cell") : ""}
             ${cmRow("umowa", "Umowa", `<span class="readonly">…</span>`, "umowa-cell maps-cell", "umowa-cell")}
             ${(editable && isAdminUser() && stageIdx >= lockedIdx && stageIdx < SIGNED_IDX)
               ? `<div class="cm-row"><span class="k" title="Token partnera" aria-label="Token partnera">${BADGE_CHECK_ICON}</span><div class="v"><button type="button" class="ghost-btn grant-token" id="grant-token" title="Przenosi kartę na „Umowa podpisana" i nadaje token partnera (widzi tylko admin)">Nadaj token</button></div></div>`
@@ -1457,6 +1540,18 @@ const DEFAULT_CATALOG = [
 const sortCatalog = (rows) => [...rows].sort((a, b) => ((a.ord || 0) - (b.ord || 0)) || String(a.label || "").localeCompare(String(b.label || ""), "pl"));
 // Wczytaj katalog usług. ODPORNE na brak backendu (jak RBAC): błąd (brak tabeli) NIE wywala appki →
 // tryb zgodności = wbudowane strona+obsługa, a zakładka „Oferta" pokazuje baner-instrukcję.
+// Otwarcia dem. Zmieniają się wolno, więc odświeżamy co kilka minut, a nie przy
+// każdym odświeżeniu tablicy. Błąd (np. brak widoku w bazie) nie może wywrócić CRM —
+// wtedy po prostu nie ma liczników, reszta działa.
+async function loadDemoStats() {
+  state.demoStatsAt = Date.now();
+  try {
+    state.demoStats = await api.getDemoStats();
+  } catch (e) {
+    console.warn("Statystyki otwarć dem niedostępne", e);
+  }
+}
+
 async function loadCatalog() {
   state.catalogAt = Date.now();
   try {
@@ -2162,6 +2257,8 @@ async function refreshData() {
       } catch {}
       // katalog usług odświeżaj tym samym rytmem co RBAC (zmiany oferty nie muszą być realtime)
       if (Date.now() - (state.catalogAt || 0) > 60000) await loadCatalog();
+      // otwarcia dem — rzadziej, bo to statystyka, nie stan karty
+      if (Date.now() - (state.demoStatsAt || 0) > 300000) await loadDemoStats();
       // uprawnienia roli odświeżaj rzadko (tabele RBAC nie mają realtime; backstop refreshData co 60 s wystarcza)
       if (Date.now() - (state.rbacAt || 0) > 60000) {
         state.rbacAt = Date.now();
