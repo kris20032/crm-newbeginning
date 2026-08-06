@@ -176,8 +176,9 @@ const api = {
     return !!(data && data.length);
   },
 
-  // Otwarcia dem — z widoku demo_statystyki (liczy TYLKO ruch z Polski, bo surowe
-  // wejścia zawierają skanery i boty podglądu linku, które zawyżają licznik kilkukrotnie).
+  // Otwarcia dem — z widoku demo_statystyki. Widok liczy TYLKO otwarcia KLIENTÓW:
+  // odsiewa zagranicę, skanery (po user_agent i po tym, że jedno IP zagląda tego samego
+  // dnia do kilku różnych dem), nasze podglądy oraz wejścia z listy dem na github.io.
   async getDemoStats() {
     if (!LIVE) return {};
     const { data, error } = await sb.from("demo_statystyki").select("*");
@@ -465,10 +466,15 @@ function demoFieldHTML(c, editable) {
 /* ── Otwarcia dema ──────────────────────────────────────────────────────────
    Handlowiec nie miał jak sprawdzić, czy klient w ogóle otworzył link — a to
    najlepszy moment na telefon. Liczby biorą się z widoku `demo_statystyki`,
-   który liczy WYŁĄCZNIE wejścia z Polski: surowe dane zawierają zagraniczne
-   skanery i boty podglądu linku Facebooka, przez które demo potrafiło pokazać
-   98 otwarć, gdy realnie było ich 4. „Osoby" to różne adresy IP — przybliżenie,
-   nie licznik ludzi (komórka zmienia IP, a kilka osób może dzielić jedno). */
+   który ma pokazywać WYŁĄCZNIE otwarcia klientów. Odsiewa (stan 06.08.2026):
+   zagranicę, boty podglądu linku Facebooka, skanery (rozpoznane po user_agencie
+   — np. „X11; Linux" z datacenter — oraz po tym, że jedno IP zagląda tego samego
+   dnia do ≥3 różnych dem), nasze podglądy i urządzenia zespołu (IP, które w całej
+   historii otworzyło ≥8 różnych dem) oraz wejścia z listy dem na github.io.
+   Bez tego demo potrafiło pokazać 98 otwarć przy realnych 4, a świeżo wysłane
+   demo miało „1 otwarcie” z dnia POPRZEDZAJĄCEGO wysyłkę linku.
+   „Osoby" to różne adresy IP — przybliżenie, nie licznik ludzi (komórka zmienia
+   IP, a kilka osób może dzielić jedno). */
 function demoSlug(url) {
   const czysty = String(url || "").trim().replace(/[?#].*$/, "").replace(/\/+$/, "");
   if (!czysty) return "";
