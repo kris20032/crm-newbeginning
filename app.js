@@ -144,10 +144,27 @@ const api = {
   async resetPassword(email) { if (!LIVE) return; const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }); if (error) throw error; },
   async updatePassword(pw) { const { error } = await sb.auth.updateUser({ password: pw }); if (error) throw error; },
 
+  // ⚠️ Supabase oddaje MAX 1000 wierszy na zapytanie i NIE sygnalizuje, że uciął — dostajesz komplet
+  // wyglądający na kompletny. Ten sam limit zabrał już najnowsze komentarze (patrz getAllComments)
+  // i na miesiąc uciszył alerty „klient otworzył demo" w follow_up_alert.py. Dlatego wszystko, co
+  // rośnie w czasie, pobieramy stronami — ZANIM przekroczy tysiąc, nie po awarii.
+  async pageAll(build, PAGE = 1000, maxPages = 40) {
+    const all = [];
+    for (let i = 0; i < maxPages; i++) {
+      const { data, error } = await build().range(i * PAGE, i * PAGE + PAGE - 1);
+      if (error) throw error;
+      all.push(...(data || []));
+      if (!data || data.length < PAGE) return all;
+    }
+    console.warn("pageAll: przerwane po", maxPages, "stronach —", all.length, "wierszy");
+    return all;
+  },
+
   async getClients() {
     if (!LIVE) return structuredClone(DEMO_CLIENTS);
-    const { data, error } = await sb.from("clients").select("*").order("created_at", { ascending: true });
-    if (error) throw error; return data;
+    // 520 kart przy limicie 1000 = jesteśmy na półmetku; bez stronicowania karty zaczęłyby
+    // po cichu znikać z tablicy, a nikt by nie wiedział dlaczego.
+    return api.pageAll(() => sb.from("clients").select("*").order("created_at", { ascending: true }));
   },
   async updateClient(id, patch) {
     if (!LIVE) return;
@@ -181,8 +198,8 @@ const api = {
   // dnia do kilku różnych dem), nasze podglądy oraz wejścia z listy dem na github.io.
   async getDemoStats() {
     if (!LIVE) return {};
-    const { data, error } = await sb.from("demo_statystyki").select("*");
-    if (error) throw error;
+    // Jeden wiersz na demo (239 i rośnie z każdym nowym demem) — też stronicujemy, patrz pageAll.
+    const data = await api.pageAll(() => sb.from("demo_statystyki").select("*"));
     const by = {};
     (data || []).forEach((r) => { by[r.slug] = r; });
     return by;
