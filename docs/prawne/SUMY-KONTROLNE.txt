@@ -1,11 +1,11 @@
 Sumy kontrolne dokumentów prawnych Impulseo sp. z o.o.
-Wygenerowano: 2026-07-26
+Wygenerowano: 2026-08-07
 Do wpisania w log akceptacji zamówienia (nazwa pliku + SHA-256).
 
-regulamin-2026-07-26.pdf
-  SHA-256: c4f47d447cfcaca2b15069378c779b015debb198a8554d54e65a96cac16b4cb7
-  rozmiar: 192448 B
+regulamin-2026-08-07.pdf
+  SHA-256: b057257a23c831ee236f24aafcf5478bb7efa0cbc9f042e543debc3dba6fbf80
+  rozmiar: 225675 B
 
-polityka-prywatnosci-2026-07-26.pdf
-  SHA-256: f71307d2a5b006ad6789d147df8ccc8d9b73f31857a19dcd2681c82bf41a0352
+polityka-prywatnosci-2026-08-07.pdf
+  SHA-256: 2bcac94183816200c8042f8bb6d05492d3cf1b04c5f3e97e0d207eb1b1d6f933
   rozmiar: 229120 B

@@ -2,7 +2,7 @@
 
 ## Wykonanie i utrzymanie stron internetowych
 
-Obowiązuje od dnia …………………………… 2026 r.
+Obowiązuje od dnia 7 sierpnia 2026 r. · wersja 2026-08-07
 
 **§1. Postanowienia ogólne**
 
@@ -16,7 +16,7 @@ Obowiązuje od dnia …………………………… 2026 r.
 
 a) **Zamawiający** – przedsiębiorca składający Zamówienie;
 
-b) **Zamówienie** – oświadczenie Zamawiającego złożone przez formularz w Serwisie, stanowiące ofertę zawarcia Umowy;
+b) **Zamówienie** – oświadczenie Zamawiającego złożone przez formularz w Serwisie albo na Stronie Zamówienia, stanowiące ofertę zawarcia Umowy;
 
 c) **Umowa** – umowa o wykonanie i utrzymanie strony internetowej zawierana na warunkach Regulaminu;
 
@@ -24,7 +24,11 @@ d) **Pakiet** – wariant usługi o zakresie i cenie określonych w Cenniku;
 
 e) **Cennik** – zestawienie Pakietów i cen dostępne w Serwisie, stanowiące część Regulaminu;
 
-f) **Materiały** – treści, zdjęcia, logo i dane kontaktowe dostarczane przez Zamawiającego.
+f) **Materiały** – treści, zdjęcia, logo i dane kontaktowe dostarczane przez Zamawiającego;
+
+g) **Oferta** – indywidualne ustalenie zakresu usługi, wynagrodzenia oraz okresu obsługi technicznej, przedstawione Zamawiającemu przez Wykonawcę i utrwalone na Stronie Zamówienia;
+
+h) **Strona Zamówienia** – strona pod indywidualnym adresem w domenie platnosc.impulseo.pl, na której Zamawiający zapoznaje się z Ofertą i dokumentami oraz składa Zamówienie.
 
 5\. Regulamin skierowany jest do przedsiębiorców. Składając Zamówienie, Zamawiający oświadcza, czy Umowa ma dla niego charakter zawodowy w rozumieniu art. 385(5) Kodeksu cywilnego. Jeżeli Zamawiającym jest osoba fizyczna zawierająca Umowę bezpośrednio związaną z jej działalnością gospodarczą, a Umowa nie ma dla niej charakteru zawodowego, stosuje się do niej przepisy dotyczące konsumenta w zakresie wskazanym w art. 7aa oraz art. 38a ustawy o prawach konsumenta, w tym prawo odstąpienia opisane w §13.
 
@@ -38,7 +42,7 @@ a) zaprojektowania, wykonania i wdrożenia strony internetowej;
 
 b) obsługi technicznej oraz bieżącego utrzymania strony na serwerze Wykonawcy.
 
-2\. Szczegółowy zakres każdej z usług, liczbę podstron oraz elementy wchodzące w skład każdego wariantu określa **Cennik dostępny w Serwisie**, wraz z cenami. Cennik stanowi część Regulaminu, a jego treść jest prezentowana Zamawiającemu przed złożeniem Zamówienia.
+2\. Szczegółowy zakres każdej z usług, liczbę podstron oraz elementy wchodzące w skład każdego wariantu określa **Cennik dostępny w Serwisie**, wraz z cenami. Cennik stanowi część Regulaminu, a jego treść jest prezentowana Zamawiającemu przed złożeniem Zamówienia. Jeżeli zakres usługi i wynagrodzenie zostały ustalone indywidualnie w Ofercie, postanowienia Oferty mają pierwszeństwo przed Cennikiem.
 
 3\. Usługi świadczone są **na terytorium Rzeczypospolitej Polskiej, w języku polskim**. Wykonawca nie świadczy usług objętych ograniczeniami eksportowymi ani wymagających koncesji lub zezwoleń. Strony internetowe wykonywane są dla działalności zgodnej z prawem polskim; Wykonawca może odmówić przyjęcia Zamówienia zgodnie z §4 ust. 3.
 
@@ -56,6 +60,8 @@ b) obsługi technicznej oraz bieżącego utrzymania strony na serwerze Wykonawcy
 
 1\. Zamawiający składa Zamówienie, wybierając Pakiet, podając dane firmy (nazwa, adres, NIP, adres e-mail, dane osoby kontaktowej), składając oświadczenie z §1 ust. 5, akceptując Regulamin i Politykę prywatności oraz dokonując płatności. Przed złożeniem Zamówienia Zamawiający otrzymuje podsumowanie zawierające zakres wybranego Pakietu, cenę netto, kwotę podatku i cenę brutto, termin wykonania oraz zasady rozpoczęcia świadczenia usług.
 
+1a\. Zamówienie na podstawie Oferty Zamawiający składa na Stronie Zamówienia, potwierdzając dane firmy, składając oświadczenie z §1 ust. 5, akceptując Regulamin i Politykę prywatności oraz dokonując płatności. Strona Zamówienia zawiera podsumowanie obejmujące zakres usługi, cenę netto, kwotę podatku, cenę brutto, termin wykonania oraz zasady rozpoczęcia świadczenia usług.
+
 2\. Zamówienie stanowi ofertę zawarcia Umowy. **Umowa zostaje zawarta z chwilą potwierdzenia przyjęcia Zamówienia przez Wykonawcę**, przesłanego na adres e-mail Zamawiającego.
 
 3\. Wykonawca może odmówić przyjęcia Zamówienia, w szczególności gdy dotyczy ono działalności sprzecznej z prawem lub dobrymi obyczajami, gdy dane Zamawiającego są nieprawdziwe albo gdy realizacja Zamówienia jest niemożliwa z przyczyn technicznych. **W takim wypadku Wykonawca zwraca otrzymaną płatność w całości, nie później niż w terminie 7 dni roboczych od dnia odmowy, na zasadach określonych w §13 ust. 4.**
@@ -66,11 +72,11 @@ b) obsługi technicznej oraz bieżącego utrzymania strony na serwerze Wykonawcy
 
 **§5. Wynagrodzenie i płatność**
 
-1\. Wynagrodzenie za wykonanie strony oraz opłata za obsługę techniczną określone są w Cenniku. **Wszystkie ceny podawane są w złotych polskich (PLN)**, w kwotach netto, i powiększane o podatek od towarów i usług według stawki 23%. Cena brutto prezentowana jest w podsumowaniu Zamówienia przed płatnością.
+1\. Wynagrodzenie za wykonanie strony oraz opłata za obsługę techniczną określone są w Cenniku albo w Ofercie. **Wszystkie ceny podawane są w złotych polskich (PLN)**, w kwotach netto, i powiększane o podatek od towarów i usług według stawki 23%. Cena brutto prezentowana jest w podsumowaniu Zamówienia przed płatnością.
 
 2\. Wynagrodzenie za wykonanie strony płatne jest w całości z góry, przy składaniu Zamówienia.
 
-3\. Płatność następuje za pośrednictwem operatora płatności elektronicznych udostępnionego w Serwisie, którym jest **mElements S.A. (serwis Paynow)**, albo przelewem na rachunek bankowy Wykonawcy wskazany w potwierdzeniu Zamówienia. Dostępne metody płatności prezentowane są przed jej dokonaniem. Opłaty i prowizje operatora płatności ponosi Wykonawca.
+3\. Płatność następuje za pośrednictwem operatora płatności elektronicznych udostępnionego w Serwisie lub na Stronie Zamówienia, którym jest **mElements S.A. (serwis Paynow)**, albo przelewem na rachunek bankowy Wykonawcy wskazany w potwierdzeniu Zamówienia. Dostępne metody płatności prezentowane są przed jej dokonaniem. Opłaty i prowizje operatora płatności ponosi Wykonawca.
 
 4\. Zamawiający wyraża zgodę na wystawianie i przesyłanie faktur w postaci elektronicznej na wskazany przez siebie adres e-mail.
 
@@ -90,7 +96,7 @@ b) obsługi technicznej oraz bieżącego utrzymania strony na serwerze Wykonawcy
 
 2\. Zamawiający w terminie 7 dni zgłasza ewentualne uwagi. Brak uwag w tym terminie oznacza odbiór bez zastrzeżeń.
 
-3\. Umowa obejmuje jedną rundę poprawek w ramach zakresu wybranego Pakietu. Zmiany wykraczające poza ten zakres wymagają odrębnego ustalenia i wynagrodzenia.
+3\. Umowa obejmuje jedną rundę poprawek w ramach zakresu wybranego Pakietu albo zakresu określonego w Ofercie. Zmiany wykraczające poza ten zakres wymagają odrębnego ustalenia i wynagrodzenia.
 
 **§8. Prawa autorskie i licencja**
 
@@ -128,9 +134,9 @@ d) certyfikat SSL zapewniający szyfrowaną transmisję danych (protokół HTTPS
 
 3\. Domenę internetową rejestruje Wykonawca na rzecz i na dane Zamawiającego, a koszt jej rejestracji i przedłużenia, według ceny rejestratora, ponosi Zamawiający. Zamawiający może również zapewnić własną domenę.
 
-4\. Opłata za obsługę techniczną płatna jest z góry za okres wskazany w Cenniku. Zamawiający wyraża zgodę na cykliczne obciążanie wskazanego instrumentu płatniczego kwotą opłaty, o ile wybrał taką formę płatności; **zgodę można wycofać w każdym czasie, wysyłając wiadomość na adres wskazany w §1 ust. 3, ze skutkiem na koniec opłaconego okresu rozliczeniowego.**
+4\. Opłata za obsługę techniczną płatna jest z góry za okres wskazany w Cenniku albo w Ofercie. Zamawiający wyraża zgodę na cykliczne obciążanie wskazanego instrumentu płatniczego kwotą opłaty, o ile wybrał taką formę płatności; **zgodę można wycofać w każdym czasie, wysyłając wiadomość na adres wskazany w §1 ust. 3, ze skutkiem na koniec opłaconego okresu rozliczeniowego.**
 
-5\. Świadczenie obsługi technicznej rozpoczyna się z dniem odbioru strony zgodnie z §7; od tego dnia liczony jest również pierwszy okres rozliczeniowy. Umowa w zakresie obsługi technicznej zawarta jest na okres wskazany w Cenniku. Po upływie tego okresu przechodzi w czas nieokreślony, a każda ze Stron może ją wówczas wypowiedzieć z zachowaniem jednomiesięcznego okresu wypowiedzenia. Niezależnie od powyższego każda ze Stron może wypowiedzieć Umowę w zakresie obsługi technicznej z ważnych powodów ze skutkiem natychmiastowym.
+5\. Świadczenie obsługi technicznej rozpoczyna się z dniem odbioru strony zgodnie z §7; od tego dnia liczony jest również pierwszy okres rozliczeniowy. Umowa w zakresie obsługi technicznej zawarta jest na okres wskazany w Cenniku albo w Ofercie. Po upływie tego okresu przechodzi w czas nieokreślony, a każda ze Stron może ją wówczas wypowiedzieć z zachowaniem jednomiesięcznego okresu wypowiedzenia. Niezależnie od powyższego każda ze Stron może wypowiedzieć Umowę w zakresie obsługi technicznej z ważnych powodów ze skutkiem natychmiastowym.
 
 6\. W razie opóźnienia w zapłacie opłaty za obsługę techniczną Wykonawca może, po uprzednim wezwaniu Zamawiającego do zapłaty i wyznaczeniu dodatkowego terminu nie krótszego niż 7 dni, zawiesić działanie strony do czasu uregulowania należności.
 
@@ -166,7 +172,7 @@ d) certyfikat SSL zapewniający szyfrowaną transmisję danych (protokół HTTPS
 
 **§13. Rezygnacja, odstąpienie i zwrot płatności**
 
-1\. Zamawiającemu, o którym mowa w §1 ust. 5 (osoba fizyczna zawierająca Umowę bez charakteru zawodowego), przysługuje prawo odstąpienia od Umowy w terminie **14 dni** od dnia jej zawarcia, bez podania przyczyny. Oświadczenie o odstąpieniu wystarczy wysłać na adres e-mail wskazany w §1 ust. 3 przed upływem terminu.
+1\. Zamawiającemu, o którym mowa w §1 ust. 5 (osoba fizyczna zawierająca Umowę bez charakteru zawodowego), przysługuje prawo odstąpienia od Umowy w terminie **14 dni** od dnia jej zawarcia, bez podania przyczyny. Oświadczenie o odstąpieniu wystarczy wysłać na adres e-mail wskazany w §1 ust. 3 przed upływem terminu. Można w tym celu skorzystać z wzoru formularza stanowiącego **Załącznik nr 2** do Regulaminu, który Wykonawca doręcza również wraz z potwierdzeniem przyjęcia Zamówienia; skorzystanie z wzoru nie jest obowiązkowe.
 
 2\. Jeżeli Zamawiający żąda rozpoczęcia prac przed upływem terminu do odstąpienia, składa wyraźne żądanie przy Zamówieniu. W takim wypadku:
 
@@ -231,3 +237,31 @@ b) **prawo odstąpienia wygasa z chwilą pełnego wykonania usługi**, jeżeli W
 6\. Po zakończeniu świadczenia obsługi technicznej Wykonawca, zależnie od decyzji Zamawiającego, usuwa lub zwraca powierzone dane osobowe oraz usuwa ich istniejące kopie, chyba że obowiązek dalszego przechowywania danych wynika z przepisów prawa.
 
 7\. Zamawiający oświadcza, że dysponuje ważną podstawą prawną przetwarzania i powierzenia danych oraz że spełnił wobec osób, których dane dotyczą, obowiązek informacyjny, w tym co do przekazania danych dalszym podmiotom przetwarzającym oraz poza Europejski Obszar Gospodarczy. Zamawiający ponosi wyłączną odpowiedzialność za zgodność z prawem powierzonych danych i pokrywa uzasadnione roszczenia osób trzecich wynikłe z nieprawdziwości tego oświadczenia, z wyłączeniem przypadków leżących po stronie Wykonawcy oraz kar nakładanych bezpośrednio na Wykonawcę za jego własne uchybienia.
+
+---
+
+# ZAŁĄCZNIK NR 2 DO REGULAMINU
+
+## WZÓR FORMULARZA ODSTĄPIENIA OD UMOWY
+
+*(formularz ten należy wypełnić i odesłać tylko w przypadku chęci odstąpienia od umowy; skorzystanie z niego nie jest obowiązkowe)*
+
+Adresat: **Impulseo sp. z o.o.**, ul. Szafarnia 11 lok. F8, 80-755 Gdańsk, e-mail: biuro@impulseo.pl
+
+Ja/My (\*) niniejszym informuję/informujemy (\*) o moim/naszym (\*) odstąpieniu od umowy o świadczenie następującej usługi (\*):
+
+……………………………………………………………………………………………………………
+
+Numer zamówienia: ……………………………………
+
+Data zawarcia umowy: ……………………………………
+
+Imię i nazwisko / nazwa Zamawiającego: ……………………………………………………
+
+Adres Zamawiającego: ……………………………………………………………………………
+
+Podpis Zamawiającego *(tylko jeżeli formularz jest przesyłany w wersji papierowej)*: ……………………………
+
+Data: ……………………………
+
+*(\*) Niepotrzebne skreślić.*
