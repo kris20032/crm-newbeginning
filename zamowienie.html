@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <title>Zamówienie — CRM Impulseo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=104" />
+  <style>
+    /* Ten sam zestaw klas co formularz umowy (umowa.html) — nie wymyślamy
+       drugiego wyglądu dla tej samej czynności. */
+    .u-wrap { max-width: 720px; margin: 0 auto; padding: 24px 18px 64px; }
+    .u-top { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+    .u-top h1 { font-size: 20px; font-weight: 700; }
+    .u-back { color: var(--ink-soft); text-decoration: none; font-size: 13px; padding: 4px 8px;
+              border: 1px solid var(--line-strong); border-radius: 6px; white-space: nowrap; }
+    .u-back:hover { background: #fff; }
+    .u-sub { color: var(--ink-soft); font-size: 13px; margin-bottom: 20px; }
+    .u-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+              box-shadow: var(--shadow); padding: 20px; margin-bottom: 16px; }
+    .u-card h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+                 color: var(--ink-soft); margin-bottom: 14px; }
+    .u-field { margin-bottom: 14px; }
+    .u-field:last-child { margin-bottom: 0; }
+    .u-field label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 5px; }
+    .u-field .opt { color: var(--ink-soft); font-weight: 400; }
+    .u-field input, .u-field select, .u-field textarea {
+      width: 100%; font: inherit; font-size: 16px; padding: 9px 11px;
+      border: 1px solid var(--line-strong); border-radius: 7px; background: #fff; color: var(--ink);
+    }
+    .u-field textarea { min-height: 62px; resize: vertical; line-height: 1.5; }
+    .u-field input:focus, .u-field select:focus, .u-field textarea:focus {
+      outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+    .u-field input.bad { border-color: #d64545; background: #fff7f7; }
+    .u-hint { font-size: 12px; color: var(--ink-soft); margin-top: 5px; }
+    .u-err  { font-size: 12px; color: #c0392b; margin-top: 5px; }
+    .u-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 560px) { .u-two { grid-template-columns: 1fr; } }
+    .u-money-in { position: relative; }
+    .u-money-in input { padding-right: 58px; text-align: right; font-variant-numeric: tabular-nums; }
+    .u-money-in .suf { position: absolute; right: 11px; top: 50%; transform: translateY(-50%);
+                       font-size: 12px; color: var(--ink-soft); pointer-events: none; }
+    .u-sum { background: #f4f8fd; border: 1px solid #d6e6f8; border-radius: 8px; padding: 11px 13px;
+             font-size: 13px; line-height: 1.6; }
+    .u-sum b { font-variant-numeric: tabular-nums; }
+    .u-sum.bad { background: #fff7f7; border-color: #f0c9c9; color: #c0392b; }
+    .u-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .u-msg { font-size: 13px; }
+    .u-msg.ok  { color: #2b6b2e; }
+    .u-msg.bad { color: #c0392b; }
+
+    /* Pozycje zamówienia — to one zastępują §1 umowy, więc opis jest polem
+       pierwszej klasy, a nie dopiskiem. */
+    .z-poz { border: 1px solid var(--line); border-radius: 8px; padding: 13px; margin-bottom: 10px; background: #fff; }
+    .z-poz-top { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+    .z-poz-top select { width: auto; flex: none; font-size: 13px; padding: 5px 8px; }
+    .z-poz-usun { margin-left: auto; background: none; border: 0; color: var(--ink-soft);
+                  font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 6px; }
+    .z-poz-usun:hover { color: #c0392b; }
+    .z-dodaj { font-size: 13px; background: none; border: 1px dashed var(--line-strong);
+               border-radius: 7px; padding: 8px 12px; cursor: pointer; color: var(--ink-soft); width: 100%; }
+    .z-dodaj:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* Ochrona konsumencka: wynik oceny, nie ozdobnik — od niej zależy, czy
+       klient zobaczy drugi checkbox i pouczenie o odstąpieniu. */
+    .z-ochrona { border-radius: 8px; padding: 11px 13px; font-size: 13px; line-height: 1.55; }
+    .z-ochrona.tak { background: #fff8e6; border: 1px solid #ecdca8; color: #7a5d10; }
+    .z-ochrona.nie { background: #eef6ee; border: 1px solid #cfe4cf; color: #2b6b2e; }
+
+    .z-gotowe { background: #eef6ee; border: 1px solid #cfe4cf; border-radius: 8px; padding: 14px; }
+    .z-gotowe a { color: var(--accent); word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div class="u-wrap">
+    <div class="u-top">
+      <h1>Nowe zamówienie</h1>
+      <a class="u-back" id="wroc" href="index.html">← Wróć</a>
+    </div>
+    <p class="u-sub" id="podtytul">Klient dostanie link na platnosc.impulseo.pl — zaakceptuje regulamin i zapłaci.</p>
+
+    <form id="form">
+      <div class="u-card">
+        <h2>Nabywca</h2>
+        <div class="u-field">
+          <label for="f-nazwa">Pełna nazwa firmy</label>
+          <input id="f-nazwa" required autocomplete="off" />
+        </div>
+        <div class="u-two">
+          <div class="u-field">
+            <label for="f-nip">NIP</label>
+            <input id="f-nip" required inputmode="numeric" autocomplete="off" />
+          </div>
+          <div class="u-field">
+            <label for="f-krs">KRS <span class="opt">— puste, jeśli JDG</span></label>
+            <input id="f-krs" inputmode="numeric" autocomplete="off" />
+          </div>
+        </div>
+        <div class="u-field">
+          <label for="f-adres">Adres</label>
+          <input id="f-adres" required autocomplete="off" />
+        </div>
+        <div class="u-field">
+          <label for="f-email">E-mail — tam idzie link i potwierdzenie</label>
+          <input id="f-email" type="email" required autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="u-card">
+        <h2>Status konsumencki</h2>
+        <div class="u-two">
+          <div class="u-field">
+            <label for="f-forma">Forma prawna</label>
+            <select id="f-forma">
+              <option value="jdg">Jednoosobowa działalność</option>
+              <option value="spolka">Spółka (KRS)</option>
+              <option value="inne">Inne</option>
+            </select>
+          </div>
+          <div class="u-field">
+            <label for="f-pkd">Główne PKD <span class="opt">— przy JDG</span></label>
+            <input id="f-pkd" placeholder="np. 43.22.Z" autocomplete="off" />
+          </div>
+        </div>
+        <div class="u-field">
+          <label for="f-uzasadnienie">Uzasadnienie oceny <span class="opt">— zostaje w dowodzie</span></label>
+          <textarea id="f-uzasadnienie"></textarea>
+        </div>
+        <div class="z-ochrona" id="ochrona-info"></div>
+      </div>
+
+      <div class="u-card">
+        <h2>Co zamawia</h2>
+        <div id="pozycje"></div>
+        <button type="button" class="z-dodaj" id="dodaj-pozycje">+ dodaj pozycję</button>
+        <div class="u-sum" id="suma" style="margin-top:14px"></div>
+      </div>
+
+      <div class="u-card">
+        <h2>Termin</h2>
+        <div class="u-two">
+          <div class="u-field">
+            <label for="f-waznosc">Link ważny do</label>
+            <input id="f-waznosc" type="date" required />
+          </div>
+          <div class="u-field">
+            <label for="f-wykonanie">Termin wykonania</label>
+            <input id="f-wykonanie" value="14 dni roboczych" />
+          </div>
+        </div>
+      </div>
+
+      <div class="u-actions">
+        <button class="btn btn-primary" id="wyslij" type="submit">Wystaw i wyślij klientowi</button>
+        <span class="u-msg" id="msg"></span>
+      </div>
+    </form>
+
+    <div class="u-card z-gotowe" id="gotowe" hidden></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="zamowienie.js?v=1"></script>
+</body>
+</html>
