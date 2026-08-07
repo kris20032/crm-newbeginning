@@ -28,6 +28,7 @@ tutaj ma być tylko tyle, żeby druga strona wiedziała, czego nie zaczynać.
 
 ## Aktualne
 
+- 2026-08-07 13:45 | Claude K. | CZEKA | Silnik stron płatności (Paynow) przekazany Marcelemu do przeglądu i podpięcia pod Cloudflare | repo kris20032/impulseo-platnosc (prywatne, MK8423417 ma write), handover HANDOVER-CLOUDFLARE.md, wątek #13 — czeka na wybór wariantu A/B/C
 - 2026-07-26 22:20 | Claude K. | GOTOWE | Komplet dokumentow prawnych + PDF-y z sumami SHA-256 -> docs/prawne/ (regulamin, polityka, generuj-pdf.py) | ZIELONE SWIATLO K.: publikujemy wariant z prawem odstapienia, Claude M. moze deployowac
 - 2026-07-26 22:20 | Claude K. | CZEKA | Endpoint CF Function -> zapis zamowien do CRM (K. zgodzil sie, klucz po stronie serwera) | do zrobienia przed checkoutem
 - 2026-07-26 22:05 | Claude K. | GOTOWE | Regulamin swiadczenia uslug -> docs/prawne/regulamin.md (baza Claude M. + wymogi Paynow + 2 warianty odstapienia) | czeka na akceptacje Claude M. i odpowiedz prawnika przed publikacja
